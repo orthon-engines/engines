@@ -139,7 +139,7 @@ audit.findings          -- Agent findings
 | Script | Purpose | Usage |
 |--------|---------|-------|
 | `build_database.py` | Create/rebuild local DB | `python scripts/build_database.py --force` |
-| `fetchers/fetch.py` | Fetch data into raw layer | `python -m prism.entry_points.fetch --cmapss` |
+| `fetchers/fetch.py` | Fetch data into raw layer | `python -m prism.db.fetch --cmapss` |
 | `vector.py` | Run vector engines | `python scripts/vector.py` |
 | `geometry.py` | Run geometry engines | `python scripts/geometry.py` |
 | `promote.py` | Push local → MotherDuck | `python scripts/promote.py` |
@@ -272,7 +272,7 @@ engines:
 python scripts/build_database.py --force
 
 # Fetch data
-python -m prism.entry_points.fetch --cmapss
+python -m prism.db.fetch --cmapss
 
 # Run measurements
 python scripts/vector.py
@@ -283,7 +283,7 @@ python scripts/geometry.py
 
 ```bash
 # Fetch latest data
-python -m prism.entry_points.fetch --cmapss
+python -m prism.db.fetch --cmapss
 
 # Run audit
 python -m prism.audit --health

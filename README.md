@@ -686,7 +686,7 @@ pip install -e ".[all]"
 ### C-MAPSS Turbofan Engines
 
 ```bash
-python -m prism.entry_points.fetch --cmapss          # Fetch NASA turbofan data
+python -m prism.db.fetch --cmapss          # Fetch NASA turbofan data
 python -m prism.entry_points.signal_vector        # Compute metrics
 python -m prism.entry_points.laplace --domain cmapss       # Laplace field
 python -m prism.entry_points.laplace_pairwise --domain cmapss  # Pairwise
@@ -704,7 +704,7 @@ python -m prism.entry_points.laplace --domain cheme
 ### Optional Layers
 
 ```bash
-python -m prism.entry_points.characterize            # 6-axis classification
+python -m prism.modules.characterize            # 6-axis classification
 python -m prism.entry_points.state                   # Hierarchical position
 python -m prism.entry_points.physics                 # Conservation laws (experimental)
 ```

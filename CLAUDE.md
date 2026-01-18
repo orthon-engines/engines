@@ -86,13 +86,13 @@ prism-engines/diagnostics/
 ### Data Fetching
 ```bash
 # Fetch C-MAPSS turbofan data
-python -m prism.entry_points.fetch --cmapss
+python -m prism.db.fetch --cmapss
 
 # Fetch FEMTO bearing data
-python -m prism.entry_points.fetch --femto
+python -m prism.db.fetch --femto
 
 # Fetch hydraulic system data
-python -m prism.entry_points.fetch --hydraulic
+python -m prism.db.fetch --hydraulic
 ```
 
 ### Vector Computation

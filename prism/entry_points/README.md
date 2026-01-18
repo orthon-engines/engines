@@ -44,9 +44,9 @@ prism/modules/               # Reusable computation (NOT entry points)
 
 ```bash
 # Layer 0: Data Ingestion
-python -m prism.entry_points.fetch --cmapss
-python -m prism.entry_points.fetch --femto
-python -m prism.entry_points.fetch --hydraulic
+python -m prism.db.fetch --cmapss
+python -m prism.db.fetch --femto
+python -m prism.db.fetch --hydraulic
 
 # Layer 1: Vector Computation
 python -m prism.entry_points.signal_vector --domain cmapss

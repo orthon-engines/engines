@@ -19,7 +19,7 @@ Pipeline Architecture:
 
 Usage:
     # Core pipeline
-    python -m prism.entry_points.fetch --cmapss
+    python -m prism.db.fetch --cmapss
     python -m prism.entry_points.signal_vector --signal --domain cmapss
     python -m prism.entry_points.geometry --signal --domain cmapss
     python -m prism.entry_points.state
@@ -47,17 +47,18 @@ ENTRY_POINT_REGISTRY: Dict[str, Dict[str, Any]] = {
     # CORE PIPELINE (6 entry points)
     # ==========================================================================
     'fetch': {
-        'module': 'prism.entry_points.fetch',
+        'module': 'prism.db.fetch',
         'goal': 'Fetch data from external sources (USGS, climate, C-MAPSS, etc.)',
         'inputs': ['APIs', 'fetchers/yaml/*.yaml'],
         'outputs': ['raw/observations.parquet'],
     },
 
     'characterize': {
-        'module': 'prism.entry_points.characterize',
-        'goal': 'Characterize each signal (6 axes, valid engines, return method)',
-        'inputs': ['raw/observations.parquet'],
-        'outputs': ['raw/characterization.parquet'],
+        'module': 'prism.modules.characterize',
+        'goal': 'Inline characterization for signals (called by signal_vector)',
+        'inputs': ['signal values array'],
+        'outputs': ['CharacterizationResult (in-memory)'],
+        'note': 'Module, not CLI entry point. Use from prism.modules.characterize import characterize_signal',
     },
 
     'signal_vector': {

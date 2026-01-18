@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-PRISM Fetch Runner
+PRISM Fetch Module
 
 Source-agnostic orchestrator for fetching raw observations to Parquet.
 
 Usage:
-    python -m prism.entry_points.fetch --cmapss
-    python -m prism.entry_points.fetch --climate
-    python -m prism.entry_points.fetch fetchers/yaml/usgs.yaml
+    python -m prism.db.fetch --cmapss
+    python -m prism.db.fetch --climate
+    python -m prism.db.fetch fetchers/yaml/usgs.yaml
 
 Fetchers are loaded dynamically from repo_root/fetchers/{source}_fetcher.py.
 Results are written to data/raw/observations.parquet

@@ -66,9 +66,9 @@ observations = fetch(config)
 ### Via PRISM Fetch Entry Point
 
 ```bash
-python -m prism.entry_points.fetch --cmapss
-python -m prism.entry_points.fetch --femto
-python -m prism.entry_points.fetch --hydraulic
+python -m prism.db.fetch --cmapss
+python -m prism.db.fetch --femto
+python -m prism.db.fetch --hydraulic
 ```
 
 ## Return Format

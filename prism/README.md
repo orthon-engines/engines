@@ -91,8 +91,8 @@ df = observations.filter(pl.col('signal_id') == 'sensor_T30')
 
 ```bash
 # Fetch industrial data
-python -m prism.entry_points.fetch --cmapss
-python -m prism.entry_points.fetch --femto
+python -m prism.db.fetch --cmapss
+python -m prism.db.fetch --femto
 
 # Run pipeline
 python -m prism.entry_points.signal_vector --domain cmapss
