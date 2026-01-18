@@ -29,58 +29,63 @@ from prism.engines.engine_base import BaseEngine, EngineResult, get_window_dates
 from prism.engines.metadata import EngineMetadata
 
 # State vector dataclass
-from prism.engines.state_vector import StateVector
+from prism.engines.state.state_vector import StateVector
 
 # =============================================================================
 # Vector Engines (functional interface)
 # =============================================================================
-from prism.engines.hurst import compute_hurst, HurstEngine
-from prism.engines.entropy import compute_entropy
-from prism.engines.wavelet import compute_wavelets, WaveletEngine
-from prism.engines.spectral import compute_spectral, SpectralEngine
-from prism.engines.garch import compute_garch, GARCHEngine
-from prism.engines.rqa import compute_rqa, RQAEngine
-from prism.engines.lyapunov import compute_lyapunov, LyapunovEngine
-from prism.engines.realized_vol import compute_realized_vol, RealizedVolEngine
-from prism.engines.hilbert import compute_hilbert, get_hilbert_metrics
+from prism.engines.windowed.hurst import compute_hurst, HurstEngine
+from prism.engines.windowed.entropy import compute_entropy
+from prism.engines.windowed.wavelet import compute_wavelets, WaveletEngine
+from prism.engines.windowed.spectral import compute_spectral, SpectralEngine
+from prism.engines.windowed.garch import compute_garch, GARCHEngine
+from prism.engines.windowed.rqa import compute_rqa, RQAEngine
+from prism.engines.windowed.lyapunov import compute_lyapunov, LyapunovEngine
+from prism.engines.windowed.realized_vol import compute_realized_vol, RealizedVolEngine
+from prism.engines.pointwise.hilbert import (
+    HilbertEngine,
+    compute_hilbert_amplitude,
+    compute_hilbert_phase,
+    compute_hilbert_frequency,
+)
 
 # =============================================================================
 # Geometry Engines (class interface)
 # =============================================================================
-from prism.engines.pca import PCAEngine
-from prism.engines.distance import DistanceEngine
-from prism.engines.clustering import ClusteringEngine
-from prism.engines.mutual_information import MutualInformationEngine
-from prism.engines.copula import CopulaEngine
-from prism.engines.mst import MSTEngine
-from prism.engines.lof import LOFEngine
-from prism.engines.convex_hull import ConvexHullEngine
-from prism.engines.barycenter import BarycenterEngine, compute_barycenter
+from prism.engines.geometry.pca import PCAEngine
+from prism.engines.geometry.distance import DistanceEngine
+from prism.engines.geometry.clustering import ClusteringEngine
+from prism.engines.geometry.mutual_information import MutualInformationEngine
+from prism.engines.geometry.copula import CopulaEngine
+from prism.engines.geometry.mst import MSTEngine
+from prism.engines.geometry.lof import LOFEngine
+from prism.engines.geometry.convex_hull import ConvexHullEngine
+from prism.engines.geometry.barycenter import BarycenterEngine, compute_barycenter
 
 # =============================================================================
 # State Engines (class interface)
 # =============================================================================
-from prism.engines.cointegration import CointegrationEngine
-from prism.engines.cross_correlation import CrossCorrelationEngine
-from prism.engines.dmd import DMDEngine
-from prism.engines.dtw import DTWEngine
-from prism.engines.granger import GrangerEngine
-from prism.engines.transfer_entropy import TransferEntropyEngine
-from prism.engines.coupled_inertia import CoupledInertiaEngine
+from prism.engines.state.cointegration import CointegrationEngine
+from prism.engines.state.cross_correlation import CrossCorrelationEngine
+from prism.engines.state.dmd import DMDEngine
+from prism.engines.state.dtw import DTWEngine
+from prism.engines.state.granger import GrangerEngine
+from prism.engines.state.transfer_entropy import TransferEntropyEngine
+from prism.engines.state.coupled_inertia import CoupledInertiaEngine
 
 # =============================================================================
 # Temporal Dynamics Engines (analyze geometry evolution)
 # =============================================================================
-from prism.engines.energy_dynamics import EnergyDynamicsEngine, compute_energy_dynamics
-from prism.engines.tension_dynamics import TensionDynamicsEngine, compute_tension_dynamics
-from prism.engines.phase_detector import PhaseDetectorEngine, detect_phase
+from prism.engines.state.energy_dynamics import EnergyDynamicsEngine, compute_energy_dynamics
+from prism.engines.state.tension_dynamics import TensionDynamicsEngine, compute_tension_dynamics
+from prism.engines.state.phase_detector import PhaseDetectorEngine, detect_phase
 from prism.engines.cohort_aggregator import CohortAggregatorEngine, aggregate_cohort
-from prism.engines.transfer_detector import TransferDetectorEngine, detect_transfer
+from prism.engines.state.transfer_detector import TransferDetectorEngine, detect_transfer
 
 # =============================================================================
 # Observation-Level Engines (run BEFORE windowing, point precision)
 # =============================================================================
-from prism.engines.break_detector import (
+from prism.engines.state.break_detector import (
     compute_breaks,
     compute_breaks_polars,
     compute_break_summary_polars,
@@ -127,7 +132,9 @@ VECTOR_ENGINES: Dict[str, Callable[[np.ndarray], dict]] = {
     "rqa": compute_rqa,
     "lyapunov": compute_lyapunov,
     "realized_vol": compute_realized_vol,  # 13 metrics: vol, drawdown, distribution
-    "hilbert": compute_hilbert,  # 7 metrics: amplitude, phase, inst_freq
+    "hilbert_amplitude": compute_hilbert_amplitude,  # Instantaneous amplitude
+    "hilbert_phase": compute_hilbert_phase,  # Instantaneous phase
+    "hilbert_frequency": compute_hilbert_frequency,  # Instantaneous frequency
 }
 
 # Geometry engines: name -> class (9 canonical engines)
@@ -349,8 +356,10 @@ __all__ = [
     "compute_rqa",
     "compute_lyapunov",
     "compute_realized_vol",
-    "compute_hilbert",
-    "get_hilbert_metrics",
+    "compute_hilbert_amplitude",
+    "compute_hilbert_phase",
+    "compute_hilbert_frequency",
+    "HilbertEngine",
 
     # Vector engine classes (legacy)
     "HurstEngine",
