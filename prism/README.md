@@ -2,7 +2,7 @@
 
 **`pip install prism-engine`**
 
-This is the core Python package for PRISM behavioral signal topology analysis.
+Core Python package for PRISM behavioral signal topology analysis.
 
 ---
 
@@ -19,21 +19,23 @@ prism/
 ├── config/              # Configuration
 │   └── windows.py       # Domain-aware window configs
 │
-├── engines/             # 21 measurement engines
-│   ├── __init__.py      # Registry and exports
-│   ├── hurst.py         # Hurst exponent
+├── engines/             # 33 measurement engines
+│   ├── hurst.py         # Hurst exponent (memory)
 │   ├── entropy.py       # Sample/permutation entropy
 │   ├── garch.py         # Volatility modeling
+│   ├── rqa.py           # Recurrence quantification
+│   ├── lyapunov.py      # Chaos indicator
 │   ├── pca.py           # Principal components
 │   ├── granger.py       # Granger causality
-│   └── ...              # 16 more engines
+│   └── ...              # 14 more engines
 │
-├── entry_points/        # CLI entry points
+├── entry_points/        # CLI entry points (15 total)
 │   ├── fetch.py         # Data fetching to Parquet
 │   ├── characterize.py  # 6-axis indicator classification
 │   ├── indicator_vector.py # Layer 1: Vector metrics
-│   ├── geometry.py      # Layer 2-3: Geometry + modes + wavelet
-│   ├── state.py         # Layer 4: Query-time state derivation
+│   ├── laplace.py       # Layer 2: Laplace field
+│   ├── geometry.py      # Layer 3: Cohort geometry
+│   ├── state.py         # Layer 4: State derivation
 │   └── ...
 │
 ├── modules/             # Reusable computation (NOT entry points)
@@ -43,9 +45,12 @@ prism/
 │   └── wavelet_microscope.py # Frequency-band degradation
 │
 ├── cohorts/             # Cohort definitions
-│   └── climate.py       # Climate cohorts
+│   ├── climate.py       # Climate cohorts
+│   └── cheme.py         # Chemical engineering cohorts
 │
 └── utils/               # Shared utilities
+    ├── stride.py        # Window/stride configuration
+    └── monitor.py       # Progress monitoring
 ```
 
 ---
@@ -57,12 +62,12 @@ prism/
 ```python
 # Import engines
 from prism.engines import (
-    compute_hurst, compute_entropy,
+    compute_hurst, compute_entropy, compute_rqa,
     PCAEngine, GrangerEngine,
     VECTOR_ENGINES, list_engines
 )
 
-# Compute metrics
+# Compute metrics on sensor data
 import numpy as np
 values = np.random.randn(500)
 hurst = compute_hurst(values)
@@ -79,17 +84,19 @@ from prism.db.parquet_store import get_parquet_path
 observations = pl.read_parquet(get_parquet_path('raw', 'observations'))
 
 # Query data
-df = observations.filter(pl.col('indicator_id') == 'sensor_1')
+df = observations.filter(pl.col('indicator_id') == 'sensor_T30')
 ```
 
 ### CLI Entry Points
 
 ```bash
-# Fetch data
+# Fetch industrial data
 python -m prism.entry_points.fetch --cmapss
+python -m prism.entry_points.fetch --femto
 
 # Run pipeline
 python -m prism.entry_points.indicator_vector --domain cmapss
+python -m prism.entry_points.laplace --domain cmapss
 python -m prism.entry_points.geometry --domain cmapss
 ```
 
@@ -110,11 +117,25 @@ fetch → characterize
 
 | Category | Count | Purpose | Interface |
 |----------|-------|---------|-----------|
-| **Vector** | 7 | Single-indicator intrinsic properties | `f(array) -> dict` |
-| **Geometry** | 8 | Multi-indicator relational structure | `Engine.compute(matrix)` |
-| **State** | 6 | Temporal dynamics and causality | `Engine.compute(x, y)` |
+| **Vector** | 9 | Single-indicator intrinsic properties | `f(array) -> dict` |
+| **Geometry** | 9 | Multi-indicator relational structure | `Engine.compute(matrix)` |
+| **State** | 7 | Temporal dynamics and causality | `Engine.compute(x, y)` |
+| **Temporal Dynamics** | 5 | Geometry evolution over time | `Engine.compute(snapshots)` |
+| **Observation** | 3 | Discontinuity detection | `f(array) -> dict` |
 
 See [engines/README.md](engines/README.md) for detailed documentation.
+
+---
+
+## Validated Domains
+
+| Domain | Source | Sensors | Use Case |
+|--------|--------|---------|----------|
+| **C-MAPSS** | NASA | 25 | Turbofan run-to-failure |
+| **FEMTO** | PHM Society | 2 | Bearing degradation |
+| **Hydraulic** | UCI | 17 | System condition monitoring |
+| **CWRU** | CWRU | 4 | Bearing fault diagnosis |
+| **TEP** | Tennessee Eastman | 52 | Chemical process faults |
 
 ---
 

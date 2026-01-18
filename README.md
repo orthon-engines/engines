@@ -203,7 +203,7 @@ python scripts/cmapss_evaluate_v4.py
 
 ### Vector Engines (Layer 1)
 
-Each indicator produces a **51-dimensional behavioral fingerprint** from 7 engines.
+Each indicator produces a **51-dimensional behavioral fingerprint** from 9 vector engines.
 
 ---
 
