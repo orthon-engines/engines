@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-PRISM Fetch Module
-==================
+PRISM Fetch Entry Point
+=======================
 
 Fetch raw observations to observations.parquet.
 
@@ -12,19 +12,14 @@ Output Schema:
     value       | Float64  | Raw measurement
 
 Usage:
-    python -m prism.db.fetch --cmapss
-    python -m prism.db.fetch --tep
-    python -m prism.db.fetch --femto
-    python -m prism.db.fetch fetchers/yaml/custom.yaml
+    python -m prism.entry_points.fetch           # Interactive picker
+    python -m prism.entry_points.fetch cmapss    # Direct source name
 
-Fetchers are loaded dynamically from repo_root/fetchers/{source}_fetcher.py.
-Results are written to data/{domain}/observations.parquet
+Results are written to data/observations.parquet
 """
 
-import argparse
 import importlib.util
 import logging
-import os
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -44,19 +39,6 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-# =============================================================================
-# DEFAULT YAML PATHS (shortcuts)
-# =============================================================================
-
-DEFAULT_YAMLS = {
-    "cmapss": "fetchers/yaml/cmapss.yaml",
-    "tep": "fetchers/yaml/tep.yaml",
-    "femto": "fetchers/yaml/femto.yaml",
-    "hydraulic": "fetchers/yaml/hydraulic.yaml",
-    "cwru": "fetchers/yaml/cwru.yaml",
-}
-
-
 def find_repo_root() -> Path:
     """Find repository root by looking for fetchers/ directory."""
     current = Path.cwd()
@@ -66,23 +48,55 @@ def find_repo_root() -> Path:
     return current
 
 
-def resolve_yaml_path(yaml_arg: Optional[str], source_shortcut: Optional[str]) -> Path:
-    """Resolve YAML path from argument or shortcut."""
+def list_yaml_configs() -> List[Path]:
+    """List all available YAML configs in fetchers/yaml/."""
     repo_root = find_repo_root()
+    yaml_dir = repo_root / "fetchers" / "yaml"
+    if not yaml_dir.exists():
+        return []
+    return sorted([p for p in yaml_dir.glob("*.yaml") if not p.name.startswith(".")])
 
-    if yaml_arg:
-        path = Path(yaml_arg)
-        if not path.is_absolute():
-            path = repo_root / path
-        return path
 
-    if source_shortcut:
-        if source_shortcut not in DEFAULT_YAMLS:
-            available = ", ".join(sorted(DEFAULT_YAMLS.keys()))
-            raise ValueError(f"Unknown source: {source_shortcut}. Available: {available}")
-        return repo_root / DEFAULT_YAMLS[source_shortcut]
+def interactive_picker() -> Optional[Path]:
+    """Interactive picker for YAML config files."""
+    configs = list_yaml_configs()
 
-    raise ValueError("Must specify YAML file or source shortcut (--cmapss, --tep, etc.)")
+    if not configs:
+        logger.error("No YAML configs found in fetchers/yaml/")
+        return None
+
+    print("\nAvailable data sources:")
+    print("-" * 40)
+    for i, config in enumerate(configs, 1):
+        # Load config to get description
+        with open(config) as f:
+            cfg = yaml.safe_load(f)
+        desc = cfg.get("description", cfg.get("source", ""))
+        print(f"  [{i}] {config.stem:<20} {desc}")
+    print()
+
+    while True:
+        try:
+            choice = input("Select source (number or name): ").strip()
+
+            # Try as number
+            if choice.isdigit():
+                idx = int(choice) - 1
+                if 0 <= idx < len(configs):
+                    return configs[idx]
+                print(f"Invalid number. Enter 1-{len(configs)}")
+                continue
+
+            # Try as name match
+            for config in configs:
+                if choice.lower() in config.stem.lower():
+                    return config
+
+            print(f"No match found for '{choice}'")
+
+        except (KeyboardInterrupt, EOFError):
+            print("\nCancelled")
+            return None
 
 
 def load_fetcher(source: str) -> Callable:
@@ -108,22 +122,12 @@ def load_fetcher(source: str) -> Callable:
     return module.fetch
 
 
-def fetch_to_parquet(
-    yaml_path: Path,
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
-    signals: Optional[List[str]] = None,
-    entities: Optional[List[str]] = None,
-) -> int:
+def fetch_to_parquet(yaml_path: Path) -> int:
     """
     Fetch data using config and write to observations.parquet.
 
     Args:
         yaml_path: Path to YAML config file
-        start_date: Override start date
-        end_date: Override end date
-        signals: Override signal list
-        entities: Override entity list
 
     Returns:
         Number of observations written
@@ -135,16 +139,6 @@ def fetch_to_parquet(
     source = config.get("source")
     if not source:
         raise ValueError("Config must specify 'source' field")
-
-    # Apply overrides
-    if start_date:
-        config["start_date"] = start_date
-    if end_date:
-        config["end_date"] = end_date
-    if signals:
-        config["signals"] = signals
-    if entities:
-        config["entities"] = entities
 
     logger.info(f"Fetching from {source}...")
     logger.info(f"Config: {yaml_path}")
@@ -164,12 +158,12 @@ def fetch_to_parquet(
 
     # Normalize column names to new schema
     column_mappings = {
-        # Old name -> New name
         "unit_id": "entity_id",
         "engine_id": "entity_id",
         "bearing_id": "entity_id",
         "run_id": "entity_id",
         "obs_date": "timestamp",
+        "observed_at": "timestamp",
         "time": "timestamp",
         "cycle": "timestamp",
         "t": "timestamp",
@@ -183,7 +177,6 @@ def fetch_to_parquet(
 
     # If no entity_id, try to infer from signal_id or use default
     if "entity_id" not in df.columns:
-        # Check if we can extract entity from config
         default_entity = config.get("entity_id", config.get("domain", "unit_1"))
         df = df.with_columns(pl.lit(default_entity).alias("entity_id"))
         logger.info(f"No entity_id found, using default: {default_entity}")
@@ -202,16 +195,11 @@ def fetch_to_parquet(
         pl.col("value").cast(pl.Float64),
     ])
 
-    # Get domain from config
-    domain = config.get("domain")
-    if domain:
-        os.environ["PRISM_DOMAIN"] = domain
-
     # Ensure directory exists
-    ensure_directory(domain)
+    ensure_directory()
 
     # Write to observations.parquet (upsert on entity_id + signal_id + timestamp)
-    target_path = get_path(OBSERVATIONS, domain=domain)
+    target_path = get_path(OBSERVATIONS)
     total_rows = upsert_parquet(
         df,
         target_path,
@@ -220,19 +208,41 @@ def fetch_to_parquet(
 
     logger.info(f"Wrote {total_rows:,} rows to {target_path}")
 
+    # Write domain metadata to config/domain.yaml
+    write_domain_config(config, yaml_path, total_rows)
+
     return total_rows
 
 
-# =============================================================================
-# CLI
-# =============================================================================
+def write_domain_config(config: dict, yaml_path: Path, row_count: int):
+    """Write domain metadata after successful fetch."""
+    repo_root = find_repo_root()
+    domain_yaml = repo_root / "config" / "domain.yaml"
+
+    metadata = {
+        "source": config.get("source"),
+        "source_config": str(yaml_path),
+        "fetched_at": datetime.now().isoformat(),
+        "row_count": row_count,
+        "domain": config.get("domain", config.get("source")),
+        "description": config.get("description", ""),
+    }
+
+    with open(domain_yaml, "w") as f:
+        yaml.dump(metadata, f, default_flow_style=False)
+
+    logger.info(f"Wrote domain metadata to {domain_yaml}")
+
 
 def main():
+    """Main entry point."""
+    import argparse
+
     parser = argparse.ArgumentParser(
         description="PRISM Fetch - Raw observations to observations.parquet",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-Output: data/{domain}/observations.parquet
+Output: data/observations.parquet
 
 Schema:
   entity_id   | String   | The thing that fails (engine, bearing, unit)
@@ -241,56 +251,52 @@ Schema:
   value       | Float64  | Raw measurement value
 
 Examples:
-  python -m prism.db.fetch --cmapss          # Fetch NASA turbofan data
-  python -m prism.db.fetch --tep             # Fetch Tennessee Eastman data
-  python -m prism.db.fetch --femto           # Fetch FEMTO bearing data
-  python -m prism.db.fetch custom.yaml       # Fetch from custom config
+  python -m prism.entry_points.fetch              # Interactive picker
+  python -m prism.entry_points.fetch cmapss       # Fetch C-MAPSS data
+  python -m prism.entry_points.fetch tep          # Fetch TEP data
 """
     )
 
-    parser.add_argument("yaml_file", nargs="?", help="Path to YAML config file")
-
-    # Source shortcuts
-    parser.add_argument("--cmapss", action="store_true", help="Fetch NASA C-MAPSS turbofan data")
-    parser.add_argument("--tep", action="store_true", help="Fetch Tennessee Eastman process data")
-    parser.add_argument("--femto", action="store_true", help="Fetch FEMTO bearing data")
-    parser.add_argument("--hydraulic", action="store_true", help="Fetch UCI hydraulic data")
-    parser.add_argument("--cwru", action="store_true", help="Fetch CWRU bearing data")
-
-    # Options
-    parser.add_argument("--start-date", type=str, help="Override start date")
-    parser.add_argument("--end-date", type=str, help="Override end date")
-    parser.add_argument("--signals", type=str, help="Comma-separated signal list")
-    parser.add_argument("--entities", type=str, help="Comma-separated entity list")
+    parser.add_argument(
+        "source",
+        nargs="?",
+        help="Source name (matches yaml filename) or path to yaml config"
+    )
 
     args = parser.parse_args()
 
-    # Determine source shortcut
-    source_shortcut = None
-    for source in DEFAULT_YAMLS.keys():
-        if getattr(args, source.replace("-", "_"), False):
-            source_shortcut = source
-            break
+    # Determine yaml path
+    yaml_path = None
 
-    try:
-        yaml_path = resolve_yaml_path(args.yaml_file, source_shortcut)
-    except ValueError as e:
-        parser.error(str(e))
+    if args.source:
+        # Check if it's a path
+        path = Path(args.source)
+        if path.exists():
+            yaml_path = path
+        else:
+            # Search for matching yaml
+            configs = list_yaml_configs()
+            for config in configs:
+                if args.source.lower() in config.stem.lower():
+                    yaml_path = config
+                    break
 
-    # Parse lists if provided
-    signals = [s.strip() for s in args.signals.split(",")] if args.signals else None
-    entities = [e.strip() for e in args.entities.split(",")] if args.entities else None
+            if not yaml_path:
+                logger.error(f"No config found matching '{args.source}'")
+                print("\nAvailable sources:")
+                for c in configs:
+                    print(f"  - {c.stem}")
+                sys.exit(1)
+    else:
+        # Interactive picker
+        yaml_path = interactive_picker()
+        if not yaml_path:
+            sys.exit(0)
 
     # Run fetch
     try:
-        count = fetch_to_parquet(
-            yaml_path=yaml_path,
-            start_date=args.start_date,
-            end_date=args.end_date,
-            signals=signals,
-            entities=entities,
-        )
-        print(f"\n✓ Fetched {count:,} observations to observations.parquet")
+        count = fetch_to_parquet(yaml_path)
+        print(f"\n✓ Fetched {count:,} observations to data/observations.parquet")
     except Exception as e:
         logger.error(f"Fetch failed: {e}")
         sys.exit(1)

@@ -6,34 +6,29 @@ PRISM Parquet Storage Layer
 
 Directory Structure:
     data/
-      {domain}/                     # e.g., cmapss/, tep/, femto/
         observations.parquet        # Raw sensor data
-        signals.parquet             # All behavioral signals (dense + sparse)
+        vector.parquet              # All behavioral signals (dense + sparse)
         geometry.parquet            # System structure at each timestamp
         state.parquet               # Dynamics at each timestamp
         cohorts.parquet             # Discovered entity groupings
 
 Entity Hierarchy:
-    domain (cmapss)
-    └── entity (engine_47)          # Fails, gets RUL, joins cohort
-        └── signal (sensor_1)       # Measures entity
-            └── derived (inst_freq) # Computed from signal
+    entity (engine_47)              # Fails, gets RUL, joins cohort
+    └── signal (sensor_1)           # Measures entity
+        └── derived (inst_freq)     # Computed from signal
 
 File Schemas:
     observations: entity_id, signal_id, timestamp, value
-    signals:      entity_id, signal_id, source_signal, engine, signal_type, timestamp, value, mode_id
+    vector:       entity_id, signal_id, source_signal, engine, signal_type, timestamp, value, mode_id
     geometry:     entity_id, timestamp, divergence, mode_count, coupling_mean, transition_flag, regime, ...
     state:        entity_id, timestamp, position_*, velocity_*, acceleration_*, failure_signature, ...
     cohorts:      entity_id, cohort_id, trajectory_similarity, failure_mode, ...
 
 Usage:
-    from prism.db.parquet_store import get_path, OBSERVATIONS, SIGNALS, GEOMETRY, STATE, COHORTS
+    from prism.db.parquet_store import get_path, OBSERVATIONS, VECTOR, GEOMETRY, STATE, COHORTS
 
     # Get path to a file
-    obs_path = get_path(OBSERVATIONS)  # -> data/{domain}/observations.parquet
-
-    # Explicit domain
-    obs_path = get_path(OBSERVATIONS, domain='cmapss')
+    obs_path = get_path(OBSERVATIONS)  # -> data/observations.parquet
 """
 
 import os
@@ -45,147 +40,108 @@ from typing import List, Optional
 # =============================================================================
 
 OBSERVATIONS = "observations"   # Raw sensor data
-SIGNALS = "signals"             # All behavioral signals
+VECTOR = "vector"               # All behavioral signals (was SIGNALS)
+SIGNALS = VECTOR                # Backwards compatibility alias
 GEOMETRY = "geometry"           # System structure at each t
 STATE = "state"                 # Dynamics at each t
 COHORTS = "cohorts"             # Discovered entity groupings
 
+# Intermediate cohort files
+COHORTS_RAW = "cohorts_raw"     # Cohorts discovered from raw observations
+COHORTS_VECTOR = "cohorts_vector"  # Cohorts discovered from vector signals
+
+# ML Accelerator files
+ML_FEATURES = "ml_features"     # Denormalized feature table for ML
+ML_RESULTS = "ml_results"       # Model predictions vs actuals
+ML_IMPORTANCE = "ml_importance" # Feature importance rankings
+ML_MODEL = "ml_model"           # Serialized model (actually .pkl)
+
 # All valid file names
-FILES = [OBSERVATIONS, SIGNALS, GEOMETRY, STATE, COHORTS]
+FILES = [OBSERVATIONS, VECTOR, GEOMETRY, STATE, COHORTS]
+ML_FILES = [ML_FEATURES, ML_RESULTS, ML_IMPORTANCE, ML_MODEL]
+ALL_FILES = FILES + [COHORTS_RAW, COHORTS_VECTOR] + ML_FILES
 
 
 # =============================================================================
 # PATH FUNCTIONS
 # =============================================================================
 
-def get_active_domain() -> str:
+def get_data_root() -> Path:
     """
-    Get the active domain from PRISM_DOMAIN environment variable.
+    Return the root data directory.
 
     Returns:
-        Active domain name (e.g., 'cmapss', 'tep', 'femto')
-
-    Raises:
-        RuntimeError: If no domain is set
-    """
-    env_domain = os.environ.get("PRISM_DOMAIN")
-    if env_domain:
-        return env_domain
-
-    raise RuntimeError(
-        "No domain specified. Set PRISM_DOMAIN environment variable or use --domain flag."
-    )
-
-
-def get_data_root(domain: str = None) -> Path:
-    """
-    Return the root data directory for a domain.
-
-    Args:
-        domain: Domain name. Defaults to active domain.
-
-    Returns:
-        Path to domain data directory (e.g., data/cmapss/)
+        Path to data directory (e.g., data/)
     """
     env_path = os.environ.get("PRISM_DATA_PATH")
     if env_path:
-        base = Path(env_path)
-    else:
-        base = Path(os.path.expanduser("~/prism-mac/data"))
-
-    domain = domain or get_active_domain()
-    return base / domain
+        return Path(env_path)
+    return Path(os.path.expanduser("~/prism-mac/data"))
 
 
-def get_path(file: str, domain: str = None) -> Path:
+def get_path(file: str) -> Path:
     """
     Return the path to a PRISM output file.
 
     Args:
-        file: File name (OBSERVATIONS, SIGNALS, GEOMETRY, STATE, COHORTS)
-        domain: Domain name. Defaults to active domain.
+        file: File name (OBSERVATIONS, VECTOR, GEOMETRY, STATE, COHORTS)
 
     Returns:
         Path to parquet file
 
     Examples:
         >>> get_path(OBSERVATIONS)
-        PosixPath('.../data/cmapss/observations.parquet')
+        PosixPath('.../data/observations.parquet')
 
-        >>> get_path(SIGNALS, domain='tep')
-        PosixPath('.../data/tep/signals.parquet')
+        >>> get_path(VECTOR)
+        PosixPath('.../data/vector.parquet')
     """
-    if file not in FILES:
-        raise ValueError(f"Unknown file: {file}. Valid files: {FILES}")
+    if file not in ALL_FILES:
+        raise ValueError(f"Unknown file: {file}. Valid files: {ALL_FILES}")
 
-    return get_data_root(domain) / f"{file}.parquet"
+    return get_data_root() / f"{file}.parquet"
 
 
-def ensure_directory(domain: str = None) -> Path:
+def ensure_directory() -> Path:
     """
-    Create domain directory if it doesn't exist.
-
-    Args:
-        domain: Domain name. Defaults to active domain.
+    Create data directory if it doesn't exist.
 
     Returns:
-        Path to domain directory
+        Path to data directory
     """
-    root = get_data_root(domain)
+    root = get_data_root()
     root.mkdir(parents=True, exist_ok=True)
     return root
 
 
-def file_exists(file: str, domain: str = None) -> bool:
+def file_exists(file: str) -> bool:
     """Check if a PRISM output file exists."""
-    return get_path(file, domain).exists()
+    return get_path(file).exists()
 
 
-def get_file_size(file: str, domain: str = None) -> Optional[int]:
+def get_file_size(file: str) -> Optional[int]:
     """Get file size in bytes, or None if doesn't exist."""
-    path = get_path(file, domain)
+    path = get_path(file)
     if path.exists():
         return path.stat().st_size
     return None
 
 
-def delete_file(file: str, domain: str = None) -> bool:
+def delete_file(file: str) -> bool:
     """Delete a file. Returns True if deleted, False if didn't exist."""
-    path = get_path(file, domain)
+    path = get_path(file)
     if path.exists():
         path.unlink()
         return True
     return False
 
 
-def list_files(domain: str = None) -> List[str]:
-    """List all existing PRISM output files for a domain."""
-    return [f for f in FILES if file_exists(f, domain)]
+def list_files() -> List[str]:
+    """List all existing PRISM output files."""
+    return [f for f in ALL_FILES if file_exists(f)]
 
 
-def list_domains() -> List[str]:
-    """List all domain directories."""
-    env_path = os.environ.get("PRISM_DATA_PATH")
-    if env_path:
-        base = Path(env_path)
-    else:
-        base = Path(os.path.expanduser("~/prism-mac/data"))
-
-    if not base.exists():
-        return []
-
-    # A domain has at least one of the 5 files
-    domains = []
-    for d in base.iterdir():
-        if d.is_dir():
-            for f in FILES:
-                if (d / f"{f}.parquet").exists():
-                    domains.append(d.name)
-                    break
-    return sorted(domains)
-
-
-def get_status(domain: str = None) -> dict:
+def get_status() -> dict:
     """
     Get status of all PRISM output files.
 
@@ -193,8 +149,8 @@ def get_status(domain: str = None) -> dict:
         Dict with file status and sizes
     """
     status = {}
-    for f in FILES:
-        path = get_path(f, domain)
+    for f in ALL_FILES:
+        path = get_path(f)
         if path.exists():
             size = path.stat().st_size
             status[f] = {"exists": True, "size_bytes": size, "size_mb": size / 1024 / 1024}
@@ -211,46 +167,32 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description="PRISM Storage - 5 Files")
-    parser.add_argument("--domain", help="Domain name (cmapss, tep, femto, etc.)")
-    parser.add_argument("--init", action="store_true", help="Create domain directory")
-    parser.add_argument("--list", action="store_true", help="List files for domain")
-    parser.add_argument("--list-domains", action="store_true", help="List all domains")
+    parser.add_argument("--init", action="store_true", help="Create data directory")
+    parser.add_argument("--list", action="store_true", help="List files")
     parser.add_argument("--status", action="store_true", help="Show file status")
 
     args = parser.parse_args()
 
-    if args.domain:
-        os.environ["PRISM_DOMAIN"] = args.domain
-
     if args.init:
-        path = ensure_directory(args.domain)
+        path = ensure_directory()
         print(f"Created: {path}")
         print("\nExpected files:")
         for f in FILES:
             print(f"  {f}.parquet")
 
-    elif args.list_domains:
-        domains = list_domains()
-        if domains:
-            print("Domains:")
-            for d in domains:
-                print(f"  {d}/")
-        else:
-            print("No domains found")
-
     elif args.list:
-        files = list_files(args.domain)
+        files = list_files()
         if files:
-            print(f"Files in {args.domain or 'active domain'}:")
+            print("Files:")
             for f in files:
-                size = get_file_size(f, args.domain)
+                size = get_file_size(f)
                 print(f"  {f}.parquet ({size:,} bytes)")
         else:
             print("No files found")
 
     elif args.status:
-        status = get_status(args.domain)
-        print(f"Status for {args.domain or 'active domain'}:")
+        status = get_status()
+        print("Status:")
         print("-" * 50)
         for f, info in status.items():
             if info["exists"]:

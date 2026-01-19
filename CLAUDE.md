@@ -18,7 +18,7 @@ PRISM Diagnostics is a behavioral geometry engine for industrial signal topology
 - Correctness over speed - a wrong answer fast is still wrong
 - Complete data, not samples - academic-grade analysis requires full datasets
 - Verify before proceeding - check results match expectations
-- Run the full pipeline - Vector → Geometry → Mode → State
+- Run the full pipeline - Vector → Geometry → State → ML
 
 **Design Principles:**
 - Record observations faithfully
@@ -33,12 +33,6 @@ PRISM Diagnostics is a behavioral geometry engine for industrial signal topology
 - **VERIFIED QUALITY** - All engines audited for data integrity
 - **Publication-grade** - Suitable for peer-reviewed research
 
-**ML Accelerator Benchmarks:**
-- Always train on train set, test on test set
-- Compare predictions with ground truth RUL
-- Use full PRISM pipeline (Vector + Geometry + Laplace + Mode)
-- Report RMSE against published benchmarks
-
 ## Directory Structure
 
 ```
@@ -49,6 +43,7 @@ prism-engines/diagnostics/
 │   │   └── signals/            # Signal types (DenseSignal, SparseSignal, LaplaceField)
 │   │
 │   ├── db/                     # Parquet I/O layer
+│   │   └── parquet_store.py    # 5 core files + ML files
 │   │
 │   ├── engines/                # 33 computation engines
 │   │   ├── vector/             # Intrinsic metrics (hurst, entropy, garch, etc.)
@@ -60,10 +55,17 @@ prism-engines/diagnostics/
 │   │   └── observation/        # Break detector, heaviside, dirac
 │   │
 │   ├── entry_points/           # CLI entrypoints (python -m prism.entry_points.*)
-│   ├── cohorts/                # Cohort definitions
+│   │   ├── fetch.py            # Data fetching
+│   │   ├── cohort.py           # Cohort discovery
+│   │   ├── signal_vector.py    # Vector computation
+│   │   ├── geometry.py         # Geometry computation
+│   │   ├── state.py            # State computation
+│   │   ├── ml_features.py      # ML feature generation
+│   │   └── ml_train.py         # ML model training
+│   │
 │   └── utils/                  # Utilities (including monitor.py)
 │
-├── fetchers/                   # Data fetchers (16 total)
+├── fetchers/                   # Data fetchers
 │   ├── cmapss_fetcher.py       # NASA C-MAPSS turbofan
 │   ├── femto_fetcher.py        # FEMTO bearing degradation
 │   ├── hydraulic_fetcher.py    # UCI hydraulic system
@@ -72,91 +74,130 @@ prism-engines/diagnostics/
 │   └── yaml/                   # Fetch configurations
 │
 ├── config/                     # YAML configurations
-│   ├── stride.yaml             # Window/stride settings
-│   ├── normalization.yaml      # Normalization per domain
-│   └── cohorts/                # Cohort definitions
-│
-├── scripts/                    # Evaluation/testing scripts
-│
-├── docs/                       # Documentation
-│   ├── notebooks/              # Jupyter notebooks & analysis
-│   │   ├── ml_accelerator/     # ML benchmark scripts
-│   │   └── cmapss/             # C-MAPSS analysis
-│   └── validation/             # Validation studies
+│   ├── engine.yaml             # Engine settings
+│   ├── window.yaml             # Window/stride settings
+│   ├── stride.yaml             # Legacy stride config
+│   └── domain.yaml             # Active domain metadata
 │
 └── data/                       # LOCAL ONLY (gitignored)
-    ├── raw/                    # Raw observations
-    ├── vector/                 # Computed metrics
-    ├── geometry/               # Structural snapshots
-    ├── state/                  # Temporal dynamics
-    └── [domain]/               # Domain-specific data (cmapss, femto, etc.)
+    ├── observations.parquet    # Raw sensor data
+    ├── vector.parquet          # Behavioral metrics
+    ├── geometry.parquet        # Structural snapshots
+    ├── state.parquet           # Temporal dynamics
+    ├── cohorts.parquet         # Entity groupings
+    ├── ml_features.parquet     # ML-ready features
+    ├── ml_results.parquet      # Model predictions
+    └── ml_model.pkl            # Trained model
 ```
 
 ## Essential Commands
 
-### Data Fetching
+### Full Pipeline
 ```bash
-# Fetch C-MAPSS turbofan data
-python -m prism.db.fetch --cmapss
+# 1. Fetch data (interactive picker or specify source)
+python -m prism.entry_points.fetch
+python -m prism.entry_points.fetch cmapss
 
-# Fetch FEMTO bearing data
-python -m prism.db.fetch --femto
-
-# Fetch hydraulic system data
-python -m prism.db.fetch --hydraulic
-```
-
-### Vector Computation
-```bash
-# Run vector engines on all signals
+# 2. Compute vector metrics
 python -m prism.entry_points.signal_vector
 
-# Specific domain
-python -m prism.entry_points.signal_vector --domain cmapss
+# 3. Compute geometry
+python -m prism.entry_points.geometry
 
-# Parallel execution
-python -m prism.entry_points.signal_vector --workers 4
+# 4. Compute state
+python -m prism.entry_points.state
+
+# 5. Generate ML features
+python -m prism.entry_points.ml_features --target RUL
+
+# 6. Train ML model
+python -m prism.entry_points.ml_train --model xgboost
 ```
 
-### Geometry & State
+### Testing Mode
+All entry points support `--testing` flag for quick iteration:
 ```bash
-# Compute geometry
-python -m prism.entry_points.geometry --domain cheme
-
-# Compute Laplace field
-python -m prism.entry_points.laplace --domain cheme
-
-# Cohort state
-python -m prism.entry_points.cohort_state --domain cheme
+python -m prism.entry_points.signal_vector --testing --limit 100
+python -m prism.entry_points.geometry --testing
+python -m prism.entry_points.state --testing
 ```
 
-### Monitoring
-```bash
-# Monitor long-running jobs
-python -m prism.utils.monitor
-```
+### Common Flags
+| Flag | Description |
+|------|-------------|
+| `--adaptive` | Auto-detect window size from data |
+| `--force` | Clear progress and recompute all |
+| `--testing` | Enable testing mode (required for --limit, --signal) |
+| `--limit N` | [TESTING] Max observations per signal |
+| `--signal x,y` | [TESTING] Only process specific signals |
 
 ## Pipeline Architecture
 
 ```
 Layer 0: OBSERVATIONS
-         Raw sensor data → signal topology
-         Output: data/raw/observations.parquet
+         Raw sensor data
+         Output: data/observations.parquet
 
-Layer 1: SIGNAL VECTOR
+Layer 1: VECTOR
          Raw observations → 51 behavioral metrics per signal
-         Output: data/vector/signal.parquet
+         Output: data/vector.parquet
 
-Layer 2: COHORT GEOMETRY
-         Signal vectors → pairwise relationships + cohort structure
-         Output: data/geometry/cohort.parquet
+Layer 2: GEOMETRY
+         Vector signals → Laplace fields → structural geometry
+         Output: data/geometry.parquet
 
 Layer 3: STATE
-         Temporal dynamics, transitions, regime tracking
-         Output: data/state/cohort.parquet
+         Geometry evolution → temporal dynamics
+         Output: data/state.parquet
 
-REGIME CHANGE = geometric deformation at any layer
+Layer 4: ML ACCELERATOR
+         All layers → denormalized features → trained model
+         Output: data/ml_features.parquet, data/ml_model.pkl
 ```
+
+## ML Accelerator
+
+The ML Accelerator provides end-to-end ML workflow on PRISM features:
+
+### Generate Features
+```bash
+# Basic feature generation
+python -m prism.entry_points.ml_features
+
+# With target variable for supervised learning
+python -m prism.entry_points.ml_features --target RUL
+python -m prism.entry_points.ml_features --target fault_type
+```
+
+### Train Models
+```bash
+# Train with XGBoost (default)
+python -m prism.entry_points.ml_train
+
+# Choose framework
+python -m prism.entry_points.ml_train --model catboost
+python -m prism.entry_points.ml_train --model lightgbm
+python -m prism.entry_points.ml_train --model randomforest
+
+# Hyperparameter tuning
+python -m prism.entry_points.ml_train --tune
+
+# Cross-validation
+python -m prism.entry_points.ml_train --cv 5
+```
+
+### Supported Models
+- **xgboost**: XGBoost (default, fast, robust)
+- **catboost**: CatBoost (handles categoricals well)
+- **lightgbm**: LightGBM (fastest for large data)
+- **randomforest**: Scikit-learn Random Forest
+- **gradientboosting**: Scikit-learn Gradient Boosting
+
+### Outputs
+- `ml_features.parquet`: Denormalized feature table (one row per entity)
+- `ml_results.parquet`: Predictions vs actuals for test set
+- `ml_importance.parquet`: Feature importance rankings
+- `ml_model.pkl`: Serialized trained model
 
 ## Engine Categories
 
@@ -180,21 +221,24 @@ REGIME CHANGE = geometric deformation at any layer
 ### Reading Data
 ```python
 import polars as pl
-from prism.db.parquet_store import get_parquet_path
+from prism.db.parquet_store import get_path, OBSERVATIONS, VECTOR
 
-observations = pl.read_parquet(get_parquet_path('raw', 'observations'))
+observations = pl.read_parquet(get_path(OBSERVATIONS))
 filtered = observations.filter(pl.col('signal_id') == 'sensor_1')
+
+vector = pl.read_parquet(get_path(VECTOR))
 ```
 
 ### Writing Data
 ```python
 from prism.db.polars_io import upsert_parquet, write_parquet_atomic
+from prism.db.parquet_store import get_path, VECTOR
 
 # Upsert (preserves existing rows, updates by key)
-upsert_parquet(df, target_path, key_cols=['signal_id', 'obs_date'])
+upsert_parquet(df, get_path(VECTOR), key_cols=['signal_id', 'timestamp'])
 
 # Atomic write (replaces entire file)
-write_parquet_atomic(df, target_path)
+write_parquet_atomic(df, get_path(VECTOR))
 ```
 
 ## Validated Domains
@@ -214,4 +258,5 @@ write_parquet_atomic(df, target_path)
 - **Storage:** Parquet files (columnar, compressed)
 - **DataFrame:** Polars (primary), Pandas (engine compatibility)
 - **Core:** NumPy, SciPy, scikit-learn
+- **ML:** XGBoost, CatBoost, LightGBM (optional)
 - **Specialized:** antropy, nolds, pyrqa, arch, PyWavelets, networkx

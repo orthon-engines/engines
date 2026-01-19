@@ -208,6 +208,5 @@ except ImportError:
 
 try:
     from prism.engines.laplace.transform import compute_laplace_field
-    from prism.entry_points.laplace import WindowConfig
 except ImportError:
     pass

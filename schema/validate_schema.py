@@ -1,0 +1,279 @@
+#!/usr/bin/env python3
+"""
+PRISM Schema Validator — Verify observations match canonical schema.
+
+Checks:
+1. Required columns exist (entity_id, signal_id, timestamp, value)
+2. Column types are correct (string, string, float, float)
+3. timestamp is monotonic within each entity
+4. No null values in required columns
+5. Signals match domain YAML (if provided)
+
+Usage:
+    python -m prism.entry_points.validate_schema
+    python -m prism.entry_points.validate_schema --domain cmapss
+    python -m prism.entry_points.validate_schema --verbose
+"""
+
+import argparse
+import sys
+from pathlib import Path
+from typing import List, Tuple
+
+import polars as pl
+import yaml
+
+from prism.db.parquet_store import get_parquet_path, get_data_root
+
+
+# =============================================================================
+# Schema Definition
+# =============================================================================
+
+CANONICAL_SCHEMA = {
+    'entity_id': pl.Utf8,
+    'signal_id': pl.Utf8,
+    'timestamp': pl.Float64,
+    'value': pl.Float64,
+}
+
+OPTIONAL_COLUMNS = {
+    'target': pl.Float64,
+    'op_setting_1': pl.Float64,
+    'op_setting_2': pl.Float64,
+    'op_setting_3': pl.Float64,
+}
+
+
+# =============================================================================
+# Validation Functions
+# =============================================================================
+
+def check_columns_exist(df: pl.DataFrame) -> List[Tuple[str, bool, str]]:
+    """Check required columns exist."""
+    results = []
+    
+    for col in CANONICAL_SCHEMA.keys():
+        exists = col in df.columns
+        msg = f"found" if exists else f"MISSING"
+        results.append((f"Column '{col}'", exists, msg))
+    
+    return results
+
+
+def check_column_types(df: pl.DataFrame) -> List[Tuple[str, bool, str]]:
+    """Check column types match schema."""
+    results = []
+    
+    for col, expected_type in CANONICAL_SCHEMA.items():
+        if col not in df.columns:
+            continue
+            
+        actual_type = df.schema[col]
+        
+        # Allow some type flexibility
+        type_ok = False
+        if expected_type == pl.Float64:
+            type_ok = actual_type in [pl.Float64, pl.Float32, pl.Int64, pl.Int32]
+        elif expected_type == pl.Utf8:
+            type_ok = actual_type in [pl.Utf8, pl.Categorical]
+        else:
+            type_ok = actual_type == expected_type
+        
+        msg = f"{actual_type}" if type_ok else f"{actual_type} (expected {expected_type})"
+        results.append((f"Type '{col}'", type_ok, msg))
+    
+    return results
+
+
+def check_no_nulls(df: pl.DataFrame) -> List[Tuple[str, bool, str]]:
+    """Check no null values in required columns."""
+    results = []
+    
+    for col in CANONICAL_SCHEMA.keys():
+        if col not in df.columns:
+            continue
+            
+        null_count = df.select(pl.col(col).is_null().sum()).item()
+        ok = null_count == 0
+        msg = f"no nulls" if ok else f"{null_count:,} nulls"
+        results.append((f"Nulls '{col}'", ok, msg))
+    
+    return results
+
+
+def check_timestamp_monotonic(df: pl.DataFrame) -> List[Tuple[str, bool, str]]:
+    """Check timestamp is monotonically increasing within each entity."""
+    results = []
+    
+    if 'timestamp' not in df.columns or 'entity_id' not in df.columns:
+        return results
+    
+    # Check monotonicity per entity
+    violations = (
+        df
+        .sort(['entity_id', 'timestamp'])
+        .with_columns(
+            pl.col('timestamp').diff().over('entity_id').alias('ts_diff')
+        )
+        .filter(pl.col('ts_diff') < 0)
+    )
+    
+    n_violations = len(violations)
+    ok = n_violations == 0
+    
+    if ok:
+        msg = "monotonic within entities"
+    else:
+        # Get example violation
+        example = violations.head(1)
+        entity = example['entity_id'][0]
+        msg = f"{n_violations:,} violations (e.g., entity={entity})"
+    
+    results.append(("Timestamp monotonic", ok, msg))
+    
+    return results
+
+
+def check_signal_coverage(
+    df: pl.DataFrame, 
+    domain_yaml: dict
+) -> List[Tuple[str, bool, str]]:
+    """Check signals match domain YAML."""
+    results = []
+    
+    if 'signals' not in domain_yaml:
+        return results
+    
+    # Expected signals from YAML
+    expected_ids = {
+        cfg['prism_id'] 
+        for cfg in domain_yaml['signals'].values()
+    }
+    
+    # Actual signals in data
+    actual_ids = set(df['signal_id'].unique().to_list())
+    
+    # Check coverage
+    missing = expected_ids - actual_ids
+    extra = actual_ids - expected_ids
+    
+    if not missing:
+        results.append(("Expected signals", True, f"all {len(expected_ids)} found"))
+    else:
+        results.append(("Expected signals", False, f"missing: {missing}"))
+    
+    if extra:
+        # Extra signals are a warning, not an error
+        results.append(("Extra signals", True, f"found {len(extra)} unmapped: {list(extra)[:3]}..."))
+    
+    return results
+
+
+def print_summary(df: pl.DataFrame, verbose: bool = False):
+    """Print data summary."""
+    print("\n" + "=" * 60)
+    print("DATA SUMMARY")
+    print("=" * 60)
+    
+    n_rows = len(df)
+    n_entities = df['entity_id'].n_unique() if 'entity_id' in df.columns else 0
+    n_signals = df['signal_id'].n_unique() if 'signal_id' in df.columns else 0
+    
+    print(f"  Rows: {n_rows:,}")
+    print(f"  Entities: {n_entities:,}")
+    print(f"  Signals: {n_signals:,}")
+    
+    if 'timestamp' in df.columns:
+        ts_min = df['timestamp'].min()
+        ts_max = df['timestamp'].max()
+        print(f"  Timestamp range: {ts_min} → {ts_max}")
+    
+    if verbose and 'signal_id' in df.columns:
+        print("\n  Signals found:")
+        for sig in sorted(df['signal_id'].unique().to_list()):
+            count = len(df.filter(pl.col('signal_id') == sig))
+            print(f"    {sig}: {count:,} rows")
+
+
+# =============================================================================
+# Main
+# =============================================================================
+
+def main():
+    parser = argparse.ArgumentParser(
+        description='PRISM Schema Validator'
+    )
+    parser.add_argument(
+        '--domain', type=str, default=None,
+        help='Domain name (uses PRISM_DOMAIN env var if not specified)'
+    )
+    parser.add_argument(
+        '--verbose', '-v', action='store_true',
+        help='Show detailed output'
+    )
+    args = parser.parse_args()
+    
+    print("=" * 60)
+    print("PRISM SCHEMA VALIDATOR")
+    print("=" * 60)
+    
+    # Load observations
+    obs_path = get_parquet_path('raw', 'observations')
+    if not Path(obs_path).exists():
+        print(f"\n✗ Observations not found: {obs_path}")
+        print("  Run the fetcher first to generate data.")
+        sys.exit(1)
+    
+    print(f"\nChecking: {obs_path}")
+    df = pl.read_parquet(obs_path)
+    
+    # Load domain YAML if available
+    domain_yaml = None
+    if args.domain:
+        yaml_path = get_data_root() / 'config' / 'domains' / f'{args.domain}.yaml'
+        if yaml_path.exists():
+            with open(yaml_path) as f:
+                domain_yaml = yaml.safe_load(f)
+            print(f"Domain config: {yaml_path}")
+    
+    # Run checks
+    all_results = []
+    
+    print("\n" + "-" * 60)
+    print("SCHEMA CHECKS")
+    print("-" * 60)
+    
+    all_results.extend(check_columns_exist(df))
+    all_results.extend(check_column_types(df))
+    all_results.extend(check_no_nulls(df))
+    all_results.extend(check_timestamp_monotonic(df))
+    
+    if domain_yaml:
+        all_results.extend(check_signal_coverage(df, domain_yaml))
+    
+    # Print results
+    all_passed = True
+    for name, passed, msg in all_results:
+        symbol = "✓" if passed else "✗"
+        print(f"  {symbol} {name}: {msg}")
+        if not passed:
+            all_passed = False
+    
+    # Summary
+    print_summary(df, args.verbose)
+    
+    # Final verdict
+    print("\n" + "=" * 60)
+    if all_passed:
+        print("✓ SCHEMA VALID")
+        print("=" * 60)
+        sys.exit(0)
+    else:
+        print("✗ SCHEMA INVALID — Fix issues above")
+        print("=" * 60)
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

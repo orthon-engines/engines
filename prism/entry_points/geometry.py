@@ -1,17 +1,8 @@
 """
-PRISM Geometry Runner - Windowed by Design
-===========================================
+PRISM Geometry Runner
+=====================
 
-Orchestrates geometry computation by calling canonical engines + inline modules.
-
-This runner is a PURE ORCHESTRATOR:
-- Fetches data from Parquet files
-- Calls canonical GEOMETRY engines (9 from prism.engines registry)
-- Calls inline MODULES (modes, wavelet_microscope from prism.engines)
-- Iterates over date ranges at configured strides
-- Stores to Parquet
-
-NO COMPUTATION LOGIC - all delegated to canonical engines and modules.
+Computes structural geometry from vector signals using Laplace fields.
 
 GEOMETRY ENGINES (9 canonical):
     - distance:            Euclidean/Mahalanobis/cosine distance matrices
@@ -22,34 +13,15 @@ GEOMETRY ENGINES (9 canonical):
     - mst:                 Minimum spanning tree (network structure)
     - lof:                 Local outlier factor
     - convex_hull:         Phase space volume
-    - barycenter:          Conviction-weighted center of mass across timescales
+    - barycenter:          Conviction-weighted center of mass
 
-INLINE MODULES (from prism.engines):
-    - modes:               Behavioral mode discovery from Laplace signatures
-    - wavelet_microscope:  Frequency-band degradation detection
-
-Window/Stride Configuration (from config/stride.yaml default_tiers):
-    Uses get_default_tiers() - typically anchor, bridge, scout
-    NO MICRO - 21d/1d is too expensive for geometry pairwise
-
-"When five year olds run around - normal noise. When adults start running - regime change."
-
-Output Schema:
-    geometry.cohorts    - Cohort-level structural metrics
-    geometry.pairs      - Pairwise geometric relationships
+Output: data/geometry.parquet
 
 Usage:
-    # Full production run (all cohorts, all tiers)
-    python -m prism.entry_points.signal_geometry
-
-    # Force clear progress tracker
-    python -m prism.entry_points.signal_geometry --force
-
-    # Testing mode - filter to specific cohort
-    python -m prism.entry_points.signal_geometry --filter-cohort macro --testing
-
-    # Testing mode - specific date range
-    python -m prism.entry_points.signal_geometry --dates 2023-01-01:2023-12-31 --testing
+    python -m prism.entry_points.geometry              # Production run
+    python -m prism.entry_points.geometry --adaptive   # Auto-detect window
+    python -m prism.entry_points.geometry --force      # Force recompute
+    python -m prism.entry_points.geometry --testing    # Enable test mode
 """
 
 import argparse
@@ -69,11 +41,13 @@ from prism.db.parquet_store import (
     get_data_root,
     get_path,
     OBSERVATIONS,
-    SIGNALS,
+    VECTOR,
     GEOMETRY,
     STATE,
     COHORTS,
 )
+# Backwards compatibility
+SIGNALS = VECTOR
 from prism.db.polars_io import (
     read_parquet,
     read_parquet_smart,
@@ -127,16 +101,12 @@ from prism.utils import bisection
 
 def load_domain_info() -> Optional[Dict[str, Any]]:
     """
-    Load domain_info from config/domain_info.json if available.
+    Load domain_info from data/domain_info.json if available.
 
     This is saved by signal_vector when running in --adaptive mode.
     Contains auto-detected window parameters based on domain frequency.
     """
-    import os
-    domain = os.environ.get('PRISM_DOMAIN')
-    if not domain:
-        return None
-    domain_info_path = get_data_root(domain) / "domain_info.json"
+    domain_info_path = get_data_root() / "domain_info.json"
     if domain_info_path.exists():
         try:
             with open(domain_info_path) as f:
@@ -1132,58 +1102,283 @@ def clear_progress():
 
 
 # =============================================================================
-# V2 ARCHITECTURE: GEOMETRY FROM LAPLACE FIELDS
+# V3 ARCHITECTURE: GEOMETRY FROM VECTOR METRICS
 # =============================================================================
 
-def load_laplace_fields_v2(
-    domain: str = None,
-) -> Dict[str, LaplaceField]:
+def load_vector_features() -> Tuple[Optional[pl.DataFrame], Dict]:
     """
-    Load V2 LaplaceFields from parquet storage.
-
-    Args:
-        domain: Domain name
+    Load vector metrics from parquet and prepare for geometry computation.
 
     Returns:
-        Dict mapping signal_id to LaplaceField
+        Tuple of (feature_matrix DataFrame, metadata dict)
     """
-    field_path = get_path(SIGNALS)
-    if not field_path.exists():
-        logger.warning(f"No signals found at {field_path}. Run signal_vector first.")
-        return {}
+    vector_path = get_path(VECTOR)
+    if not vector_path.exists():
+        logger.warning(f"No vector data found at {vector_path}. Run signal_vector first.")
+        return None, {}
 
-    # Load field data
-    df = pl.read_parquet(field_path)
+    # Load vector data
+    df = pl.read_parquet(vector_path)
 
-    # Group by signal_id and reconstruct LaplaceFields
-    fields = {}
-    for signal_id in df['signal_id'].unique().sort().to_list():
-        signal_data = df.filter(pl.col('signal_id') == signal_id).sort(['timestamp', 's_idx'])
-
-        # Get unique timestamps and s_values
-        timestamps = signal_data['timestamp'].unique().sort().to_numpy()
-        s_values = signal_data['s_value'].unique().sort().to_numpy()
-
-        n_t = len(timestamps)
-        n_s = len(s_values)
-
-        # Reconstruct field matrix [n_t × n_s]
-        field_matrix = np.zeros((n_t, n_s), dtype=np.complex128)
-
-        for row in signal_data.iter_rows(named=True):
-            t_idx = np.searchsorted(timestamps, row['timestamp'])
-            s_idx = row['s_idx']
-            field_matrix[t_idx, s_idx] = complex(row['real'], row['imag'])
-
-        fields[signal_id] = LaplaceField(
-            signal_id=signal_id,
-            timestamps=timestamps,
-            s_values=s_values,
-            field=field_matrix,
+    # Filter to only windowed metrics (exclude dense signals)
+    # Windowed metrics have signal_type in ['windowed', 'sparse', null]
+    if 'signal_type' in df.columns:
+        df = df.filter(
+            (pl.col('signal_type').is_null()) |
+            (pl.col('signal_type') != 'dense')
         )
 
-    logger.info(f"Loaded {len(fields)} LaplaceFields from {field_path}")
-    return fields
+    # Get unique entities and timestamps
+    entities = df['entity_id'].unique().sort().to_list()
+    timestamps = df['timestamp'].unique().sort().to_list()
+
+    logger.info(f"Loaded vector data: {len(entities)} entities, {len(timestamps)} timestamps")
+
+    metadata = {
+        'n_entities': len(entities),
+        'n_timestamps': len(timestamps),
+        'n_rows': len(df),
+    }
+
+    return df, metadata
+
+
+def create_feature_matrix(
+    df: pl.DataFrame,
+    timestamp: float,
+    entity_id: str,
+) -> Optional[np.ndarray]:
+    """
+    Create feature vector for a specific entity at a timestamp.
+
+    Args:
+        df: Vector DataFrame
+        timestamp: Timestamp to extract
+        entity_id: Entity to extract
+
+    Returns:
+        1D numpy array of feature values, or None if insufficient data
+    """
+    # Filter to this entity and timestamp
+    subset = df.filter(
+        (pl.col('entity_id') == entity_id) &
+        (pl.col('timestamp') == timestamp)
+    )
+
+    if len(subset) < 5:
+        return None
+
+    # Get values as feature vector
+    values = subset['value'].to_numpy()
+    values = values[~np.isnan(values)]
+
+    if len(values) < 5:
+        return None
+
+    return values
+
+
+def compute_geometry_from_vectors(
+    df: pl.DataFrame,
+    verbose: bool = True,
+) -> List[Dict]:
+    """
+    Compute geometry metrics from vector data using canonical engines.
+
+    Processes each (entity_id, timestamp) and computes:
+    - PCA (dimensionality reduction)
+    - Clustering (signal grouping)
+    - MST (minimum spanning tree)
+    - LOF (outlier detection)
+    - Distance metrics
+    - Mutual Information
+    - Copula (tail dependence)
+    - Convex Hull (feature space volume)
+
+    Args:
+        df: Vector DataFrame with entity_id, signal_id, engine, timestamp, value
+        verbose: Print progress
+
+    Returns:
+        List of geometry row dictionaries
+    """
+    rows = []
+    computed_at = datetime.now()
+
+    # Group by entity_id and timestamp
+    groups = df.group_by(['entity_id', 'timestamp']).agg([
+        pl.col('value').count().alias('n_features'),
+        pl.col('signal_id').n_unique().alias('n_signals'),
+        pl.col('engine').n_unique().alias('n_engines'),
+    ]).sort(['entity_id', 'timestamp'])
+
+    n_groups = len(groups)
+    if verbose:
+        logger.info(f"Computing geometry for {n_groups} (entity, timestamp) combinations")
+
+    # Process each group
+    for idx, row in enumerate(groups.iter_rows(named=True)):
+        entity_id = row['entity_id']
+        timestamp = row['timestamp']
+        n_features = row['n_features']
+
+        # Skip if too few features
+        if n_features < 10:
+            continue
+
+        # Get feature data for this entity at this timestamp
+        subset_df = df.filter(
+            (pl.col('entity_id') == entity_id) &
+            (pl.col('timestamp') == timestamp)
+        )
+
+        # Pivot to matrix: rows=engine, cols=source_signal, values=mean(value)
+        # This creates a dense matrix where each row is an engine type
+        try:
+            pivoted = subset_df.group_by(['engine', 'source_signal']).agg(
+                pl.col('value').mean().alias('mean_value')
+            ).pivot(
+                index='engine',
+                on='source_signal',
+                values='mean_value'
+            )
+
+            # Convert to pandas for engine compatibility
+            matrix = pivoted.drop('engine').to_pandas()
+
+            # Fill NaN with 0 (some engines don't compute for all signals)
+            matrix = matrix.fillna(0)
+
+            if matrix.shape[0] < 3 or matrix.shape[1] < 3:
+                continue
+
+        except Exception as e:
+            continue
+
+        run_id = f"{entity_id}_{timestamp}"
+        metrics = {}
+
+        # 1. PCA ENGINE
+        try:
+            pca_engine = PCAEngine()
+            n_comp = min(5, matrix.shape[0], matrix.shape[1] - 1)
+            if n_comp >= 1:
+                pca_result = pca_engine.run(matrix, run_id=run_id, n_components=n_comp)
+                metrics['pca_variance_pc1'] = pca_result.get('variance_pc1', 0)
+                metrics['pca_variance_pc2'] = pca_result.get('variance_pc2', 0)
+                metrics['pca_effective_dim'] = pca_result.get('effective_dimensionality', 0)
+        except Exception as e:
+            pass
+
+        # 2. CLUSTERING ENGINE
+        try:
+            n_clusters = min(5, matrix.shape[0] - 1, matrix.shape[1])
+            if n_clusters >= 2:
+                clustering_engine = ClusteringEngine()
+                clustering_result = clustering_engine.run(matrix, run_id=run_id, n_clusters=n_clusters)
+                metrics['clustering_silhouette'] = clustering_result.get('silhouette_score', 0)
+        except Exception:
+            pass
+
+        # 3. MST ENGINE
+        try:
+            mst_engine = MSTEngine()
+            mst_result = mst_engine.run(matrix, run_id=run_id)
+            metrics['mst_total_weight'] = mst_result.get('total_weight', 0)
+            metrics['mst_avg_degree'] = mst_result.get('average_degree', 0)
+        except Exception:
+            pass
+
+        # 4. LOF ENGINE
+        try:
+            lof_engine = LOFEngine()
+            lof_result = lof_engine.run(matrix, run_id=run_id)
+            metrics['lof_mean'] = lof_result.get('avg_lof_score', 0)
+            metrics['lof_n_outliers'] = lof_result.get('n_outliers_auto', 0)
+        except Exception:
+            pass
+
+        # 5. DISTANCE ENGINE
+        try:
+            distance_engine = DistanceEngine()
+            distance_result = distance_engine.run(matrix, run_id=run_id)
+            metrics['distance_mean'] = distance_result.get('avg_euclidean_distance', 0)
+            metrics['distance_std'] = distance_result.get('max_euclidean_distance', 0) - distance_result.get('min_euclidean_distance', 0)
+        except Exception:
+            pass
+
+        # 6. MUTUAL INFORMATION ENGINE
+        try:
+            mi_engine = MutualInformationEngine()
+            mi_result = mi_engine.run(matrix, run_id=run_id)
+            metrics['mi_mean'] = mi_result.get('avg_mi', 0)
+        except Exception:
+            pass
+
+        # 7. COPULA ENGINE
+        try:
+            copula_engine = CopulaEngine()
+            copula_result = copula_engine.run(matrix, run_id=run_id)
+            metrics['copula_upper_tail'] = copula_result.get('avg_upper_tail', 0)
+            metrics['copula_lower_tail'] = copula_result.get('avg_lower_tail', 0)
+        except Exception:
+            pass
+
+        # 8. CONVEX HULL ENGINE
+        try:
+            hull_engine = ConvexHullEngine()
+            hull_result = hull_engine.run(matrix, run_id=run_id)
+            metrics['hull_volume'] = hull_result.get('hull_volume', 0)
+            metrics['hull_centroid_dist'] = hull_result.get('centroid_avg_distance', 0)
+        except Exception:
+            pass
+
+        # Get signal_ids (metadata only)
+        signal_ids_subset = subset_df['signal_id'].unique().to_list()
+        signal_ids_str = ','.join(sorted(signal_ids_subset)[:50]) if signal_ids_subset else ''
+
+        # Build row from engine outputs only - no inline calculations
+        rows.append({
+            'entity_id': entity_id,
+            'timestamp': float(timestamp),
+            'n_features': int(n_features),
+            'n_signals': int(row['n_signals']),
+            'n_engines': int(row['n_engines']),
+            # PCA engine
+            'pca_var_1': float(metrics.get('pca_variance_pc1', 0)),
+            'pca_var_2': float(metrics.get('pca_variance_pc2', 0)),
+            'pca_effective_dim': float(metrics.get('pca_effective_dim', 0)),
+            # Clustering engine
+            'clustering_silhouette': float(metrics.get('clustering_silhouette', 0)),
+            # MST engine
+            'mst_total_weight': float(metrics.get('mst_total_weight', 0)),
+            'mst_avg_degree': float(metrics.get('mst_avg_degree', 0)),
+            # LOF engine
+            'lof_mean': float(metrics.get('lof_mean', 0)),
+            'lof_n_outliers': int(metrics.get('lof_n_outliers', 0)),
+            # Distance engine
+            'distance_mean': float(metrics.get('distance_mean', 0)),
+            'distance_std': float(metrics.get('distance_std', 0)),
+            # Mutual Information engine
+            'mi_mean': float(metrics.get('mi_mean', 0)),
+            # Copula engine
+            'copula_upper_tail': float(metrics.get('copula_upper_tail', 0)),
+            'copula_lower_tail': float(metrics.get('copula_lower_tail', 0)),
+            # Convex Hull engine
+            'hull_volume': float(metrics.get('hull_volume', 0)),
+            'hull_centroid_dist': float(metrics.get('hull_centroid_dist', 0)),
+            # Metadata
+            'signal_ids': signal_ids_str,
+            'computed_at': computed_at,
+        })
+
+        if verbose and (idx + 1) % 100 == 0:
+            logger.info(f"  Processed {idx + 1}/{n_groups} groups...")
+
+    if verbose:
+        logger.info(f"  Computed {len(rows)} geometry snapshots")
+
+    return rows
 
 
 def compute_geometry_v2(
@@ -1260,74 +1455,46 @@ def snapshots_to_rows(
     return rows
 
 
-def run_v2_geometry(
-    verbose: bool = True,
-    domain: str = None,
-) -> Dict:
+def run_v2_geometry(verbose: bool = True) -> Dict:
     """
-    Run V2 geometry computation.
+    Run V3 geometry computation from vector metrics.
 
-    Loads LaplaceFields, computes geometry snapshots, saves to parquet.
+    Loads vector data, computes geometry metrics, saves to parquet.
 
     Args:
         verbose: Print progress
-        domain: Domain name
 
     Returns:
         Dict with processing statistics
     """
-    computed_at = datetime.now()
+    # Load vector data
+    df, metadata = load_vector_features()
 
-    # Load LaplaceFields
-    fields = load_laplace_fields_v2(domain=domain)
-
-    if not fields:
-        logger.warning("No fields loaded. Run laplace.py --v2 first.")
+    if df is None or len(df) == 0:
+        logger.warning("No vector data loaded. Run signal_vector first.")
         return {'snapshots': 0}
 
-    # Compute geometry snapshots
-    snapshots, stats = compute_geometry_v2(fields, verbose=verbose)
+    # Compute geometry from vectors
+    rows = compute_geometry_from_vectors(df, verbose=verbose)
 
-    if not snapshots:
-        return stats
+    if not rows:
+        return {'snapshots': 0, **metadata}
 
-    # Convert to rows for storage
-    rows = snapshots_to_rows(snapshots, computed_at)
+    stats = {
+        'n_snapshots': len(rows),
+        **metadata,
+    }
 
     if verbose:
-        logger.info(f"  Saving {len(rows)} geometry snapshot rows...")
+        logger.info(f"  Saving {len(rows)} geometry rows...")
 
     # Save to geometry.parquet
-    df = pl.DataFrame(rows, infer_schema_length=None)
+    geom_df = pl.DataFrame(rows, infer_schema_length=None)
     geom_path = get_path(GEOMETRY)
-    upsert_parquet(df, geom_path, ['timestamp'])
+    upsert_parquet(geom_df, geom_path, ['entity_id', 'timestamp'])
 
     if verbose:
         logger.info(f"  Saved: {geom_path}")
-
-    # Also save coupling matrices (detailed) if not too large
-    # Coupling goes to geometry.parquet as well
-    if len(snapshots) <= 1000:
-        coupling_rows = []
-        for snap in snapshots:
-            if snap.n_signals > 0:
-                for i, sig_a in enumerate(snap.signal_ids):
-                    for j, sig_b in enumerate(snap.signal_ids):
-                        if i < j:  # Upper triangle only
-                            coupling_rows.append({
-                                'timestamp': snap.timestamp,
-                                'signal_a': sig_a,
-                                'signal_b': sig_b,
-                                'coupling': float(snap.coupling_matrix[i, j]),
-                                'computed_at': computed_at,
-                            })
-
-        if coupling_rows:
-            coupling_df = pl.DataFrame(coupling_rows, infer_schema_length=None)
-            upsert_parquet(coupling_df, geom_path, ['timestamp', 'signal_a', 'signal_b'])
-
-            if verbose:
-                logger.info(f"  Saved coupling: {geom_path} ({len(coupling_rows):,} pairs)")
 
     stats['saved_rows'] = len(rows)
     return stats
@@ -1339,252 +1506,55 @@ def run_v2_geometry(
 
 def main():
     parser = argparse.ArgumentParser(
-        description='PRISM Geometry Runner - Windowed by Design (9 canonical engines)',
-        formatter_class=argparse.RawDescriptionHelpFormatter
+        description='PRISM Geometry Runner - Compute structural geometry from vector signals',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Output: data/geometry.parquet
+
+Examples:
+  python -m prism.entry_points.geometry              # Production run
+  python -m prism.entry_points.geometry --adaptive   # Auto-detect window
+  python -m prism.entry_points.geometry --force      # Force recompute
+  python -m prism.entry_points.geometry --testing    # Enable test mode
+"""
     )
 
-    # Mode selection (mutually exclusive, required)
-    mode_group = parser.add_mutually_exclusive_group(required=True)
-    mode_group.add_argument('--signal', action='store_true',
-                            help='Process within-cohort signal geometry (pairwise + cohort-level)')
-    mode_group.add_argument('--cohort', action='store_true',
-                            help='Process cross-cohort geometry (cohort comparisons)')
-    mode_group.add_argument('--v2', action='store_true',
-                            help='V2 Architecture: Compute geometry from Laplace fields')
-
     # Production flags
+    parser.add_argument('--adaptive', action='store_true',
+                        help='Use adaptive windowing from domain_info.json')
     parser.add_argument('--force', action='store_true',
                         help='Clear progress tracker and recompute all')
-    parser.add_argument('--weighted', action='store_true',
-                        help='Include window_weight column for weighted aggregation')
 
-    # Testing mode - REQUIRED to use any limiting flags
+    # Testing mode
     parser.add_argument('--testing', action='store_true',
-                        help='Enable testing mode. REQUIRED to use limiting flags.')
-
-    # Testing-only flags
-    parser.add_argument('--filter-cohort', type=str,
-                        help='[TESTING] Filter to specific cohort')
-    parser.add_argument('--dates', type=str,
-                        help='[TESTING] Date range as START:END (YYYY-MM-DD:YYYY-MM-DD)')
-    parser.add_argument('--no-pairwise', action='store_true',
-                        help='[TESTING] Skip pairwise geometry')
-
-    # Domain selection (required - prompts if not specified)
-    parser.add_argument('--domain', type=str, default=None,
-                        help='Domain to process (e.g., cheme, cmapss). Prompts if not specified.')
+                        help='Enable testing mode')
 
     args = parser.parse_args()
 
-    # Domain selection - prompt if not specified
-    from prism.utils.domain import require_domain
-    import os
-    domain = require_domain(args.domain, "Select domain for geometry")
-    os.environ["PRISM_DOMAIN"] = domain
-    print(f"Domain: {domain}", flush=True)
-
-    # V2 Architecture: Geometry from Laplace fields
-    if args.v2:
-        logger.info("=" * 80)
-        logger.info("V2 ARCHITECTURE: Geometry from Laplace Fields")
-        logger.info("=" * 80)
-        ensure_schema()
-        result = run_v2_geometry(verbose=True, domain=domain)
-        logger.info("")
-        logger.info("=" * 80)
-        logger.info("COMPLETE")
-        logger.info("=" * 80)
-        logger.info(f"  Snapshots: {result.get('n_snapshots', 0)}")
-        logger.info(f"  Saved rows: {result.get('saved_rows', 0)}")
-        return 0
-
-    # ==========================================================================
-    # CRITICAL: --testing guard
-    # Without --testing, ALL limiting flags are ignored and full run executes.
-    # ==========================================================================
-    if not args.testing:
-        limiting_flags_used = []
-        if args.filter_cohort:
-            limiting_flags_used.append('--filter-cohort')
-        if args.dates:
-            limiting_flags_used.append('--dates')
-        if args.no_pairwise:
-            limiting_flags_used.append('--no-pairwise')
-
-        if limiting_flags_used:
-            logger.warning("=" * 80)
-            logger.warning("LIMITING FLAGS IGNORED - --testing not specified")
-            logger.warning(f"Ignored flags: {', '.join(limiting_flags_used)}")
-            logger.warning("Running FULL computation instead. Use --testing to enable limiting flags.")
-            logger.warning("=" * 80)
-
-        # Override to full defaults
-        args.filter_cohort = None
-        args.dates = None
-        args.no_pairwise = False
-
-    # Clear progress if --force
+    # Handle --force
     if args.force:
         clear_progress()
 
     # Ensure directories exist
     ensure_schema()
 
-    # Get all cohorts, optionally filter
-    cohorts = get_all_cohorts()
-    if args.filter_cohort:
-        if args.filter_cohort in cohorts:
-            cohorts = [args.filter_cohort]
-        else:
-            logger.error(f"Cohort '{args.filter_cohort}' not found. Available: {cohorts}")
-            return 1
-
-    # Get date range from data
-    min_date, max_date = get_date_range()
-
-    # Parse dates
-    if args.dates:
-        try:
-            start_str, end_str = args.dates.split(':')
-            start_date = pd.to_datetime(start_str).date()
-            end_date = pd.to_datetime(end_str).date()
-        except ValueError:
-            logger.error("Invalid --dates format. Use START:END (YYYY-MM-DD:YYYY-MM-DD)")
-            return 1
-    else:
-        start_date = min_date
-        end_date = max_date
-
-    stride_config = load_stride_config()
-
-    # GEOMETRY: use default tiers from config (anchor + bridge + scout)
-    # NO micro - 21d/1d is too expensive for geometry pairwise
-    window_tiers = get_default_tiers()
-
-    # Determine mode
-    mode = "signal" if args.signal else "cohort"
-
-    # Memory tracking
-    start_memory = get_memory_usage_mb()
-
+    # Run V3 geometry (from vector metrics)
     logger.info("=" * 80)
-    logger.info("PRISM GEOMETRY - WINDOWED BY DESIGN (9 Canonical Engines)")
+    logger.info("PRISM GEOMETRY - Vector Metrics Architecture")
     logger.info("=" * 80)
-    logger.info(f"Mode: --{mode}")
-    logger.info(f"Storage: Parquet files")
-    logger.info(f"Starting memory: {start_memory:.0f} MB")
-    logger.info(f"Date range: {start_date} to {end_date}")
-    logger.info(f"Cohorts: {len(cohorts)}")
-    logger.info(f"Window tiers: {window_tiers}")
-    for tier in window_tiers:
-        w = stride_config.get_window(tier)
-        logger.info(f"  {tier}: {w.window_days}d / {w.stride_days}d stride")
-    logger.info(f"Pairwise: {'NO (testing)' if args.no_pairwise else 'YES'}")
-    logger.info(f"Weighted: {'YES (writes to *_weighted.parquet)' if args.weighted else 'NO'}")
-    logger.info("")
+    logger.info(f"Source: data/vector.parquet")
+    logger.info(f"Destination: data/geometry.parquet")
 
-    # Branch based on mode
-    if args.cohort:
-        logger.info("Cross-cohort geometry: comparing cohorts to each other")
-        logger.info("(Use prism.entry_points.cohort_geometry for now - integration pending)")
-        return 0
-
-    # Get completed windows for progress tracking
-    completed = get_completed_windows()
-    if completed:
-        logger.info(f"Resuming: {len(completed)} windows already complete")
-
-    # Incremental write batch size
-    BATCH_SIZE = 10  # Write every 10 windows (was 50)
-
-    # Process each window tier
-    total_cohort_rows = 0
-    total_pairwise_rows = 0
-
-    for window_name in window_tiers:
-        window = stride_config.get_window(window_name)
-        window_days = window.window_days
-
-        # Generate dates at configured stride
-        dates = get_window_dates(window_name, start_date, end_date, stride_config)
-
-        logger.info(f"[{window_name}] {window_days}d / {window.stride_days}d stride, {len(dates)} snapshots")
-
-        cohort_rows = []
-        pairwise_rows = []
-        tier_cohort_rows = 0
-        tier_pairwise_rows = 0
-        window_count = 0
-
-        for window_end in dates:
-            for cohort in cohorts:
-                # Skip if already complete
-                if (cohort, window_end, window_days) in completed:
-                    continue
-
-                result, row = run_cohort_geometry(cohort, window_end, window_days, include_weight=True)
-                if row:
-                    cohort_rows.append(row)
-
-                if not args.no_pairwise:
-                    pair_rows = run_pairwise_geometry(cohort, window_end, window_days, include_weight=True)
-                    pairwise_rows.extend(pair_rows)
-
-                # Mark complete
-                mark_window_complete(cohort, window_end, window_days)
-                window_count += 1
-
-                # Incremental write every BATCH_SIZE windows - COMPUTE → WRITE → RELEASE
-                if window_count % BATCH_SIZE == 0:
-                    if cohort_rows:
-                        store_cohort_geometry_batch(cohort_rows, weighted=args.weighted)
-                        tier_cohort_rows += len(cohort_rows)
-                        del cohort_rows
-                        cohort_rows = []
-                    if pairwise_rows:
-                        store_pairwise_geometry_batch(pairwise_rows, weighted=args.weighted)
-                        tier_pairwise_rows += len(pairwise_rows)
-                        del pairwise_rows
-                        pairwise_rows = []
-
-                    # RELEASE - explicit GC after batch write
-                    force_gc()
-
-                    current_mem = get_memory_usage_mb()
-                    logger.info(f"  [{window_name}] Saved {window_count} windows ({tier_cohort_rows} cohort, {tier_pairwise_rows} pair rows) [mem: {current_mem:.0f} MB]")
-
-        # Final batch for this tier - WRITE → RELEASE
-        if cohort_rows:
-            store_cohort_geometry_batch(cohort_rows, weighted=args.weighted)
-            tier_cohort_rows += len(cohort_rows)
-            del cohort_rows
-        if pairwise_rows:
-            store_pairwise_geometry_batch(pairwise_rows, weighted=args.weighted)
-            tier_pairwise_rows += len(pairwise_rows)
-            del pairwise_rows
-
-        # RELEASE after tier
-        force_gc()
-
-        total_cohort_rows += tier_cohort_rows
-        total_pairwise_rows += tier_pairwise_rows
-
-        tier_mem = get_memory_usage_mb()
-        logger.info(f"[{window_name}] Complete: {tier_cohort_rows} cohort rows, {tier_pairwise_rows} pair rows [mem: {tier_mem:.0f} MB]")
-
-    # Final memory summary
-    end_memory = get_memory_usage_mb()
-    delta = end_memory - start_memory
+    result = run_v2_geometry(verbose=True)
 
     logger.info("")
     logger.info("=" * 80)
     logger.info("COMPLETE")
     logger.info("=" * 80)
-    logger.info(f"Cohort geometry rows: {total_cohort_rows}")
-    logger.info(f"Pairwise geometry rows: {total_pairwise_rows}")
-    logger.info(f"Memory: {start_memory:.0f} → {end_memory:.0f} MB (Δ{delta:+.0f} MB)")
-
+    logger.info(f"  Snapshots: {result.get('n_snapshots', 0)}")
+    logger.info(f"  Saved rows: {result.get('saved_rows', 0)}")
     return 0
+
 
 
 if __name__ == '__main__':

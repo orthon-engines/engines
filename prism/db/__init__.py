@@ -32,12 +32,11 @@ from prism.db.parquet_store import (
     get_file_size,
     delete_file,
     list_files,
-    list_domains,
     get_status,
-    get_active_domain,
     # File constants
     OBSERVATIONS,
-    SIGNALS,
+    VECTOR,
+    SIGNALS,  # Alias for VECTOR
     GEOMETRY,
     STATE,
     COHORTS,
@@ -79,11 +78,10 @@ __all__ = [
     "get_file_size",
     "delete_file",
     "list_files",
-    "list_domains",
     "get_status",
-    "get_active_domain",
     # File constants
     "OBSERVATIONS",
+    "VECTOR",
     "SIGNALS",
     "GEOMETRY",
     "STATE",

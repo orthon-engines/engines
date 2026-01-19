@@ -80,22 +80,20 @@ class EnergyDynamicsEngine:
         import json
         from pathlib import Path
 
-        domain = os.environ.get('PRISM_DOMAIN')
-        if domain:
-            # Try domain_info.json first
-            try:
-                from prism.db.parquet_store import get_data_root
-                domain_info_path = get_data_root(domain) / "domain_info.json"
-                if domain_info_path.exists():
-                    with open(domain_info_path) as f:
-                        return json.load(f)
-            except Exception:
-                pass
+        # Try domain_info.json first
+        try:
+            from prism.db.parquet_store import get_data_root
+            domain_info_path = get_data_root() / "domain_info.json"
+            if domain_info_path.exists():
+                with open(domain_info_path) as f:
+                    return json.load(f)
+        except Exception:
+            pass
 
         # Try domain.yaml
         try:
             from prism.config.loader import load_clock_config
-            return load_clock_config(domain)
+            return load_clock_config()
         except Exception:
             pass
 

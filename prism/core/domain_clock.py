@@ -74,7 +74,7 @@ class DomainClock:
         observations: pl.DataFrame,
         signal_col: str = 'signal_id',
         value_col: str = 'value',
-        time_col: str = 'obs_date',
+        time_col: str = 'timestamp',
     ) -> DomainInfo:
         """
         Scan all signals and detect domain frequency.
@@ -420,8 +420,8 @@ def auto_detect_window(
 def characterize_domain(
     observations: pl.DataFrame,
     signal_col: str = 'signal_id',
-    value_col: str = 'value', 
-    time_col: str = 'obs_date',
+    value_col: str = 'value',
+    time_col: str = 'timestamp',
 ) -> DomainInfo:
     """
     Full domain characterization.

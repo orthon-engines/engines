@@ -1,0 +1,179 @@
+# config/domains/cmapss.yaml
+# NASA C-MAPSS Turbofan Degradation Dataset
+
+domain: cmapss
+description: "NASA C-MAPSS Turbofan Engine Degradation"
+
+# =============================================================================
+# TIME CONFIGURATION
+# =============================================================================
+time:
+  source_column: cycle
+  unit: cycles
+  description: "Engine operating cycles"
+
+# =============================================================================
+# ENTITY CONFIGURATION
+# =============================================================================
+entity:
+  source_column: unit
+  description: "Turbofan engine unit"
+
+# =============================================================================
+# TARGET VARIABLE
+# =============================================================================
+target:
+  source_column: RUL
+  prism_id: target_rul
+  description: "Remaining Useful Life (cycles)"
+
+# =============================================================================
+# SIGNAL MAPPING
+# =============================================================================
+# source_name → prism internal ID
+
+signals:
+  # Temperatures (4)
+  T2:
+    prism_id: temp_inlet
+    description: "Total temperature at fan inlet"
+    unit: "°R"
+    category: temperature
+  T24:
+    prism_id: temp_lpc_outlet
+    description: "Total temperature at LPC outlet"
+    unit: "°R"
+    category: temperature
+  T30:
+    prism_id: temp_hpc_outlet
+    description: "Total temperature at HPC outlet"
+    unit: "°R"
+    category: temperature
+  T50:
+    prism_id: temp_lpt_outlet
+    description: "Total temperature at LPT outlet"
+    unit: "°R"
+    category: temperature
+
+  # Pressures (4)
+  P2:
+    prism_id: press_fan_inlet
+    description: "Pressure at fan inlet"
+    unit: "psia"
+    category: pressure
+  P15:
+    prism_id: press_bypass
+    description: "Total pressure in bypass-duct"
+    unit: "psia"
+    category: pressure
+  P30:
+    prism_id: press_hpc_outlet
+    description: "Total pressure at HPC outlet"
+    unit: "psia"
+    category: pressure
+  Ps30:
+    prism_id: press_static_hpc
+    description: "Static pressure at HPC outlet"
+    unit: "psia"
+    category: pressure
+
+  # Speeds (4)
+  Nf:
+    prism_id: speed_fan
+    description: "Physical fan speed"
+    unit: "rpm"
+    category: speed
+  Nc:
+    prism_id: speed_core
+    description: "Physical core speed"
+    unit: "rpm"
+    category: speed
+  NRf:
+    prism_id: speed_fan_corrected
+    description: "Corrected fan speed"
+    unit: "rpm"
+    category: speed
+  NRc:
+    prism_id: speed_core_corrected
+    description: "Corrected core speed"
+    unit: "rpm"
+    category: speed
+
+  # Flows (3)
+  W31:
+    prism_id: flow_hpt_coolant
+    description: "HPT coolant bleed"
+    unit: "lbm/s"
+    category: flow
+  W32:
+    prism_id: flow_lpt_coolant
+    description: "LPT coolant bleed"
+    unit: "lbm/s"
+    category: flow
+  phi:
+    prism_id: flow_coefficient
+    description: "Ratio of fuel flow to Ps30"
+    unit: "-"
+    category: flow
+
+  # Ratios (3)
+  BPR:
+    prism_id: ratio_bypass
+    description: "Bypass ratio"
+    unit: "-"
+    category: ratio
+  epr:
+    prism_id: ratio_pressure_engine
+    description: "Engine pressure ratio (P50/P2)"
+    unit: "-"
+    category: ratio
+  farB:
+    prism_id: ratio_fuel_air
+    description: "Burner fuel-air ratio"
+    unit: "-"
+    category: ratio
+
+  # Bleed/Other (3)
+  htBleed:
+    prism_id: bleed_enthalpy
+    description: "Bleed enthalpy"
+    unit: "-"
+    category: bleed
+  Nf_dmd:
+    prism_id: demand_fan_speed
+    description: "Demanded fan speed"
+    unit: "rpm"
+    category: demand
+  PCNfR_dmd:
+    prism_id: demand_fan_speed_corrected
+    description: "Demanded corrected fan speed"
+    unit: "rpm"
+    category: demand
+
+# =============================================================================
+# OPERATING SETTINGS
+# =============================================================================
+op_settings:
+  op1:
+    prism_id: op_altitude
+    description: "Altitude"
+    unit: "ft"
+  op2:
+    prism_id: op_mach
+    description: "Mach number"
+    unit: "-"
+  op3:
+    prism_id: op_throttle
+    description: "Throttle resolver angle"
+    unit: "deg"
+
+# =============================================================================
+# EXPECTED COHORTS (for validation)
+# =============================================================================
+expected_cohorts:
+  temperatures: [T2, T24, T30, T50]
+  pressures: [P2, P15, P30, Ps30]
+  fan_spool: [Nf, NRf, Nf_dmd, PCNfR_dmd]
+  core_spool: [Nc, NRc]
+  flows: [W31, W32, phi]
+  ratios: [BPR, epr, farB]

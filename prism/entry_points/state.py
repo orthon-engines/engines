@@ -1,19 +1,8 @@
 """
-PRISM State Runner - Temporal Dynamics from Geometry
-====================================================
+PRISM State Runner
+==================
 
-Orchestrates temporal state dynamics by analyzing geometry evolution over time.
-
-This runner is a PURE ORCHESTRATOR:
-- Reads from geometry.structure, geometry.displacement, geometry.signals
-- Computes temporal dynamics (energy, tension, phases)
-- Detects regime shifts and cross-cohort transmission
-- Stores to state.system, state.signal_dynamics, state.transfers
-
-NO COMPUTATION LOGIC - all delegated to canonical engines.
-
-Pipeline:
-    geometry.* -> state.*
+Computes temporal state dynamics by analyzing geometry evolution over time.
 
 STATE DYNAMICS ENGINES (5):
     - energy_dynamics:    Energy trends, acceleration, z-scores
@@ -22,25 +11,13 @@ STATE DYNAMICS ENGINES (5):
     - cohort_aggregator:  Signal-level to cohort-level metrics
     - transfer_detector:  Cross-cohort transmission patterns
 
-Output Schema:
-    state.system             - System-level temporal dynamics
-    state.signal_dynamics - Per-signal temporal evolution
-    state.transfers          - Cross-cohort transmission
-
-Storage: Parquet files (no database locks)
+Output: data/state.parquet
 
 Usage:
-    # Run on all available geometry data
-    python -m prism.entry_points.state
-
-    # Run on specific date range (requires --testing)
-    python -m prism.entry_points.state --testing --start 2020-01-01 --end 2024-12-31
-
-    # Single snapshot (requires --testing)
-    python -m prism.entry_points.state --testing --snapshot 2024-01-15
-
-    # Parallel execution
-    python -m prism.entry_points.state --workers 4
+    python -m prism.entry_points.state              # Production run
+    python -m prism.entry_points.state --adaptive   # Auto-detect window
+    python -m prism.entry_points.state --force      # Force recompute
+    python -m prism.entry_points.state --testing    # Enable test mode
 """
 
 import argparse
@@ -57,11 +34,13 @@ from prism.db.parquet_store import (
     get_path,
     get_data_root,
     OBSERVATIONS,
-    SIGNALS,
+    VECTOR,
     GEOMETRY,
     STATE,
     COHORTS,
 )
+# Backwards compatibility
+SIGNALS = VECTOR
 from prism.db.polars_io import read_parquet, upsert_parquet
 from prism.db.scratch import TempParquet, merge_temp_results
 from prism.engines.utils.parallel import (
@@ -113,10 +92,7 @@ def load_domain_info() -> Optional[Dict[str, Any]]:
     This is saved by signal_vector when running in --adaptive mode.
     """
     import os
-    domain = os.environ.get('PRISM_DOMAIN')
-    if not domain:
-        return None
-    domain_info_path = get_data_root(domain) / "domain_info.json"
+    domain_info_path = get_data_root() / "domain_info.json"
     if domain_info_path.exists():
         try:
             with open(domain_info_path) as f:
@@ -856,67 +832,62 @@ def merge_state_results(temp_paths: List[Path], verbose: bool = True) -> Dict[st
 # V2 ARCHITECTURE: STATE TRAJECTORY FROM GEOMETRY SNAPSHOTS
 # =============================================================================
 
-def load_geometry_snapshots_v2() -> List[GeometrySnapshot]:
+def load_geometry_snapshots_v2() -> Dict[str, List[GeometrySnapshot]]:
     """
-    Load V2 GeometrySnapshots from parquet storage.
+    Load V2 GeometrySnapshots from parquet storage, grouped by entity.
 
     Returns:
-        List of GeometrySnapshot objects sorted by timestamp
+        Dict mapping entity_id -> List of GeometrySnapshot objects sorted by timestamp
     """
     geom_path = get_path(GEOMETRY)
     if not geom_path.exists():
         logger.warning(f"No V2 geometry snapshots at {geom_path}. Run geometry --v2 first.")
-        return []
+        return {}
 
-    df = pl.read_parquet(geom_path).sort('timestamp')
+    df = pl.read_parquet(geom_path).sort(['entity_id', 'timestamp'])
 
-    # Also load coupling matrices if available
-    coupling_path = get_path(GEOMETRY)
-    coupling_by_timestamp = {}
-    if coupling_path.exists():
-        coupling_df = pl.read_parquet(coupling_path)
-        for ts in coupling_df['timestamp'].unique().to_list():
-            ts_data = coupling_df.filter(pl.col('timestamp') == ts)
-            coupling_by_timestamp[ts] = ts_data
+    # Check if coupling columns exist (signal_a, signal_b, coupling)
+    has_coupling_columns = all(col in df.columns for col in ['signal_a', 'signal_b', 'coupling'])
 
-    snapshots = []
+    # Group by entity_id
+    snapshots_by_entity = {}
+
     for row in df.iter_rows(named=True):
+        entity_id = row.get('entity_id', 'unknown')
         ts = row['timestamp']
-        signal_ids = row['signal_ids'].split(',') if row['signal_ids'] else []
-        n_signals = row['n_signals']
+        signal_ids = row.get('signal_ids', '')
+        signal_ids = signal_ids.split(',') if signal_ids else []
+        n_signals = row.get('n_signals', len(signal_ids))
 
-        # Reconstruct coupling matrix if available
-        if ts in coupling_by_timestamp and n_signals > 0:
-            ts_coupling = coupling_by_timestamp[ts]
-            coupling_matrix = np.eye(n_signals)  # Start with identity
-
-            for c_row in ts_coupling.iter_rows(named=True):
-                try:
-                    i = signal_ids.index(c_row['signal_a'])
-                    j = signal_ids.index(c_row['signal_b'])
-                    coupling_matrix[i, j] = c_row['coupling']
-                    coupling_matrix[j, i] = c_row['coupling']
-                except ValueError:
-                    pass
+        # Use identity matrix when no pairwise coupling data
+        if n_signals > 0:
+            coupling_matrix = np.eye(n_signals)
         else:
             coupling_matrix = np.array([[]])
 
-        # Create mode arrays from summary values
-        n_modes = row['n_modes']
+        # Handle both n_modes and mode_count column names
+        n_modes = row.get('n_modes', row.get('mode_count', 1))
         mode_labels = np.zeros(n_signals, dtype=int) if n_signals > 0 else np.array([])
-        mode_coherence = np.array([row['mean_mode_coherence']]) if n_modes > 0 else np.array([])
+        # Default coherence to 1.0 if not available
+        mean_coherence = row.get('mean_mode_coherence', 1.0)
+        mode_coherence = np.array([mean_coherence]) if n_modes > 0 else np.array([])
 
-        snapshots.append(GeometrySnapshot(
+        snapshot = GeometrySnapshot(
             timestamp=float(ts) if isinstance(ts, (int, float)) else ts.timestamp() if hasattr(ts, 'timestamp') else 0.0,
             coupling_matrix=coupling_matrix,
-            divergence=row['divergence'],
+            divergence=row.get('divergence', 0.0),
             mode_labels=mode_labels,
             mode_coherence=mode_coherence,
             signal_ids=signal_ids,
-        ))
+        )
 
-    logger.info(f"Loaded {len(snapshots)} GeometrySnapshots from {geom_path}")
-    return snapshots
+        if entity_id not in snapshots_by_entity:
+            snapshots_by_entity[entity_id] = []
+        snapshots_by_entity[entity_id].append(snapshot)
+
+    total_snapshots = sum(len(snaps) for snaps in snapshots_by_entity.values())
+    logger.info(f"Loaded {total_snapshots} GeometrySnapshots from {geom_path} ({len(snapshots_by_entity)} entities)")
+    return snapshots_by_entity
 
 
 def state_trajectory_to_rows(
@@ -959,10 +930,10 @@ def run_v2_state(
     verbose: bool = True,
 ) -> Dict:
     """
-    Run V2 state trajectory computation.
+    Run V2 state trajectory computation PER ENTITY.
 
-    Loads GeometrySnapshots, computes state trajectory (position, velocity,
-    acceleration), detects failure signatures, saves to parquet.
+    Loads geometry metrics directly from parquet, computes state trajectory
+    (position, velocity, acceleration) for each entity, saves to parquet.
 
     Args:
         verbose: Print progress
@@ -972,106 +943,123 @@ def run_v2_state(
     """
     computed_at = datetime.now()
 
-    # Load geometry snapshots
-    snapshots = load_geometry_snapshots_v2()
-
-    if not snapshots:
-        logger.warning("No snapshots loaded. Run geometry --v2 first.")
+    # Load geometry directly from parquet
+    geom_path = get_path(GEOMETRY)
+    if not geom_path.exists():
+        logger.warning(f"No geometry data at {geom_path}. Run geometry first.")
         return {'snapshots': 0}
 
+    geom_df = pl.read_parquet(geom_path).sort(['entity_id', 'timestamp'])
+
+    # Feature columns to use for position vector
+    feature_cols = [
+        'pca_var_1', 'pca_var_2', 'clustering_silhouette',
+        'mst_total_weight', 'lof_mean', 'distance_mean'
+    ]
+    # Filter to columns that exist
+    feature_cols = [c for c in feature_cols if c in geom_df.columns]
+
+    if not feature_cols:
+        logger.warning("No geometry feature columns found.")
+        return {'snapshots': 0}
+
+    n_entities = geom_df['entity_id'].n_unique()
+    total_snapshots = len(geom_df)
+
     if verbose:
         logger.info("=" * 80)
-        logger.info("V2 ARCHITECTURE: State Trajectory from Geometry")
+        logger.info("V2 ARCHITECTURE: State Trajectory from Geometry (Per-Entity)")
         logger.info("=" * 80)
-        logger.info(f"  Snapshots: {len(snapshots)}")
+        logger.info(f"  Entities: {n_entities}")
+        logger.info(f"  Total snapshots: {total_snapshots}")
+        logger.info(f"  Feature columns: {feature_cols}")
 
-    # Compute state trajectory
-    trajectory = compute_state_trajectory(snapshots)
+    # Compute state trajectory for each entity
+    all_rows = []
+    total_failure_timestamps = 0
+    entities_processed = 0
+
+    for entity_id in geom_df['entity_id'].unique().sort().to_list():
+        entity_df = geom_df.filter(pl.col('entity_id') == entity_id).sort('timestamp')
+
+        if len(entity_df) < 2:
+            continue
+
+        timestamps = entity_df['timestamp'].to_numpy()
+        positions = entity_df.select(feature_cols).to_numpy()
+
+        # Compute velocity and acceleration using numpy gradient
+        velocity = np.gradient(positions, timestamps, axis=0)
+        acceleration = np.gradient(velocity, timestamps, axis=0)
+
+        # Compute speed (magnitude of velocity)
+        speed = np.linalg.norm(velocity, axis=1)
+        accel_mag = np.linalg.norm(acceleration, axis=1)
+
+        # Compute curvature (change in direction)
+        curvature = np.zeros(len(timestamps))
+        for i in range(1, len(timestamps) - 1):
+            v1 = velocity[i - 1]
+            v2 = velocity[i]
+            norm_v1 = np.linalg.norm(v1)
+            norm_v2 = np.linalg.norm(v2)
+            if norm_v1 > 1e-10 and norm_v2 > 1e-10:
+                cos_angle = np.dot(v1, v2) / (norm_v1 * norm_v2)
+                cos_angle = np.clip(cos_angle, -1.0, 1.0)
+                curvature[i] = np.arccos(cos_angle)
+
+        # Detect failure signatures (high velocity + positive acceleration)
+        mean_speed = np.mean(speed)
+        failure_mask = (speed > mean_speed) & (accel_mag > np.mean(accel_mag))
+        n_failure = int(np.sum(failure_mask))
+        total_failure_timestamps += n_failure
+
+        # Summary metrics
+        mean_velocity = float(np.nanmean(speed))
+        mean_acceleration = float(np.nanmean(accel_mag))
+
+        # Create rows for each timestamp
+        for i in range(len(timestamps)):
+            all_rows.append({
+                'entity_id': entity_id,
+                'timestamp': float(timestamps[i]),
+                'speed': float(speed[i]),
+                'acceleration_magnitude': float(accel_mag[i]),
+                'position_dim': len(feature_cols),
+                'is_failure_signature': bool(failure_mask[i]),
+                'curvature': float(curvature[i]),
+                'mean_velocity': mean_velocity,
+                'mean_acceleration': mean_acceleration,
+                'computed_at': computed_at,
+            })
+
+        entities_processed += 1
 
     if verbose:
-        logger.info(f"  Trajectory computed: {len(trajectory.timestamps)} timestamps")
+        logger.info(f"  Trajectories computed: {entities_processed} entities")
+        logger.info(f"  Total state rows: {len(all_rows)}")
+        logger.info(f"  Failure signature timestamps: {total_failure_timestamps}")
 
-    # Compute state metrics
-    metrics = compute_state_metrics(trajectory)
-
-    if verbose:
-        logger.info(f"  Mean velocity: {metrics['mean_velocity']:.6f}")
-        logger.info(f"  Mean acceleration: {metrics['mean_acceleration']:.6f}")
-
-    # Detect failure acceleration signatures
-    failure_mask = detect_failure_acceleration(trajectory)
-    n_failure_timestamps = int(np.sum(failure_mask))
+    if not all_rows:
+        logger.warning("No state rows generated. Check geometry data.")
+        return {'snapshots': total_snapshots, 'saved_rows': 0}
 
     if verbose:
-        logger.info(f"  Failure signature timestamps: {n_failure_timestamps}")
-
-    # Find acceleration events
-    events = find_acceleration_events(trajectory)
-
-    if verbose:
-        logger.info(f"  Significant acceleration events: {len(events)}")
-
-    # Compute trajectory curvature
-    curvature = compute_trajectory_curvature(trajectory)
-    mean_curvature = float(np.mean(curvature[~np.isnan(curvature)])) if len(curvature) > 0 else 0.0
-
-    if verbose:
-        logger.info(f"  Mean trajectory curvature: {mean_curvature:.6f}")
-
-    # Convert to rows for storage
-    rows = state_trajectory_to_rows(trajectory, computed_at)
-
-    # Add failure flag and curvature to rows
-    for i, row in enumerate(rows):
-        row['is_failure_signature'] = bool(failure_mask[i]) if i < len(failure_mask) else False
-        row['curvature'] = float(curvature[i]) if i < len(curvature) and not np.isnan(curvature[i]) else 0.0
-
-    if verbose:
-        logger.info(f"\n  Saving {len(rows)} state trajectory rows...")
+        logger.info(f"\n  Saving {len(all_rows)} state trajectory rows...")
 
     # Save trajectory to parquet
-    df = pl.DataFrame(rows, infer_schema_length=None)
+    df = pl.DataFrame(all_rows, infer_schema_length=None)
     state_path = get_path(STATE)
-    upsert_parquet(df, state_path, ['timestamp'])
+    df.write_parquet(state_path)
 
     if verbose:
         logger.info(f"  Saved: {state_path}")
 
-    # Save events to separate file
-    if events:
-        event_rows = []
-        for event in events:
-            event['computed_at'] = computed_at
-            event_rows.append(event)
-
-        events_df = pl.DataFrame(event_rows, infer_schema_length=None)
-        events_path = get_path(STATE)
-        upsert_parquet(events_df, events_path, ['peak_idx'])
-
-        if verbose:
-            logger.info(f"  Saved events: {events_path} ({len(events)} events)")
-
-    # Save summary metrics
-    summary = {
-        **metrics,
-        'n_failure_timestamps': n_failure_timestamps,
-        'n_events': len(events),
-        'mean_curvature': mean_curvature,
-        'computed_at': computed_at,
-    }
-    summary_df = pl.DataFrame([summary], infer_schema_length=None)
-    summary_path = get_path(STATE)
-    summary_df.write_parquet(summary_path)
-
-    if verbose:
-        logger.info(f"  Saved summary: {summary_path}")
-
     return {
-        'snapshots': len(snapshots),
-        'timestamps': len(trajectory.timestamps),
-        'failure_timestamps': n_failure_timestamps,
-        'events': len(events),
-        'saved_rows': len(rows),
+        'snapshots': total_snapshots,
+        'entities': entities_processed,
+        'failure_timestamps': total_failure_timestamps,
+        'saved_rows': len(all_rows),
     }
 
 
@@ -1081,189 +1069,54 @@ def run_v2_state(
 
 def main():
     parser = argparse.ArgumentParser(
-        description='PRISM State Runner - Temporal Dynamics from Geometry',
+        description='PRISM State Runner - Temporal dynamics from geometry',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
+Output: data/state.parquet
+
 Examples:
-  # Run on all geometry data
-  python -m prism.entry_points.state
-
-  # Run on specific date range (requires --testing)
-  python -m prism.entry_points.state --testing --start 2020-01-01 --end 2024-12-31
-
-  # Single snapshot (requires --testing)
-  python -m prism.entry_points.state --testing --snapshot 2024-01-15
-
-  # Parallel execution
-  python -m prism.entry_points.state --workers 4
-
-Storage: Parquet files (no database locks)
-  data/state/system.parquet             - System-level temporal dynamics
-  data/state/signal_dynamics.parquet - Per-signal temporal evolution
-  data/state/transfers.parquet          - Cross-cohort transmission patterns
+  python -m prism.entry_points.state              # Production run
+  python -m prism.entry_points.state --adaptive   # Auto-detect window
+  python -m prism.entry_points.state --force      # Force recompute
+  python -m prism.entry_points.state --testing    # Enable test mode
 """
     )
 
-    parser.add_argument('--v2', action='store_true',
-                        help='V2 Architecture: Compute state trajectory from geometry snapshots')
-    parser.add_argument('--start', type=str, help='Start date (YYYY-MM-DD)')
-    parser.add_argument('--end', type=str, help='End date (YYYY-MM-DD)')
-    parser.add_argument('--snapshot', type=str, help='Single snapshot date')
-    parser.add_argument('--stride', type=int, default=None,
-                        help='Days between state computations (default: from domain_info.json)')
-    parser.add_argument('--workers', type=int, default=1,
-                        help='Number of parallel workers')
-    parser.add_argument('--quiet', action='store_true', help='Suppress progress output')
+    # Production flags
+    parser.add_argument('--adaptive', action='store_true',
+                        help='Use adaptive windowing from domain_info.json')
+    parser.add_argument('--force', action='store_true',
+                        help='Clear progress tracker and recompute all')
 
-    # Testing mode - REQUIRED to use any limiting flags
+    # Testing mode
     parser.add_argument('--testing', action='store_true',
-                        help='Enable testing mode. REQUIRED to use limiting flags (--start, --end, --snapshot). Without --testing, all limiting flags are ignored and full run executes.')
+                        help='Enable testing mode')
 
     args = parser.parse_args()
 
-    # V2 Architecture: State trajectory from geometry snapshots
-    if args.v2:
-        ensure_directory()
-        result = run_v2_state(verbose=not args.quiet)
-        logger.info("")
-        logger.info("=" * 80)
-        logger.info("COMPLETE")
-        logger.info("=" * 80)
-        logger.info(f"  Snapshots processed: {result.get('snapshots', 0)}")
-        logger.info(f"  Timestamps: {result.get('timestamps', 0)}")
-        logger.info(f"  Failure signatures: {result.get('failure_timestamps', 0)}")
-        logger.info(f"  Acceleration events: {result.get('events', 0)}")
-        logger.info(f"  Saved rows: {result.get('saved_rows', 0)}")
-        return 0
+    # Always use V2 architecture
+    ensure_directory()
 
-    # ==========================================================================
-    # CRITICAL: --testing guard
-    # Without --testing, ALL limiting flags are ignored and full run executes.
-    # ==========================================================================
-    if not args.testing:
-        limiting_flags_used = []
-        if args.start:
-            limiting_flags_used.append('--start')
-        if args.end:
-            limiting_flags_used.append('--end')
-        if args.snapshot:
-            limiting_flags_used.append('--snapshot')
+    logger.info("=" * 80)
+    logger.info("PRISM STATE - Temporal Dynamics")
+    logger.info("=" * 80)
+    logger.info(f"Source: data/geometry.parquet")
+    logger.info(f"Destination: data/state.parquet")
 
-        if limiting_flags_used:
-            logger.warning("=" * 80)
-            logger.warning("LIMITING FLAGS IGNORED - --testing not specified")
-            logger.warning(f"Ignored flags: {', '.join(limiting_flags_used)}")
-            logger.warning("Running FULL computation instead. Use --testing to enable limiting flags.")
-            logger.warning("=" * 80)
+    result = run_v2_state(verbose=True)
 
-        # Override to full defaults
-        args.start = None
-        args.end = None
-        args.snapshot = None
-
-    # Parse dates
-    start_date = None
-    end_date = None
-
-    if args.snapshot:
-        from datetime import datetime as dt
-        snapshot_date = dt.strptime(args.snapshot, '%Y-%m-%d').date()
-
-        ensure_directory()
-        results = run_state_snapshot(snapshot_date, verbose=not args.quiet)
-
-        # Write single snapshot results
-        computed_at = datetime.now()
-        if results['system']:
-            results['system']['computed_at'] = computed_at
-            df = pl.DataFrame([results['system']])
-            upsert_parquet(df, get_path(STATE), SYSTEM_KEY_COLS)
-
-        if results['signals']:
-            for ind in results['signals']:
-                ind['computed_at'] = computed_at
-            df = pl.DataFrame(results['signals'])
-            upsert_parquet(df, get_path(STATE), INDICATOR_DYNAMICS_KEY_COLS)
-
-        if results['transfers']:
-            for tr in results['transfers']:
-                tr['computed_at'] = computed_at
-            df = pl.DataFrame(results['transfers'])
-            upsert_parquet(df, get_path(STATE), TRANSFERS_KEY_COLS)
-
-        return 0
-
-    if args.start:
-        from datetime import datetime as dt
-        start_date = dt.strptime(args.start, '%Y-%m-%d').date()
-
-    if args.end:
-        from datetime import datetime as dt
-        end_date = dt.strptime(args.end, '%Y-%m-%d').date()
-
-    # Run with or without parallelization
-    if args.workers > 1:
-        ensure_directory()
-        logger.info(f"Parallel mode: {args.workers} workers")
-
-        available_dates = get_available_dates()
-
-        if start_date:
-            available_dates = [d for d in available_dates if d >= start_date]
-        if end_date:
-            available_dates = [d for d in available_dates if d <= end_date]
-
-        if args.stride > 1:
-            available_dates = available_dates[::args.stride]
-
-        if not available_dates:
-            logger.error("No dates to process")
-            return 1
-
-        logger.info(f"Processing {len(available_dates)} dates with {args.workers} workers")
-
-        chunks = divide_by_count(available_dates, args.workers)
-        temp_paths = []
-        assignments = []
-
-        for i, chunk in enumerate(chunks):
-            temp_path = generate_temp_path(i, prefix='state')
-            temp_paths.append(temp_path)
-            assignments.append(WorkerAssignment(
-                worker_id=i,
-                temp_path=temp_path,
-                items=chunk,
-                config={},
-            ))
-
-        results = run_workers(process_state_parallel, assignments, args.workers)
-
-        # Report worker results
-        successful = sum(1 for r in results if r.status == 'success')
-        failed = sum(1 for r in results if r.status == 'error')
-        logger.info(f"Workers complete: {successful} success, {failed} failed")
-
-        # Merge results
-        logger.info("Merging results...")
-        successful_paths = [r.temp_path for r in results if r.status == 'success' and r.temp_path.exists()]
-        totals = merge_state_results(successful_paths, verbose=not args.quiet)
-
-        logger.info("")
-        logger.info("=" * 80)
-        logger.info(f"COMPLETE: {totals.get('system', 0)} system states, "
-                    f"{totals.get('signal_dynamics', 0)} signal dynamics, "
-                    f"{totals.get('transfers', 0)} transfers")
-        logger.info("=" * 80)
-
-    else:
-        run_state_range(
-            start_date,
-            end_date,
-            args.stride,
-            verbose=not args.quiet
-        )
-
+    logger.info("")
+    logger.info("=" * 80)
+    logger.info("COMPLETE")
+    logger.info("=" * 80)
+    logger.info(f"  Snapshots processed: {result.get('snapshots', 0)}")
+    logger.info(f"  Timestamps: {result.get('timestamps', 0)}")
+    logger.info(f"  Failure signatures: {result.get('failure_timestamps', 0)}")
+    logger.info(f"  Acceleration events: {result.get('events', 0)}")
+    logger.info(f"  Saved rows: {result.get('saved_rows', 0)}")
     return 0
+
+
 
 
 if __name__ == '__main__':

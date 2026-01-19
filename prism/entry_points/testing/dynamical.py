@@ -39,17 +39,14 @@ def create_observations(t: np.ndarray, data: dict, domain: str) -> pl.DataFrame:
 
 
 def save_domain(domain: str, trajectory_df: pl.DataFrame, obs_df: pl.DataFrame):
-    """Save to domain directory."""
-    data_root = get_data_root(domain)
+    """Save to data directory."""
+    data_root = get_data_root()
     data_root.mkdir(parents=True, exist_ok=True)
-    (data_root / 'raw').mkdir(exist_ok=True)
-    (data_root / 'vector').mkdir(exist_ok=True)
-    (data_root / 'geometry').mkdir(exist_ok=True)
 
-    write_parquet_atomic(trajectory_df, data_root / 'raw' / f'{domain}_trajectory.parquet')
-    write_parquet_atomic(obs_df, data_root / 'raw' / 'observations.parquet')
+    write_parquet_atomic(trajectory_df, data_root / f'{domain}_trajectory.parquet')
+    write_parquet_atomic(obs_df, data_root / 'observations.parquet')
 
-    return data_root / 'raw' / 'observations.parquet'
+    return data_root / 'observations.parquet'
 
 
 def generate_datasets():

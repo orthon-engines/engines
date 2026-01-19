@@ -139,15 +139,12 @@ def generate_pendulum_regime():
 
     obs_df = pl.DataFrame(rows)
 
-    # Save to domain
-    domain = 'pendulum_regime'
-    data_root = get_data_root(domain)
+    # Save to data directory
+    data_root = get_data_root()
     data_root.mkdir(parents=True, exist_ok=True)
-    (data_root / 'raw').mkdir(exist_ok=True)
-    (data_root / 'vector').mkdir(exist_ok=True)
 
-    traj_path = data_root / 'raw' / 'trajectory.parquet'
-    obs_path = data_root / 'raw' / 'observations.parquet'
+    traj_path = data_root / 'pendulum_trajectory.parquet'
+    obs_path = data_root / 'observations.parquet'
 
     write_parquet_atomic(trajectory_df, traj_path)
     write_parquet_atomic(obs_df, obs_path)

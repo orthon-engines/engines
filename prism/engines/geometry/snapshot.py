@@ -104,22 +104,60 @@ def compute_geometry_trajectory(
 
 def snapshot_to_vector(snapshot: GeometrySnapshot) -> np.ndarray:
     """
-    Convert GeometrySnapshot to a flat vector for state trajectory.
+    Convert GeometrySnapshot to a fixed-size flat vector for state trajectory.
 
-    Uses: [flattened coupling upper triangle, divergence, mode coherence]
+    Uses geometry metrics to build position vector. Supports both old-style
+    (coupling_matrix based) and new-style (engine metrics based) snapshots.
+
+    Returns fixed-size vector for state trajectory computation.
     """
+    # Check if snapshot has new-style metrics (from vector-based geometry)
+    if hasattr(snapshot, 'pca_var_1'):
+        # New-style geometry with engine metrics
+        pos = np.array([
+            getattr(snapshot, 'pca_var_1', 0.0),
+            getattr(snapshot, 'pca_var_2', 0.0),
+            getattr(snapshot, 'clustering_silhouette', 0.0),
+            getattr(snapshot, 'mst_total_weight', 0.0),
+            getattr(snapshot, 'lof_mean', 0.0),
+            getattr(snapshot, 'distance_mean', 0.0),
+        ])
+        return pos
+
+    # Old-style geometry with coupling matrix
     if snapshot.n_signals == 0:
-        return np.array([snapshot.divergence])
+        return np.array([0.0, 0.0, 0.0, 0.0, snapshot.divergence, 0.0])
 
-    # Upper triangle of coupling matrix (excluding diagonal)
-    n = snapshot.coupling_matrix.shape[0]
-    upper_tri = snapshot.coupling_matrix[np.triu_indices(n, k=1)]
+    # Get coupling matrix statistics (fixed-size summary)
+    coupling = snapshot.coupling_matrix
+    if coupling.size > 0:
+        # Upper triangle (excluding diagonal) for statistics
+        n = coupling.shape[0]
+        if n > 1:
+            upper_tri = coupling[np.triu_indices(n, k=1)]
+            coupling_mean = float(np.nanmean(upper_tri)) if len(upper_tri) > 0 else 0.0
+            coupling_std = float(np.nanstd(upper_tri)) if len(upper_tri) > 0 else 0.0
+            coupling_max = float(np.nanmax(upper_tri)) if len(upper_tri) > 0 else 0.0
+        else:
+            coupling_mean = 0.0
+            coupling_std = 0.0
+            coupling_max = 0.0
+    else:
+        coupling_mean = 0.0
+        coupling_std = 0.0
+        coupling_max = 0.0
 
-    # Build position vector
-    pos = np.concatenate([
-        upper_tri,
-        [snapshot.divergence],
-        snapshot.mode_coherence,
+    # Mode coherence summary
+    mean_coherence = float(np.mean(snapshot.mode_coherence)) if len(snapshot.mode_coherence) > 0 else 0.0
+
+    # Build fixed-size position vector
+    pos = np.array([
+        float(snapshot.n_signals),
+        coupling_mean,
+        coupling_std,
+        coupling_max,
+        snapshot.divergence,
+        mean_coherence,
     ])
 
     return pos

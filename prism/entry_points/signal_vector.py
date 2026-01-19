@@ -1,18 +1,9 @@
 """
-PRISM Vector Runner - Config is Law
-====================================
+PRISM Vector Runner
+===================
 
-Computes vector metrics using sliding windows. Config determines behavior.
-Uses characterization to determine which engines to run per signal.
-
-MODES (mutually exclusive, one required):
-    --signals    Process individual signals
-                    Source: raw/observations + raw/characterization
-                    Destination: vector/signals → vector/signal_field (via laplace)
-
-    --cohorts       Process cohort-level aggregations
-                    Source: raw/cohort_observations
-                    Destination: vector/cohorts
+Computes behavioral vector metrics from observations using sliding windows.
+Uses inline characterization to determine which engines to run per signal.
 
 ENGINE CLASSIFICATION:
     CORE ENGINES (run on ALL signals):
@@ -39,19 +30,21 @@ PIPELINE:
 
 Storage: Parquet files (no database locks)
 
-Usage:
-    # Process all signals (production)
-    python -m prism.entry_points.signal_vector --signals
+Output: data/vector.parquet
 
-    # Process cohorts (production)
-    python -m prism.entry_points.signal_vector --cohorts
+Usage:
+    # Production run
+    python -m prism.entry_points.signal_vector
 
     # Force recompute
-    python -m prism.entry_points.signal_vector --signals --force
+    python -m prism.entry_points.signal_vector --force
 
-    # Testing mode (allows limiting flags)
-    python -m prism.entry_points.signal_vector --signals --testing --domain cmapss
-    python -m prism.entry_points.signal_vector --signals --testing --filter sensor_1,sensor_2
+    # Adaptive windowing (auto-detect from data)
+    python -m prism.entry_points.signal_vector --adaptive
+
+    # Testing mode
+    python -m prism.entry_points.signal_vector --testing --limit 100
+    python -m prism.entry_points.signal_vector --testing --signal sensor_1,sensor_2
 """
 
 import argparse
@@ -72,11 +65,13 @@ from prism.db.parquet_store import (
     get_data_root,
     get_path,
     OBSERVATIONS,
-    SIGNALS,
+    VECTOR,
     GEOMETRY,
     STATE,
     COHORTS,
 )
+# Backwards compatibility
+SIGNALS = VECTOR
 from prism.db.polars_io import read_parquet, upsert_parquet, write_parquet_atomic
 from prism.utils.memory import (
     force_gc,
@@ -155,36 +150,26 @@ DEFAULT_ENGINE_MIN_OBS = {
 SIGNALS_KEY_COLS = ["entity_id", "signal_id", "timestamp"]
 
 # Legacy key columns (deprecated)
-VECTOR_KEY_COLS = ["signal_id", "obs_date", "target_obs", "engine", "metric_name"]
+VECTOR_KEY_COLS = ["signal_id", "timestamp", "target_obs", "engine", "metric_name"]
 
 
 # =============================================================================
 # REGIME-AWARE NORMALIZATION
 # =============================================================================
 
-def get_normalization_config(domain: str = None) -> dict:
+def get_normalization_config() -> dict:
     """
-    Load domain-specific normalization parameters.
+    Load normalization parameters.
 
     Checks domain_info.json first (from adaptive DomainClock),
-    then falls back to normalization.yaml, then hardcoded defaults.
-
-    Args:
-        domain: Domain name (cmapss, climate, cheme, icu, etc.)
-                Uses PRISM_DOMAIN env var if not specified.
+    then falls back to window.yaml defaults.
 
     Returns:
         Dict with 'window' and 'min_periods' keys
     """
-    import os
-    if domain is None:
-        domain = os.environ.get('PRISM_DOMAIN')
-    if domain is None:
-        raise RuntimeError("No domain specified - set PRISM_DOMAIN or pass domain parameter")
-
     # First check for adaptive domain_info (from DomainClock)
     try:
-        domain_info_path = get_data_root(domain) / "domain_info.json"
+        domain_info_path = get_data_root() / "domain_info.json"
         if domain_info_path.exists():
             import json
             with open(domain_info_path) as f:
@@ -195,26 +180,23 @@ def get_normalization_config(domain: str = None) -> dict:
     except Exception:
         pass
 
-    # Check normalization.yaml
-    config_path = Path(__file__).parent.parent.parent / 'config' / 'normalization.yaml'
+    # Check window.yaml for defaults
+    config_path = Path(__file__).parent.parent.parent / 'config' / 'window.yaml'
     if config_path.exists():
         try:
             with open(config_path) as f:
                 config = yaml.safe_load(f)
-            domain_config = config.get('domains', {}).get(domain)
-            if domain_config:
-                return domain_config
-            defaults = config.get('defaults')
+            defaults = config.get('default', {})
             if defaults:
-                return defaults
+                return {
+                    'window': defaults.get('window_size', 252),
+                    'min_periods': defaults.get('min_observations', 50),
+                }
         except Exception:
             pass
 
-    # No fallback - must be configured
-    raise RuntimeError(
-        f"No normalization config found for domain '{domain}'. "
-        "Run signal_vector with --adaptive flag first, or configure config/normalization.yaml"
-    )
+    # Hardcoded fallback
+    return {'window': 252, 'min_periods': 50}
 
 
 def apply_regime_normalization(
@@ -380,10 +362,11 @@ def create_signal_row(
             ts_value = float(timestamp.toordinal())
         else:
             ts_value = timestamp.timestamp()
-    elif hasattr(timestamp, 'astype'):
-        # numpy.datetime64
+    elif isinstance(timestamp, np.datetime64):
+        # numpy.datetime64 - convert to float seconds
         import pandas as pd
         ts_value = float(pd.Timestamp(timestamp).timestamp())
+    # numpy.float64 and other numeric types pass through as-is
 
     return {
         'entity_id': entity_id,
@@ -577,27 +560,28 @@ def generate_windows(
     target_obs: int,
     min_obs: int,
     stride: int,
-) -> List[Tuple[np.ndarray, date, date, int]]:
+) -> List[Tuple[np.ndarray, Any, Any, int]]:
     """
     Generate sliding windows from observations using Polars.
 
     Args:
-        observations: DataFrame with obs_date and value columns
+        observations: DataFrame with timestamp and value columns
         target_obs: Target number of observations per window
         min_obs: Minimum observations required
-        stride: Days between window endpoints
+        stride: Steps between window endpoints
 
     Returns:
-        List of (values, obs_date, lookback_start, actual_obs) tuples
+        List of (values, timestamp, lookback_start, actual_obs) tuples
+        timestamp can be float (cycles) or date (calendar time)
     """
     if len(observations) < min_obs:
         return []
 
-    # Sort by date
-    df = observations.sort("obs_date")
+    # Sort by timestamp
+    df = observations.sort("timestamp")
 
     # Extract arrays
-    dates = df["obs_date"].to_numpy()
+    timestamps = df["timestamp"].to_numpy()
     values = df["value"].to_numpy()
     n = len(values)
 
@@ -612,20 +596,22 @@ def generate_windows(
             continue
 
         window_values = values[window_start_idx : end_idx + 1]
-        obs_date = dates[end_idx]
-        lookback_start = dates[window_start_idx]
+        timestamp = timestamps[end_idx]
+        lookback_start = timestamps[window_start_idx]
 
-        # Convert dates to Python datetime (handles numpy.datetime64, pandas Timestamp, etc.)
-        if hasattr(obs_date, "date"):
-            obs_date = obs_date.date()
-        elif hasattr(obs_date, "astype"):  # numpy.datetime64
-            obs_date = pd.Timestamp(obs_date).to_pydatetime().date()
-        if hasattr(lookback_start, "date"):
+        # Keep float timestamps as-is (cycles, seconds, etc.)
+        # Only convert datetime types if present (legacy support)
+        if hasattr(timestamp, "date") and not isinstance(timestamp, (int, float)):
+            timestamp = timestamp.date()
+        elif hasattr(timestamp, "astype") and not isinstance(timestamp, (int, float, np.floating)):
+            timestamp = pd.Timestamp(timestamp).to_pydatetime().date()
+
+        if hasattr(lookback_start, "date") and not isinstance(lookback_start, (int, float)):
             lookback_start = lookback_start.date()
-        elif hasattr(lookback_start, "astype"):  # numpy.datetime64
+        elif hasattr(lookback_start, "astype") and not isinstance(lookback_start, (int, float, np.floating)):
             lookback_start = pd.Timestamp(lookback_start).to_pydatetime().date()
 
-        windows.append((window_values, obs_date, lookback_start, window_len))
+        windows.append((window_values, timestamp, lookback_start, window_len))
 
     return windows
 
@@ -682,7 +668,7 @@ def process_signal_parallel(assignment: WorkerAssignment) -> Dict[str, Any]:
             total_windows += len(windows)
 
             # Process each window
-            for values, obs_date, lookback_start, actual_obs in windows:
+            for values, timestamp, lookback_start, actual_obs in windows:
                 # Run each engine
                 for engine_name, engine_func in VECTOR_ENGINES.items():
                     if engines_filter and engine_name not in engines_filter:
@@ -714,7 +700,7 @@ def process_signal_parallel(assignment: WorkerAssignment) -> Dict[str, Any]:
                                             source_signal=signal_id,
                                             engine=engine_name,
                                             metric_name=metric_name,
-                                            timestamp=obs_date,
+                                            timestamp=timestamp,
                                             value=numeric_value,
                                             signal_type='sparse',
                                         )
@@ -746,7 +732,7 @@ def process_signal_parallel(assignment: WorkerAssignment) -> Dict[str, Any]:
                                                 source_signal=signal_id,
                                                 engine="break_detector",
                                                 metric_name=metric_name,
-                                                timestamp=obs_date,
+                                                timestamp=timestamp,
                                                 value=numeric_value,
                                                 signal_type='sparse',
                                             )
@@ -772,7 +758,7 @@ def process_signal_parallel(assignment: WorkerAssignment) -> Dict[str, Any]:
                                                     source_signal=signal_id,
                                                     engine="heaviside",
                                                     metric_name=metric_name,
-                                                    timestamp=obs_date,
+                                                    timestamp=timestamp,
                                                     value=numeric_value,
                                                     signal_type='sparse',
                                                 )
@@ -793,7 +779,7 @@ def process_signal_parallel(assignment: WorkerAssignment) -> Dict[str, Any]:
                                                     source_signal=signal_id,
                                                     engine="dirac",
                                                     metric_name=metric_name,
-                                                    timestamp=obs_date,
+                                                    timestamp=timestamp,
                                                     value=numeric_value,
                                                     signal_type='sparse',
                                                 )
@@ -840,9 +826,10 @@ def process_signal_sequential(
     has_discontinuities: bool = False,
     use_inline_characterization: bool = True,
     compute_laplace_inline: bool = True,
+    entity_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
-    Process a single signal sequentially.
+    Process a single signal for a specific entity sequentially.
     Computes engine metrics based on characterization + vector score for each window.
     Optionally characterizes inline and computes laplace field inline.
 
@@ -857,8 +844,9 @@ def process_signal_sequential(
         use_inline_characterization: If True and engines_to_run is None,
                                      characterize inline to determine engines
         compute_laplace_inline: If True, compute laplace field inline
+        entity_id: The entity to filter for (if None, uses first entity found)
 
-    Memory-efficient: Uses lazy scan to read only this signal's data.
+    Memory-efficient: Uses lazy scan to read only this entity+signal's data.
     """
     # Default to all engines if not specified AND inline characterization disabled
     if engines_to_run is None and not use_inline_characterization:
@@ -871,16 +859,27 @@ def process_signal_sequential(
 
     try:
         # Read observations - LAZY SCAN with filter pushdown
-        # Only reads the specific signal's data from disk
+        # Only reads the specific entity+signal's data from disk
         obs_path = get_path(OBSERVATIONS)
-        obs_df = (
-            pl.scan_parquet(obs_path)
-            .filter(pl.col("signal_id") == signal_id)
-            .collect()
-        )
-
-        # Get entity_id for this signal (from observations)
-        entity_id = obs_df["entity_id"][0] if "entity_id" in obs_df.columns and len(obs_df) > 0 else signal_id
+        if entity_id is not None:
+            # Filter by both entity_id and signal_id
+            obs_df = (
+                pl.scan_parquet(obs_path)
+                .filter(
+                    (pl.col("entity_id") == entity_id) &
+                    (pl.col("signal_id") == signal_id)
+                )
+                .collect()
+            )
+        else:
+            # Legacy mode: filter by signal_id only, use first entity found
+            obs_df = (
+                pl.scan_parquet(obs_path)
+                .filter(pl.col("signal_id") == signal_id)
+                .collect()
+            )
+            # Get entity_id from first row
+            entity_id = obs_df["entity_id"][0] if "entity_id" in obs_df.columns and len(obs_df) > 0 else signal_id
 
         if len(obs_df) == 0:
             return {"signal": signal_id, "windows": 0, "metrics": 0}
@@ -889,8 +888,8 @@ def process_signal_sequential(
         # V2 ARCHITECTURE: POINTWISE ENGINE COMPUTATION (native resolution)
         # =================================================================
         # These engines produce values at every timestamp, not windowed
-        full_series = obs_df.sort("obs_date")
-        full_timestamps = full_series["obs_date"].to_numpy()
+        full_series = obs_df.sort("timestamp")
+        full_timestamps = full_series["timestamp"].to_numpy()
         full_values = full_series["value"].to_numpy()
 
         # Compute pointwise signals (Hilbert, Derivatives, Statistical)
@@ -908,8 +907,8 @@ def process_signal_sequential(
         char_summary = None
         if engines_to_run is None and use_inline_characterization:
             # Get full series for characterization
-            full_values = obs_df.sort("obs_date")["value"].to_numpy()
-            full_dates = obs_df.sort("obs_date")["obs_date"].to_numpy()
+            full_values = obs_df.sort("timestamp")["value"].to_numpy()
+            full_dates = obs_df.sort("timestamp")["timestamp"].to_numpy()
 
             engines_to_run, has_discontinuities, char_summary = characterize_signal_inline(
                 signal_id=signal_id,
@@ -936,7 +935,7 @@ def process_signal_sequential(
         metric_history: Dict[str, List[float]] = {k: [] for k in ENGINE_CONFIGS.keys()}
 
         # Process each window
-        for values, obs_date, lookback_start, actual_obs in windows:
+        for values, timestamp, lookback_start, actual_obs in windows:
             # Collect all metrics for this window (for vector score)
             window_metrics: Dict[str, float] = {}
 
@@ -972,7 +971,7 @@ def process_signal_sequential(
                                         source_signal=signal_id,
                                         engine=engine_name,
                                         metric_name=metric_name,
-                                        timestamp=obs_date,
+                                        timestamp=timestamp,
                                         value=numeric_value,
                                         signal_type='sparse',  # Windowed = sparse
                                     )
@@ -1008,7 +1007,7 @@ def process_signal_sequential(
                                             source_signal=signal_id,
                                             engine="break_detector",
                                             metric_name=metric_name,
-                                            timestamp=obs_date,
+                                            timestamp=timestamp,
                                             value=numeric_value,
                                             signal_type='sparse',
                                         )
@@ -1035,7 +1034,7 @@ def process_signal_sequential(
                                                 source_signal=signal_id,
                                                 engine="heaviside",
                                                 metric_name=metric_name,
-                                                timestamp=obs_date,
+                                                timestamp=timestamp,
                                                 value=numeric_value,
                                                 signal_type='sparse',
                                             )
@@ -1057,7 +1056,7 @@ def process_signal_sequential(
                                                 source_signal=signal_id,
                                                 engine="dirac",
                                                 metric_name=metric_name,
-                                                timestamp=obs_date,
+                                                timestamp=timestamp,
                                                 value=numeric_value,
                                                 signal_type='sparse',
                                             )
@@ -1090,7 +1089,7 @@ def process_signal_sequential(
                                 source_signal=signal_id,
                                 engine="vector_score",
                                 metric_name=score_name,
-                                timestamp=obs_date,
+                                timestamp=timestamp,
                                 value=float(score_value),
                                 signal_type='sparse',
                             )
@@ -1116,15 +1115,15 @@ def process_signal_sequential(
                     metric_name = row['signal_id']
                 key = (engine, metric_name)
                 metric_series[key].append({
-                    'obs_date': row['timestamp'],  # New schema uses 'timestamp'
+                    'timestamp': row['timestamp'],  # New schema uses 'timestamp'
                     'metric_value': row['value'],  # New schema uses 'value'
                 })
 
             # Compute laplace for each metric series
             for (engine, metric_name), series_data in metric_series.items():
                 # Sort by date
-                series_data.sort(key=lambda x: x['obs_date'])
-                dates = [s['obs_date'] for s in series_data]
+                series_data.sort(key=lambda x: x['timestamp'])
+                dates = [s['timestamp'] for s in series_data]
                 values = np.array([s['metric_value'] for s in series_data])
 
                 # Compute laplace field
@@ -1158,7 +1157,7 @@ def process_signal_sequential(
 
 
 def run_window_tier(
-    signals: List[str],
+    signals: List[Tuple[str, str]],
     window_name: str,
     engine_min_obs: Optional[Dict[str, int]] = None,
     use_inline_characterization: bool = True,
@@ -1173,7 +1172,7 @@ def run_window_tier(
     rather than reading from a pre-computed characterization parquet.
 
     Args:
-        signals: List of signal IDs to process
+        signals: List of (entity_id, signal_id) tuples to process
         window_name: Window tier name ('anchor', 'bridge', 'scout', 'micro', 'adaptive')
         engine_min_obs: Minimum observations per engine
         use_inline_characterization: If True, characterize each signal inline
@@ -1199,7 +1198,7 @@ def run_window_tier(
 
     if verbose:
         logger.info(f"Window tier: {window_name} ({window_days}d, stride {stride_days}d)")
-        logger.info(f"Signals: {len(signals)}")
+        logger.info(f"Entity-Signal pairs: {len(signals)}")
         logger.info(f"Inline characterization: {'enabled' if use_inline_characterization else 'disabled'}")
 
     # Sequential execution with incremental batch writes and progress tracking
@@ -1209,9 +1208,15 @@ def run_window_tier(
     # New 5-file schema: all signals go to signals.parquet
     target_path = get_path(SIGNALS)
 
-    # Filter to pending signals (resume capability)
-    pending = tracker.get_pending(signals, window_name)
-    skipped = len(signals) - len(pending)
+    # Convert pairs to tracking keys (entity_id:signal_id)
+    pair_keys = [f"{e}:{s}" for e, s in signals]
+
+    # Filter to pending pairs (resume capability)
+    pending_keys = tracker.get_pending(pair_keys, window_name)
+    skipped = len(signals) - len(pending_keys)
+
+    # Convert back to pairs
+    pending = [(k.split(":")[0], k.split(":")[1]) for k in pending_keys]
 
     # Memory tracking
     start_memory = get_memory_usage_mb()
@@ -1228,11 +1233,11 @@ def run_window_tier(
     total_dense_rows = 0  # V2: Track dense signal rows
     errors = []
 
-    # Laplace field data goes to signals.parquet (laplace is internal to geometry)
-    field_path = get_path(SIGNALS)
-    FIELD_KEY_COLS = SIGNALS_KEY_COLS
-    # New schema key columns for signals.parquet
-    # Dense signals also go to signals.parquet
+    # Skip writing laplace field data - it's intermediate computation for geometry
+    # The 5-file schema stores only: observations, vector, geometry, state, cohorts
+    field_path = None  # Disabled - laplace data computed inline for geometry
+    FIELD_KEY_COLS = None  # Not used
+    # Dense signals go to vector.parquet
 
     if verbose:
         if skipped > 0:
@@ -1240,8 +1245,9 @@ def run_window_tier(
         logger.info(f"Sequential mode: batch writes every {BATCH_SIZE} signals")
         logger.info(f"Starting memory: {start_memory:.1f} MB")
 
-    for i, signal_id in enumerate(pending):
-        tracker.mark_started(signal_id, window_name)
+    for i, (entity_id, signal_id) in enumerate(pending):
+        pair_key = f"{entity_id}:{signal_id}"
+        tracker.mark_started(pair_key, window_name)
 
         # INLINE CHARACTERIZATION: engines determined inside process_signal_sequential
         # Pass engines_to_run=None to trigger inline characterization
@@ -1251,17 +1257,18 @@ def run_window_tier(
             has_discontinuities=False,  # Will be determined inline
             use_inline_characterization=use_inline_characterization,
             compute_laplace_inline=True,
+            entity_id=entity_id,  # Process this specific entity
         )
 
         if "error" in result:
-            tracker.mark_failed(signal_id, window_name, result.get("error", ""))
+            tracker.mark_failed(pair_key, window_name, result.get("error", ""))
             errors.append(result)
-            print(f"  X {signal_id} (error)", flush=True)
+            print(f"  X {entity_id}:{signal_id} (error)", flush=True)
             continue
 
         if "rows" in result:
             batch_rows.extend(result["rows"])
-            batch_signals.append((signal_id, len(result["rows"])))
+            batch_signals.append((pair_key, len(result["rows"])))
             total_windows += result.get("windows", 0)
 
             # Collect field rows (laplace)
@@ -1272,7 +1279,7 @@ def run_window_tier(
             if "dense_rows" in result and result["dense_rows"]:
                 batch_dense_rows.extend(result["dense_rows"])
 
-            print(f"  {signal_id}", end="", flush=True)
+            print(f"  {signal_id}", end="", flush=True)  # Just show signal_id for brevity
 
         # Write batch when full - COMPUTE → WRITE → RELEASE pattern
         if len(batch_signals) >= BATCH_SIZE:
@@ -1287,13 +1294,13 @@ def run_window_tier(
                 upsert_parquet(df, target_path, SIGNALS_KEY_COLS)
                 total_metrics += len(batch_rows)
 
-                # WRITE field rows (laplace) - internal, not in 5-file schema
-                if batch_field_rows:
+                # SKIP field rows (laplace) - computed inline for geometry, not persisted
+                if batch_field_rows and field_path is not None:
                     field_df = pl.DataFrame(batch_field_rows, infer_schema_length=None)
                     upsert_parquet(field_df, field_path, FIELD_KEY_COLS)
                     total_field_rows += len(batch_field_rows)
                     del field_df
-                    batch_field_rows = []
+                batch_field_rows = []  # Clear regardless
 
                 # WRITE dense (pointwise) signals - also go to signals.parquet
                 if batch_dense_rows:
@@ -1339,8 +1346,8 @@ def run_window_tier(
         upsert_parquet(df, target_path, SIGNALS_KEY_COLS)
         total_metrics += len(batch_rows)
 
-        # WRITE remaining field rows (laplace) - internal
-        if batch_field_rows:
+        # SKIP remaining field rows (laplace) - computed inline for geometry, not persisted
+        if batch_field_rows and field_path is not None:
             field_df = pl.DataFrame(batch_field_rows, infer_schema_length=None)
             upsert_parquet(field_df, field_path, FIELD_KEY_COLS)
             total_field_rows += len(batch_field_rows)
@@ -1394,7 +1401,7 @@ def run_window_tier(
 
 
 def get_signals(cohort: Optional[str] = None) -> List[str]:
-    """Get signal IDs from parquet files."""
+    """Get signal IDs from parquet files (for legacy/cohort mode)."""
     obs_path = get_path(OBSERVATIONS)
     if not obs_path.exists():
         return []
@@ -1412,6 +1419,29 @@ def get_signals(cohort: Optional[str] = None) -> List[str]:
     # All signals (unique signal_id from observations)
     df = pl.scan_parquet(obs_path).select("signal_id").unique().collect()
     return df["signal_id"].to_list()
+
+
+def get_entity_signal_pairs() -> List[Tuple[str, str]]:
+    """
+    Get unique (entity_id, signal_id) pairs from observations.
+
+    Returns:
+        List of (entity_id, signal_id) tuples
+    """
+    obs_path = get_path(OBSERVATIONS)
+    if not obs_path.exists():
+        return []
+
+    # Get unique (entity_id, signal_id) pairs
+    df = (
+        pl.scan_parquet(obs_path)
+        .select(["entity_id", "signal_id"])
+        .unique()
+        .collect()
+    )
+
+    pairs = [(row["entity_id"], row["signal_id"]) for row in df.iter_rows(named=True)]
+    return pairs
 
 
 def run_adaptive_vectors(
@@ -1461,19 +1491,23 @@ def run_adaptive_vectors(
     if verbose:
         print("\nCharacterizing domain frequency...")
 
+    # min_samples must be >= max engine min_obs requirement (garch=50)
+    # to ensure all engines can run on each window
     clock = DomainClock(
         min_cycles=clock_config.get('min_cycles', 3),
-        min_samples=clock_config.get('min_samples', 20),
+        min_samples=clock_config.get('min_samples', 50),
         max_samples=clock_config.get('max_samples', 1000),
     )
 
     # Sample signals for frequency estimation (use lazy scan with filter pushdown)
     sample_size = min(100, len(signals))
-    sample_signals = signals[:sample_size]
+    sample_pairs = signals[:sample_size]
+    # Extract unique signal_ids from (entity_id, signal_id) tuples
+    sample_signal_ids = list(set(sig for _, sig in sample_pairs))
     obs_path = get_path(OBSERVATIONS)
     sample_obs = (
         pl.scan_parquet(obs_path)
-        .filter(pl.col('signal_id').is_in(sample_signals))
+        .filter(pl.col('signal_id').is_in(sample_signal_ids))
         .collect()
     )
 
@@ -1586,7 +1620,7 @@ def run_cohort_vector_aggregation(
     print(f"  Loaded {len(members_df):,} cohort membership rows")
 
     # Join vectors with cohort membership
-    # vectors: signal_id, obs_date, target_obs, engine, metric_name, metric_value
+    # vectors: signal_id, timestamp, target_obs, engine, metric_name, metric_value
     # members: signal_id, cohort_id
     joined = vectors_df.join(
         members_df.select(["signal_id", "cohort_id"]),
@@ -1605,7 +1639,7 @@ def run_cohort_vector_aggregation(
     print("Aggregating by cohort/window/engine/metric...")
 
     cohort_vectors = joined.group_by(
-        ["cohort_id", "obs_date", "target_obs", "engine", "metric_name"]
+        ["cohort_id", "timestamp", "target_obs", "engine", "metric_name"]
     ).agg([
         pl.col("metric_value").mean().alias("metric_mean"),
         pl.col("metric_value").std().alias("metric_std"),
@@ -1632,14 +1666,14 @@ def run_cohort_vector_aggregation(
     print(f"Writing to {output_path}...")
 
     # Use upsert for incremental updates
-    key_cols = ["cohort_id", "obs_date", "target_obs", "engine", "metric_name"]
+    key_cols = ["cohort_id", "timestamp", "target_obs", "engine", "metric_name"]
     upsert_parquet(cohort_vectors, output_path, key_cols)
 
     print(f"  Wrote {len(cohort_vectors):,} cohort vector rows")
 
     # Summary stats
     n_cohorts = cohort_vectors["cohort_id"].n_unique()
-    n_windows = cohort_vectors.select(["obs_date", "target_obs"]).unique().height
+    n_windows = cohort_vectors.select(["timestamp", "target_obs"]).unique().height
     n_engines = cohort_vectors["engine"].n_unique()
 
     print()
@@ -1661,12 +1695,12 @@ def run_cohort_vector_aggregation(
 
 
 def run_sliding_vectors(
-    signals: Optional[List[str]] = None,
+    signals: Optional[List[Tuple[str, str]]] = None,
     verbose: bool = True,
     adaptive: bool = False,
 ) -> Dict[str, Any]:
     """
-    Compute sliding window vectors for signals.
+    Compute sliding window vectors for each (entity_id, signal_id) pair.
 
     Runs anchor + bridge tiers only (structural coverage).
     Scout/micro are for geometry/state delta drill-down.
@@ -1677,7 +1711,7 @@ def run_sliding_vectors(
     - No separate characterize.py or laplace.py runner needed
 
     Args:
-        signals: List of signal IDs to process (None = all)
+        signals: List of (entity_id, signal_id) tuples to process (None = all)
         verbose: Print progress
         adaptive: Use DomainClock to auto-detect window size from data
 
@@ -1702,13 +1736,13 @@ def run_sliding_vectors(
     # Scout + micro are drilldown tiers - run when delta flags displacement
     window_tiers = get_default_tiers()
 
-    # Get signals if not provided
+    # Get (entity_id, signal_id) pairs if not provided
     if signals is None:
-        signals = get_signals()
+        signals = get_entity_signal_pairs()
 
     if not signals:
         if verbose:
-            print("No signals found")
+            print("No entity-signal pairs found")
         return {"signals": 0, "windows": 0, "metrics": 0, "errors": 0}
 
     if verbose:
@@ -1716,7 +1750,7 @@ def run_sliding_vectors(
         print("PRISM VECTOR - INLINE CHARACTERIZATION + LAPLACE")
         print("=" * 80)
         print(f"Storage: Parquet files")
-        print(f"Signals: {len(signals)}")
+        print(f"Entity-Signal pairs: {len(signals)}")
         print(f"Characterization: INLINE (per signal)")
         print(f"Laplace: INLINE (computed with metrics)")
         print(f"Window tiers: {window_tiers}")
@@ -1781,149 +1815,107 @@ def run_sliding_vectors(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="PRISM Vector Runner - Config is law",
+        description="PRISM Vector Runner - Compute behavioral metrics from observations",
         formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Output: data/vector.parquet
+
+Examples:
+  python -m prism.entry_points.signal_vector              # Production run
+  python -m prism.entry_points.signal_vector --adaptive   # Auto-detect window
+  python -m prism.entry_points.signal_vector --force      # Force recompute
+  python -m prism.entry_points.signal_vector --testing --limit 100
+  python -m prism.entry_points.signal_vector --testing --signal s1,s2
+"""
     )
 
-    # MODE FLAGS (mutually exclusive, one required)
-    mode_group = parser.add_mutually_exclusive_group(required=True)
-    mode_group.add_argument(
-        "--signal",
+    # Production flags
+    parser.add_argument(
+        "--adaptive",
         action="store_true",
-        help="Process individual signals (raw/observations -> vector/signal)",
+        help="Use DomainClock to auto-detect window size from data frequency",
     )
-    mode_group.add_argument(
-        "--cohort",
-        action="store_true",
-        help="Process cohort aggregations (raw/cohort_observations -> vector/cohort)",
-    )
-
-    # Production flag
     parser.add_argument(
         "--force",
         action="store_true",
         help="Clear progress tracker and recompute everything",
     )
 
-    # Testing mode - REQUIRED to use limiting flags
+    # Testing mode
     parser.add_argument(
         "--testing",
         action="store_true",
-        help="Enable testing mode. REQUIRED to use limiting flags.",
+        help="Enable testing mode (required for --limit and --signal)",
     )
-
-    # Adaptive windowing - auto-detect window from data frequency
     parser.add_argument(
-        "--adaptive",
-        action="store_true",
-        help="Use DomainClock to auto-detect window size from data frequency.",
+        "--limit",
+        type=int,
+        help="[TESTING] Max observations per signal",
     )
-
-    # Limiting flags (testing only)
-    parser.add_argument("--filter", type=str, help="[TESTING] Comma-separated IDs to process")
-    parser.add_argument("--filter-cohort", type=str, help="[TESTING] Filter to specific cohort")
-    parser.add_argument("--dates", type=str, help="[TESTING] Date range: YYYY-MM-DD:YYYY-MM-DD")
-
-    # Domain selection (required - prompts if not specified)
     parser.add_argument(
-        "--domain",
+        "--signal",
         type=str,
-        default=None,
-        help="Domain to process (e.g., cheme, cmapss, climate). Prompts if not specified.",
+        help="[TESTING] Comma-separated signal IDs to process",
     )
 
     args = parser.parse_args()
 
-    # Domain selection - prompt if not specified
-    from prism.utils.domain import require_domain
-    import os
-    domain = require_domain(args.domain, "Select domain for signal_vector")
-    os.environ["PRISM_DOMAIN"] = domain
-    print(f"Domain: {domain}", flush=True)
-
-    # --testing guard: limiting flags ignored without --testing
-    filter_cohort = getattr(args, 'filter_cohort', None)
-    if not args.testing:
-        if filter_cohort or args.filter or args.dates:
-            logger.warning("=" * 80)
-            logger.warning("LIMITING FLAGS IGNORED - --testing not specified")
-            logger.warning("Running FULL computation.")
-            logger.warning("=" * 80)
-        filter_cohort = None
-        args.filter = None
-        args.dates = None
+    # Guard testing flags
+    if not args.testing and (args.limit or args.signal):
+        logger.warning("=" * 80)
+        logger.warning("TESTING FLAGS IGNORED - --testing not specified")
+        logger.warning("Running FULL computation.")
+        logger.warning("=" * 80)
+        args.limit = None
+        args.signal = None
 
     # Config is law - load or fail
     stride_config = load_stride_config()
     if not stride_config:
         raise RuntimeError("Cannot load stride config - config/stride.yaml required")
 
-    # Determine source/destination based on mode
-    if args.signal:
-        schema = "vector"
-        table = "signal"
-        source_schema = "raw"
-        source_table = "observations"
-    else:  # args.cohort
-        schema = "vector"
-        table = "cohort"
-        source_schema = "raw"
-        source_table = "cohort_observations"
-
-    # Handle --force: clear progress tracker for this mode
+    # Handle --force: clear progress tracker
     if args.force:
         from prism.db.progress_tracker import ProgressTracker
-        tracker = ProgressTracker(schema, table)
+        tracker = ProgressTracker("vector", "signal")
         tracker.clear()
         print("Progress cleared (--force)", flush=True)
 
-    # Get items to process
-    if args.filter:
-        items = [i.strip() for i in args.filter.split(",")]
-    elif args.signal:
-        items = get_signals(filter_cohort)
+    # Get (entity_id, signal_id) pairs to process
+    if args.signal:
+        # Support both "signal" and "entity:signal" format
+        items = []
+        for i in args.signal.split(","):
+            i = i.strip()
+            if ":" in i:
+                entity, signal = i.split(":", 1)
+                items.append((entity, signal))
+            else:
+                # If only signal provided, get all entities for that signal
+                obs_path = get_path(OBSERVATIONS)
+                entities = (
+                    pl.scan_parquet(obs_path)
+                    .filter(pl.col("signal_id") == i)
+                    .select("entity_id")
+                    .unique()
+                    .collect()["entity_id"].to_list()
+                )
+                items.extend([(e, i) for e in entities])
     else:
-        # Cohort mode: get cohort list from cohorts.parquet
-        cohorts_path = get_path(COHORTS)
-        if cohorts_path.exists():
-            items = pl.read_parquet(cohorts_path)["cohort_id"].unique().to_list()
-        else:
-            items = []
-
-    # TODO: Parse args.dates for date range filtering
+        items = get_entity_signal_pairs()
 
     if not items:
-        raise RuntimeError(f"No {table} found to process")
+        raise RuntimeError("No entity-signal pairs found to process")
 
-    print(f"Mode: {'--signal' if args.signal else '--cohort'}", flush=True)
-    print(f"Source: {source_schema}/{source_table}", flush=True)
-    print(f"Destination: {schema}/{table}", flush=True)
-    print(f"Items to process: {len(items)}", flush=True)
+    print(f"Source: data/observations.parquet", flush=True)
+    print(f"Destination: data/vector.parquet", flush=True)
+    print(f"Entity-Signal pairs to process: {len(items)}", flush=True)
 
-    # Run
-    if args.signal:
-        # Laplace is computed INLINE - no separate chain needed
-        # Each signal gets: characterization → engine metrics → laplace field
-        # All in one pass for efficiency
-        run_sliding_vectors(
-            signals=items,
-            verbose=True,
-            adaptive=getattr(args, 'adaptive', False),
-        )
-
-    else:
-        # Cohort mode - aggregate signal vectors into cohort vectors
-        run_cohort_vector_aggregation(
-            cohorts=items if items else None,
-            verbose=True,
-        )
-
-    # Auto-run assessment report at end of processing
-    print("\n" + "=" * 80, flush=True)
-    print("RUNNING ASSESSMENT REPORT", flush=True)
-    print("=" * 80, flush=True)
-    try:
-        from prism.assessments.tep_assessment import run_tep_assessment
-        run_tep_assessment(domain)
-    except Exception as e:
-        print(f"Assessment report failed: {e}", flush=True)
+    # Run vector computation
+    # Laplace is computed INLINE - no separate chain needed
+    # Each signal gets: characterization → engine metrics → laplace field
+    run_sliding_vectors(
+        signals=items,
+        verbose=True,
+        adaptive=args.adaptive,
+    )

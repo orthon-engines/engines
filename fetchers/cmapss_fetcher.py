@@ -12,6 +12,12 @@ Dataset Info:
 - Known RUL (Remaining Useful Life) for validation
 - Operating conditions and fault modes vary by dataset
 
+Output Format (PRISM Canonical Schema):
+    entity_id: string  - Engine identifier (e.g., "FD001_U001")
+    signal_id: string  - PRISM signal name (from domain yaml)
+    timestamp: float   - Cycle number
+    value: float       - Measurement value
+
 Usage:
     from fetchers.cmapss_fetcher import fetch
 
@@ -20,21 +26,17 @@ Usage:
         "data_type": "train",             # "train" or "test"
     }
     observations = fetch(config)
-
-Returns:
-    list[dict] with keys: signal_id, observed_at, value, source, unit_id, rul
 """
 
-import io
 import os
 import tempfile
 import urllib.request
 import zipfile
-from datetime import date, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import pandas as pd
+import yaml
 
 # NASA C-MAPSS download URL
 CMAPSS_URL = "https://data.nasa.gov/docs/legacy/CMAPSSData.zip"
@@ -182,9 +184,24 @@ def add_rul_to_train(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def load_domain_yaml() -> Dict[str, Any]:
+    """Load the cmapss domain configuration YAML."""
+    # Look for domain yaml relative to this file's location
+    fetcher_dir = Path(__file__).parent
+    project_root = fetcher_dir.parent
+    yaml_path = project_root / 'config' / 'domains' / 'cmapss.yaml'
+
+    if not yaml_path.exists():
+        print(f"  Warning: Domain config not found at {yaml_path}")
+        return {}
+
+    with open(yaml_path) as f:
+        return yaml.safe_load(f)
+
+
 def fetch(config: Dict[str, Any]) -> List[Dict[str, Any]]:
     """
-    Fetch C-MAPSS observations.
+    Fetch C-MAPSS observations in PRISM canonical schema.
 
     Args:
         config: Dict with keys:
@@ -195,9 +212,11 @@ def fetch(config: Dict[str, Any]) -> List[Dict[str, Any]]:
             - cache_dir: Directory for cached downloads
 
     Returns:
-        List of observation dicts with keys:
-            signal_id, observed_at, value, source
-            Plus: unit_id, dataset, cycle (for reference)
+        List of observation dicts with PRISM canonical schema:
+            entity_id: Engine identifier
+            signal_id: PRISM internal signal name (from domain yaml)
+            timestamp: Cycle number (float)
+            value: Measurement value (float)
     """
     datasets = config.get("datasets", ["FD001"])
     data_type = config.get("data_type", "train")
@@ -207,6 +226,28 @@ def fetch(config: Dict[str, Any]) -> List[Dict[str, Any]]:
 
     if cache_dir:
         cache_dir = Path(cache_dir)
+
+    # Load domain YAML for signal mapping
+    domain_yaml = load_domain_yaml()
+
+    # Build signal mapping: source_name -> prism_id
+    signal_map = {}
+    if domain_yaml.get('signals'):
+        for source_name, cfg in domain_yaml['signals'].items():
+            signal_map[source_name] = cfg['prism_id']
+
+    # Build op_settings mapping
+    op_map = {}
+    if domain_yaml.get('op_settings'):
+        for source_name, cfg in domain_yaml['op_settings'].items():
+            op_map[source_name] = cfg.get('prism_id', source_name)
+
+    # Target mapping
+    target_prism_id = 'target_rul'  # Default
+    if domain_yaml.get('target') and domain_yaml['target'].get('prism_id'):
+        target_prism_id = domain_yaml['target']['prism_id']
+
+    print(f"  Signal mappings loaded: {len(signal_map)} sensors, {len(op_map)} op_settings")
 
     # Download data
     data_dir = download_cmapss(cache_dir)
@@ -240,50 +281,50 @@ def fetch(config: Dict[str, Any]) -> List[Dict[str, Any]]:
 
         print(f"    {len(df)} records, {df['unit'].nunique()} units")
 
-        # Convert to PRISM observation format
-        # Use a synthetic date (cycle as day offset from a base date)
-        base_date = date(2000, 1, 1)
+        # Convert to PRISM canonical schema
+        # entity_id = dataset_unit (engine), signal_id = prism_id from yaml
+        # timestamp = cycle number (float)
 
         for _, row in df.iterrows():
             unit_id = int(row['unit'])
             cycle = int(row['cycle'])
+            entity_id = f"{dataset}_U{unit_id:03d}"
 
-            # Create a synthetic date for signal topology
-            # Different units start at different dates to distinguish them
-            obs_date = base_date + timedelta(days=(unit_id - 1) * 500 + cycle)
-
-            # Sensor observations
+            # Sensor observations - map to PRISM signal IDs
             for sensor in SENSOR_NAMES:
                 if sensor in df.columns:
                     value = row[sensor]
                     if pd.notna(value):
+                        # Use mapped prism_id if available, else original name
+                        prism_signal_id = signal_map.get(sensor, sensor)
                         all_observations.append({
-                            "signal_id": f"CMAPSS_{sensor}_{dataset}_U{unit_id:03d}",
-                            "observed_at": obs_date,
+                            "entity_id": entity_id,
+                            "signal_id": prism_signal_id,
+                            "timestamp": float(cycle),
                             "value": float(value),
-                            "source": SOURCE,
                         })
 
-            # Operating conditions (optional)
+            # Operating conditions (optional) - map to PRISM IDs
             if include_ops:
                 for op in OP_NAMES:
                     if op in df.columns:
                         value = row[op]
                         if pd.notna(value):
+                            prism_op_id = op_map.get(op, op)
                             all_observations.append({
-                                "signal_id": f"CMAPSS_{op}_{dataset}_U{unit_id:03d}",
-                                "observed_at": obs_date,
+                                "entity_id": entity_id,
+                                "signal_id": prism_op_id,
+                                "timestamp": float(cycle),
                                 "value": float(value),
-                                "source": SOURCE,
                             })
 
-            # RUL (optional - useful for validation)
+            # RUL (optional - useful for ML validation)
             if include_rul and 'RUL' in df.columns and pd.notna(row.get('RUL')):
                 all_observations.append({
-                    "signal_id": f"CMAPSS_RUL_{dataset}_U{unit_id:03d}",
-                    "observed_at": obs_date,
+                    "entity_id": entity_id,
+                    "signal_id": target_prism_id,
+                    "timestamp": float(cycle),
                     "value": float(row['RUL']),
-                    "source": SOURCE,
                 })
 
     print(f"  Total: {len(all_observations):,} observations")
@@ -301,8 +342,9 @@ if __name__ == "__main__":
     results = fetch(config)
     print(f"\nFetched {len(results):,} observations")
 
-    # Show sample
+    # Show sample - PRISM canonical schema
     if results:
         df = pd.DataFrame(results[:10])
-        print("\nSample observations:")
+        print("\nSample observations (PRISM canonical schema):")
+        print("Columns: entity_id, signal_id, timestamp, value")
         print(df)

@@ -65,37 +65,35 @@ def _get_scale_factor() -> int:
     import os
     import json
 
-    domain = os.environ.get('PRISM_DOMAIN')
-    if domain:
-        # Try domain_info.json first
-        try:
-            from prism.db.parquet_store import get_data_root
-            domain_info_path = get_data_root(domain) / "domain_info.json"
-            if domain_info_path.exists():
-                with open(domain_info_path) as f:
-                    info = json.load(f)
-                # scale_factor = observations per year/period for volatility scaling
-                # For cycle-based data, this is 1 (no annualization)
-                sf = info.get('scale_factor')
-                if sf:
-                    return sf
-                # Infer from sampling_rate_hz if available
-                sr = info.get('sampling_rate_hz')
-                if sr:
-                    # Convert to yearly equivalent
-                    return int(sr * 3600 * 24 * 365)
-        except Exception:
-            pass
-
-        # Try domain.yaml
-        try:
-            from prism.config.loader import load_clock_config
-            config = load_clock_config(domain)
-            sf = config.get('scale_factor')
+    # Try domain_info.json first
+    try:
+        from prism.db.parquet_store import get_data_root
+        domain_info_path = get_data_root() / "domain_info.json"
+        if domain_info_path.exists():
+            with open(domain_info_path) as f:
+                info = json.load(f)
+            # scale_factor = observations per year/period for volatility scaling
+            # For cycle-based data, this is 1 (no annualization)
+            sf = info.get('scale_factor')
             if sf:
                 return sf
-        except Exception:
-            pass
+            # Infer from sampling_rate_hz if available
+            sr = info.get('sampling_rate_hz')
+            if sr:
+                # Convert to yearly equivalent
+                return int(sr * 3600 * 24 * 365)
+    except Exception:
+        pass
+
+    # Try domain.yaml
+    try:
+        from prism.config.loader import load_clock_config
+        config = load_clock_config()
+        sf = config.get('scale_factor')
+        if sf:
+            return sf
+    except Exception:
+        pass
 
     raise RuntimeError(
         "No scale_factor configured for volatility calculation. "

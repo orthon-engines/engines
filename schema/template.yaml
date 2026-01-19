@@ -1,0 +1,83 @@
+# config/domains/template.yaml
+# Copy this file and customize for your domain
+
+domain: my_domain
+description: "Description of your data source"
+
+# =============================================================================
+# TIME CONFIGURATION
+# =============================================================================
+# PRISM treats timestamp as a float. This section is for reporting only.
+time:
+  source_column: time        # Column name in your source data
+  unit: seconds              # Human-readable unit (seconds, cycles, days, ms)
+  description: "Time since start"
+
+# =============================================================================
+# ENTITY CONFIGURATION
+# =============================================================================
+# What fails? (engine, bearing, reactor, patient, etc.)
+entity:
+  source_column: unit_id     # Column name in your source data
+  description: "Equipment unit identifier"
+
+# =============================================================================
+# TARGET VARIABLE (Optional)
+# =============================================================================
+# If you have a known target (RUL, yield, failure label)
+target:
+  source_column: RUL         # Column name in your source data
+  description: "Remaining Useful Life"
+  # Set to null if no target: target: null
+
+# =============================================================================
+# SIGNAL MAPPING
+# =============================================================================
+# Maps your source column names to PRISM internal signal IDs
+# 
+# Format:
+#   source_column_name:
+#     prism_id: internal_name    # Used internally (no spaces, lowercase)
+#     description: "Human text"  # For reports
+#     unit: "unit"               # Optional
+#     category: grouping         # Optional (for expected_cohorts)
+#
+signals:
+  sensor_1:
+    prism_id: sig_001
+    description: "First sensor measurement"
+    unit: "°C"
+    category: temperature
+    
+  sensor_2:
+    prism_id: sig_002
+    description: "Second sensor measurement"
+    unit: "psi"
+    category: pressure
+    
+  # Add more signals...
+  # sensor_N:
+  #   prism_id: sig_N
+  #   description: "..."
+  #   unit: "..."
+  #   category: ...
+
+# =============================================================================
+# OPERATING SETTINGS (Optional)
+# =============================================================================
+# Metadata columns that describe operating conditions
+# These become entity-level metadata, not time-series signals
+op_settings:
+  # op_setting_1:
+  #   description: "Operating mode"
+  #   unit: "-"
+
+# =============================================================================
+# EXPECTED COHORTS (Optional)
+# =============================================================================
+# Hint for validation: which signals SHOULD cluster together?
+# PRISM will discover these automatically, but this helps validate.
+expected_cohorts:
+  # temperatures: [sensor_1, sensor_3, sensor_5]
+  # pressures: [sensor_2, sensor_4]
+  # speeds: [sensor_6, sensor_7]

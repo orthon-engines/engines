@@ -1,0 +1,128 @@
+# Engine Configuration
+# ====================
+# Hardcoded settings for all PRISM engines
+
+version: "1.0.0"
+
+# =============================================================================
+# VECTOR ENGINES
+# =============================================================================
+# Compute behavioral metrics from raw observations
+
+vector_engines:
+  # Pointwise engines - output at every timestamp
+  hilbert:
+    min_observations: 10
+    outputs: [inst_freq, inst_amp, inst_phase]
+
+  derivatives:
+    min_observations: 3
+    outputs: [velocity, acceleration]
+
+  statistical:
+    min_observations: 10
+    window: 10
+    outputs: [zscore, rolling_std, rolling_mean]
+
+  # Windowed engines - sparse output
+  entropy:
+    min_observations: 50
+    outputs: [sample_entropy, permutation_entropy, spectral_entropy]
+
+  hurst:
+    min_observations: 100
+    outputs: [hurst_exponent, hurst_confidence]
+
+  lyapunov:
+    min_observations: 100
+    outputs: [lyapunov_exponent]
+
+  rqa:
+    min_observations: 50
+    outputs: [recurrence_rate, determinism, laminarity, trapping_time]
+
+  garch:
+    min_observations: 30
+    outputs: [garch_omega, garch_alpha, garch_beta, conditional_volatility]
+
+  spectral:
+    min_observations: 32
+    outputs: [dominant_freq, spectral_centroid, spectral_bandwidth, spectral_rolloff]
+
+  realized_vol:
+    min_observations: 20
+    outputs: [realized_volatility, bipower_variation]
+
+  wavelet:
+    min_observations: 32
+    outputs: [wavelet_energy, wavelet_entropy]
+
+
+# =============================================================================
+# GEOMETRY ENGINES
+# =============================================================================
+# Compute structural relationships between signals
+
+geometry_engines:
+  pca:
+    n_components: 5
+    min_signals: 3
+
+  clustering:
+    method: hierarchical
+    linkage: ward
+    n_clusters: auto
+
+  mst:
+    metric: correlation
+
+  lof:
+    n_neighbors: 20
+    contamination: 0.1
+
+  distance:
+    metrics: [euclidean, cosine, correlation]
+
+  convex_hull:
+    min_points: 4
+
+  copula:
+    family: gaussian
+
+  mutual_info:
+    n_neighbors: 5
+
+  barycenter:
+    weighted: true
+
+
+# =============================================================================
+# STATE ENGINES
+# =============================================================================
+# Compute temporal dynamics
+
+state_engines:
+  granger:
+    max_lag: 10
+    significance: 0.05
+
+  cross_correlation:
+    max_lag: 50
+
+  cointegration:
+    method: johansen
+    max_lag: 10
+
+  dtw:
+    window: null  # No constraint
+
+  dmd:
+    n_modes: 10
+    rank: null  # Auto
+
+  transfer_entropy:
+    n_bins: 8
+    max_lag: 10
+
+  coupled_inertia:
+    window: 50

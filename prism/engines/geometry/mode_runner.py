@@ -43,7 +43,7 @@ from prism.db.parquet_store import (
     get_data_root,
     ensure_directory,
     OBSERVATIONS,
-    SIGNALS,
+    VECTOR,
     GEOMETRY,
     STATE,
     COHORTS,
@@ -209,10 +209,10 @@ def run_mode_geometry(
     Returns:
         Summary statistics
     """
-    ensure_directory(domain)
+    ensure_directory()
 
     # Load signal field (Laplace data)
-    field_path = get_path(SIGNALS, domain)
+    field_path = get_path(VECTOR)
     if not Path(field_path).exists():
         raise FileNotFoundError(f"Signal field not found: {field_path}")
 
@@ -267,7 +267,7 @@ def run_mode_geometry(
         print()
         print("Step 3: Loading observations...")
 
-    obs_path = get_path(OBSERVATIONS, domain)
+    obs_path = get_path(OBSERVATIONS)
     # Get all signal_ids from modes for filter pushdown
     all_mode_signals = modes_df['signal_id'].unique().tolist()
     observations = (
@@ -340,11 +340,11 @@ def run_mode_geometry(
     # Save results
     result_df = pl.DataFrame(records, infer_schema_length=None)
 
-    output_path = get_path(GEOMETRY, domain)
+    output_path = get_path(GEOMETRY)
     write_parquet_atomic(result_df, output_path)
 
     # Also save mode assignments
-    modes_output_path = get_path(SIGNALS, domain)
+    modes_output_path = get_path(VECTOR)
     modes_pl = pl.from_pandas(modes_df)
     write_parquet_atomic(modes_pl, modes_output_path)
 

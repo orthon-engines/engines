@@ -1,0 +1,18 @@
+# Window Configuration
+# ====================
+# Default windowing and stride settings for PRISM pipeline
+
+version: "1.0.0"
+
+# Default settings (can be overridden by --adaptive flag)
+default:
+  window_size: 252
+  stride: 21
+  min_observations: 50
+
+# Adaptive mode automatically detects optimal window from data
+adaptive:
+  enabled: false
+  min_window: 20
+  max_window: 500
+  target_windows: 10  # Aim for ~10 windows in data

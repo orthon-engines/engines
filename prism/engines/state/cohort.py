@@ -50,7 +50,7 @@ from prism.db.parquet_store import (
     get_data_root,
     ensure_directory,
     OBSERVATIONS,
-    SIGNALS,
+    VECTOR,
     GEOMETRY,
     STATE,
     COHORTS,
@@ -75,7 +75,7 @@ STATE_COLUMNS = [
 
 def get_cohort_ids(domain: str) -> List[str]:
     """Get all cohort IDs for the domain."""
-    members_path = get_path(COHORTS, domain)
+    members_path = get_path(COHORTS)
     if not members_path.exists():
         return ['default']
 
@@ -268,7 +268,7 @@ def run_cohort_state(
         exclude_patterns = ['FAULT']
 
     # Get field path
-    field_path = get_path(SIGNALS, domain)
+    field_path = get_path(VECTOR)
     if not field_path.exists():
         raise FileNotFoundError(f"Field data not found: {field_path}")
 
@@ -424,7 +424,7 @@ def run_cohort_state(
                 print(f"  Classification failed: {e}")
 
     # Write output
-    output_path = get_path(STATE, domain)
+    output_path = get_path(STATE)
     write_parquet_atomic(result_df, output_path)
 
     total_transitions = len(transitions_df)
