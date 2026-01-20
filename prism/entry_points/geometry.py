@@ -56,6 +56,8 @@ from prism.db.polars_io import (
     write_parquet_atomic,
 )
 from prism.utils.memory import force_gc, get_memory_usage_mb
+from sklearn.cluster import KMeans
+from sklearn.preprocessing import StandardScaler
 from prism.db.scratch import TempParquet, merge_to_table
 from prism.engines.utils.parallel import (
     WorkerAssignment,
@@ -97,6 +99,64 @@ import json
 
 # Bisection analysis
 from prism.utils import bisection
+from dataclasses import dataclass
+from collections import Counter
+
+
+# =============================================================================
+# PRODUCTION CONFIG + ERROR HANDLING
+# =============================================================================
+
+@dataclass
+class GeometryConfig:
+    """Geometry computation configuration - adaptive by default."""
+
+    # Thresholds (lowered for production)
+    min_features: int = 5          # was 10
+    min_matrix_rows: int = 2       # was 3
+    min_matrix_cols: int = 2       # was 3
+
+    # Adaptive mode
+    adaptive: bool = True
+    adaptive_pct: float = 0.05     # use 5% of max features as floor
+
+    # Fail behavior
+    fail_on_empty: bool = True     # raise if 0 rows
+    min_coverage_pct: float = 10.0 # warn if < 10%
+
+    # Logging
+    log_skipped_sample: int = 10   # first N skipped examples
+
+
+class SkipTracker:
+    """Track why groups are skipped."""
+
+    def __init__(self):
+        self.reasons = Counter()
+        self.examples = {}
+
+    def skip(self, entity_id: str, timestamp: float, reason: str):
+        self.reasons[reason] += 1
+        if reason not in self.examples:
+            self.examples[reason] = []
+        if len(self.examples[reason]) < 5:
+            self.examples[reason].append(f"{entity_id}@{timestamp}")
+
+    def summary(self) -> str:
+        lines = ["Skip summary:"]
+        for reason, count in self.reasons.most_common():
+            ex = self.examples.get(reason, [])[:2]
+            lines.append(f"  {reason}: {count} (e.g. {', '.join(ex)})")
+        return "\n".join(lines)
+
+    @property
+    def total(self) -> int:
+        return sum(self.reasons.values())
+
+
+class GeometryError(Exception):
+    """Raised when geometry fails critically."""
+    pass
 
 
 def load_domain_info() -> Optional[Dict[str, Any]]:
@@ -495,15 +555,11 @@ def compute_cohort_geometry(matrix: pd.DataFrame, cohort: str, window_end: date)
     except Exception as e:
         logger.warning(f"MST engine failed: {e}")
 
-    # 5. LOF ENGINE
-    try:
-        lof_engine = LOFEngine()
-        lof_result = lof_engine.run(matrix, run_id=run_id)
-
-        results['lof_mean'] = lof_result.get('mean_lof', 0)
-        results['lof_n_outliers'] = lof_result.get('n_outliers', 0)
-    except Exception as e:
-        logger.warning(f"LOF engine failed: {e}")
+    # 5. LOF ENGINE (fail loudly - no silent defaults)
+    lof_engine = LOFEngine()
+    lof_result = lof_engine.run(matrix, run_id=run_id, raise_on_failure=True)
+    results['lof_mean'] = lof_result.get('avg_lof_score', 0)
+    results['lof_n_outliers'] = lof_result.get('n_outliers_auto', 0)
 
     # 6. CONVEX HULL ENGINE
     try:
@@ -1181,7 +1237,9 @@ def create_feature_matrix(
 def compute_geometry_from_vectors(
     df: pl.DataFrame,
     verbose: bool = True,
-) -> List[Dict]:
+    batch_size: int = 100,
+    config: Optional[GeometryConfig] = None,
+) -> int:
     """
     Compute geometry metrics from vector data using canonical engines.
 
@@ -1195,15 +1253,25 @@ def compute_geometry_from_vectors(
     - Copula (tail dependence)
     - Convex Hull (feature space volume)
 
+    WRITES INCREMENTALLY to geometry.parquet every batch_size rows.
+
     Args:
         df: Vector DataFrame with entity_id, signal_id, engine, timestamp, value
         verbose: Print progress
+        batch_size: Write to parquet every N rows (default 100)
+        config: GeometryConfig with adaptive thresholds (default: GeometryConfig())
 
     Returns:
-        List of geometry row dictionaries
+        Total number of rows written
     """
+    if config is None:
+        config = GeometryConfig()
+
     rows = []
+    total_written = 0
     computed_at = datetime.now()
+    geom_path = get_path(GEOMETRY)
+    skip_tracker = SkipTracker()
 
     # Group by entity_id and timestamp
     groups = df.group_by(['entity_id', 'timestamp']).agg([
@@ -1215,6 +1283,7 @@ def compute_geometry_from_vectors(
     n_groups = len(groups)
     if verbose:
         logger.info(f"Computing geometry for {n_groups} (entity, timestamp) combinations")
+        logger.info(f"  Config: min_features={config.min_features}, min_matrix={config.min_matrix_rows}x{config.min_matrix_cols}")
 
     # Process each group
     for idx, row in enumerate(groups.iter_rows(named=True)):
@@ -1222,8 +1291,9 @@ def compute_geometry_from_vectors(
         timestamp = row['timestamp']
         n_features = row['n_features']
 
-        # Skip if too few features
-        if n_features < 10:
+        # Skip if too few features (adaptive threshold)
+        if n_features < config.min_features:
+            skip_tracker.skip(entity_id, timestamp, f"too_few_features ({n_features}<{config.min_features})")
             continue
 
         # Get feature data for this entity at this timestamp
@@ -1249,10 +1319,13 @@ def compute_geometry_from_vectors(
             # Fill NaN with 0 (some engines don't compute for all signals)
             matrix = matrix.fillna(0)
 
-            if matrix.shape[0] < 3 or matrix.shape[1] < 3:
+            if matrix.shape[0] < config.min_matrix_rows or matrix.shape[1] < config.min_matrix_cols:
+                skip_tracker.skip(entity_id, timestamp, f"matrix_too_small ({matrix.shape[0]}x{matrix.shape[1]}<{config.min_matrix_rows}x{config.min_matrix_cols})")
                 continue
 
         except Exception as e:
+            skip_tracker.skip(entity_id, timestamp, f"pivot_failed: {type(e).__name__}")
+            logger.warning(f"Pivot failed for {entity_id}@{timestamp}: {e}")
             continue
 
         run_id = f"{entity_id}_{timestamp}"
@@ -1289,14 +1362,11 @@ def compute_geometry_from_vectors(
         except Exception:
             pass
 
-        # 4. LOF ENGINE
-        try:
-            lof_engine = LOFEngine()
-            lof_result = lof_engine.run(matrix, run_id=run_id)
-            metrics['lof_mean'] = lof_result.get('avg_lof_score', 0)
-            metrics['lof_n_outliers'] = lof_result.get('n_outliers_auto', 0)
-        except Exception:
-            pass
+        # 4. LOF ENGINE (fail loudly - no silent defaults)
+        lof_engine = LOFEngine()
+        lof_result = lof_engine.run(matrix, run_id=run_id, raise_on_failure=True)
+        metrics['lof_mean'] = lof_result.get('avg_lof_score', 0)
+        metrics['lof_n_outliers'] = lof_result.get('n_outliers_auto', 0)
 
         # 5. DISTANCE ENGINE
         try:
@@ -1372,13 +1442,43 @@ def compute_geometry_from_vectors(
             'computed_at': computed_at,
         })
 
-        if verbose and (idx + 1) % 100 == 0:
+        # Write batch incrementally
+        if len(rows) >= batch_size:
+            batch_df = pl.DataFrame(rows, infer_schema_length=None)
+            upsert_parquet(batch_df, geom_path, ['entity_id', 'timestamp'])
+            total_written += len(rows)
+            if verbose:
+                logger.info(f"  Written {total_written} rows to {geom_path} ({idx + 1}/{n_groups} groups)")
+            rows = []  # Clear buffer
+
+        elif verbose and (idx + 1) % 500 == 0:
             logger.info(f"  Processed {idx + 1}/{n_groups} groups...")
 
-    if verbose:
-        logger.info(f"  Computed {len(rows)} geometry snapshots")
+    # Write remaining rows
+    if rows:
+        batch_df = pl.DataFrame(rows, infer_schema_length=None)
+        upsert_parquet(batch_df, geom_path, ['entity_id', 'timestamp'])
+        total_written += len(rows)
+        if verbose:
+            logger.info(f"  Written final {len(rows)} rows (total: {total_written})")
 
-    return rows
+    # Log skip summary
+    if verbose:
+        coverage_pct = (total_written / n_groups * 100) if n_groups > 0 else 0
+        logger.info(f"  Completed: {total_written} geometry snapshots written")
+        logger.info(f"  Coverage: {coverage_pct:.1f}% ({total_written}/{n_groups} groups)")
+        if skip_tracker.total > 0:
+            logger.info(skip_tracker.summary())
+
+        # Warn if coverage is too low
+        if coverage_pct < config.min_coverage_pct and config.fail_on_empty:
+            logger.warning(f"  LOW COVERAGE: Only {coverage_pct:.1f}% < {config.min_coverage_pct}% threshold")
+
+    # Fail if nothing written and configured to do so
+    if total_written == 0 and config.fail_on_empty:
+        raise GeometryError(f"Zero rows written. {skip_tracker.summary()}")
+
+    return total_written
 
 
 def compute_geometry_v2(
@@ -1474,30 +1574,346 @@ def run_v2_geometry(verbose: bool = True) -> Dict:
         logger.warning("No vector data loaded. Run signal_vector first.")
         return {'snapshots': 0}
 
-    # Compute geometry from vectors
-    rows = compute_geometry_from_vectors(df, verbose=verbose)
+    # Compute geometry from vectors (writes incrementally)
+    total_written = compute_geometry_from_vectors(df, verbose=verbose, batch_size=100)
 
-    if not rows:
+    if total_written == 0:
         return {'snapshots': 0, **metadata}
 
     stats = {
-        'n_snapshots': len(rows),
+        'n_snapshots': total_written,
+        'saved_rows': total_written,
         **metadata,
     }
-
-    if verbose:
-        logger.info(f"  Saving {len(rows)} geometry rows...")
-
-    # Save to geometry.parquet
-    geom_df = pl.DataFrame(rows, infer_schema_length=None)
-    geom_path = get_path(GEOMETRY)
-    upsert_parquet(geom_df, geom_path, ['entity_id', 'timestamp'])
-
-    if verbose:
-        logger.info(f"  Saved: {geom_path}")
-
-    stats['saved_rows'] = len(rows)
     return stats
+
+
+# =============================================================================
+# PASS 2: ADD MODE_ID VIA CLUSTERING (WITH GAP STATISTIC AUTO-DETECTION)
+# =============================================================================
+
+def compute_dispersion(X: np.ndarray, labels: np.ndarray, centroids: np.ndarray) -> float:
+    """
+    Compute within-cluster dispersion W_k.
+    W_k = sum over all clusters of: sum of squared distances to centroid
+    """
+    dispersion = 0.0
+    for k in range(len(centroids)):
+        cluster_points = X[labels == k]
+        if len(cluster_points) > 0:
+            distances = np.sum((cluster_points - centroids[k]) ** 2)
+            dispersion += distances
+    return dispersion
+
+
+def generate_reference_data(X: np.ndarray) -> np.ndarray:
+    """
+    Generate reference data from uniform distribution over the bounding box of X.
+    This is what "no structure" looks like - random points in the same space.
+    """
+    n_samples, n_features = X.shape
+    mins = X.min(axis=0)
+    maxs = X.max(axis=0)
+    reference = np.random.uniform(low=mins, high=maxs, size=(n_samples, n_features))
+    return reference
+
+
+def gap_statistic(
+    X: np.ndarray,
+    k_min: int = 2,
+    k_max: int = 7,
+    n_bootstrap: int = 10,
+    random_state: int = 42,
+    verbose: bool = True,
+) -> tuple:
+    """
+    Compute Gap Statistic to find optimal number of clusters.
+
+    Gap(k) = E[log(W_k*)] - log(W_k)
+
+    Pick smallest k where: Gap(k) >= Gap(k+1) - SE(k+1)
+    """
+    np.random.seed(random_state)
+    n_samples, n_features = X.shape
+
+    gaps = []
+    std_errors = []
+
+    if verbose:
+        logger.info(f"  Gap Statistic: testing k={k_min} to k={k_max}")
+        logger.info(f"  Bootstrap samples: {n_bootstrap}, Data shape: {X.shape}")
+
+    for k in range(k_min, k_max + 1):
+        # Cluster actual data
+        kmeans = KMeans(n_clusters=k, random_state=random_state, n_init=10)
+        labels = kmeans.fit_predict(X)
+        centroids = kmeans.cluster_centers_
+
+        W_k = compute_dispersion(X, labels, centroids)
+        log_W_k = np.log(W_k) if W_k > 0 else 0
+
+        # Bootstrap reference data
+        log_W_k_refs = []
+        for b in range(n_bootstrap):
+            X_ref = generate_reference_data(X)
+            kmeans_ref = KMeans(n_clusters=k, random_state=random_state + b, n_init=5)
+            labels_ref = kmeans_ref.fit_predict(X_ref)
+            centroids_ref = kmeans_ref.cluster_centers_
+            W_k_ref = compute_dispersion(X_ref, labels_ref, centroids_ref)
+            log_W_k_ref = np.log(W_k_ref) if W_k_ref > 0 else 0
+            log_W_k_refs.append(log_W_k_ref)
+
+        E_log_W_k_ref = np.mean(log_W_k_refs)
+        gap = E_log_W_k_ref - log_W_k
+        gaps.append(gap)
+
+        # Standard error with Tibshirani correction
+        std_log_W_k_ref = np.std(log_W_k_refs)
+        s_k = std_log_W_k_ref * np.sqrt(1 + 1/n_bootstrap)
+        std_errors.append(s_k)
+
+        if verbose:
+            logger.info(f"    k={k}: Gap={gap:.4f}, SE={s_k:.4f}")
+
+    # Find optimal k: smallest k where Gap(k) >= Gap(k+1) - SE(k+1)
+    optimal_k = k_min
+    for i in range(len(gaps) - 1):
+        k = k_min + i
+        if gaps[i] >= gaps[i + 1] - std_errors[i + 1]:
+            optimal_k = k
+            break
+    else:
+        optimal_k = k_min + np.argmax(gaps)
+
+    if verbose:
+        logger.info(f"  ✓ Optimal k={optimal_k} (Gap={gaps[optimal_k - k_min]:.4f})")
+
+    stats = {
+        'k_values': list(range(k_min, k_max + 1)),
+        'gaps': gaps,
+        'std_errors': std_errors,
+        'optimal_k': optimal_k,
+    }
+
+    return optimal_k, stats
+
+
+def auto_detect_modes(
+    geo: pl.DataFrame,
+    k_min: int = 2,
+    k_max: int = 7,
+    n_bootstrap: int = 10,
+    verbose: bool = True,
+) -> tuple:
+    """
+    Auto-detect optimal number of modes from geometry features using Gap Statistic.
+    """
+    cluster_features = [
+        'pca_var_1',
+        'pca_effective_dim',
+        'lof_mean',
+        'distance_mean',
+        'mst_total_weight',
+    ]
+
+    available = [f for f in cluster_features if f in geo.columns]
+    if len(available) < 2:
+        if verbose:
+            logger.warning(f"Only {len(available)} features available, defaulting to k=3")
+        return 3, {}
+
+    if verbose:
+        logger.info(f"  Clustering features: {available}")
+
+    X = geo.select(available).to_numpy()
+    X = np.nan_to_num(X, nan=0.0)
+
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(X)
+
+    return gap_statistic(X_scaled, k_min, k_max, n_bootstrap, verbose=verbose)
+
+
+def _save_gap_stats(stats: dict, geometry_path: Path):
+    """Save gap statistics to JSON for analysis/plotting."""
+    import json
+
+    if not stats:
+        return
+
+    stats_path = Path(str(geometry_path).replace('.parquet', '.gap_stats.json'))
+
+    stats_serializable = {
+        'k_values': stats['k_values'],
+        'gaps': [float(g) for g in stats['gaps']],
+        'std_errors': [float(s) for s in stats['std_errors']],
+        'optimal_k': int(stats['optimal_k']),
+    }
+
+    with open(stats_path, 'w') as f:
+        json.dump(stats_serializable, f, indent=2)
+
+    logger.info(f"  Gap stats saved to: {stats_path}")
+
+
+def run_geometry_pass2(
+    geometry_path: Path = None,
+    n_modes: int = None,  # None = auto-detect via Gap Statistic
+    mode_method: str = "clustering",
+    verbose: bool = True,
+) -> pl.DataFrame:
+    """
+    Pass 2: Add mode_id via clustering with optional auto-detection.
+
+    Args:
+        geometry_path: Path to geometry.parquet (default: auto-detect)
+        n_modes: Number of modes. If None, auto-detect via Gap Statistic.
+        mode_method: "clustering" or "lifecycle"
+        verbose: Print progress
+
+    Returns:
+        Updated geometry DataFrame with mode_id
+    """
+    if geometry_path is None:
+        geometry_path = get_path(GEOMETRY)
+
+    if verbose:
+        logger.info(f"[Pass 2] Adding mode_id ({mode_method})...")
+
+    geo = pl.read_parquet(geometry_path)
+
+    if verbose:
+        logger.info(f"  Loaded {len(geo)} geometry rows")
+
+    if mode_method == "clustering":
+        # Auto-detect if n_modes not specified
+        if n_modes is None:
+            if verbose:
+                logger.info(f"  Auto-detecting optimal number of modes...")
+            n_modes, gap_stats = auto_detect_modes(geo, verbose=verbose)
+            _save_gap_stats(gap_stats, geometry_path)
+
+        geo = _add_mode_id_clustering(geo, n_modes, verbose)
+
+    elif mode_method == "lifecycle":
+        if n_modes is None:
+            n_modes = 3
+        geo = _add_mode_id_lifecycle(geo, n_modes, verbose)
+    else:
+        raise ValueError(f"Unknown mode_method: {mode_method}")
+
+    # Overwrite with mode_id added
+    geo.write_parquet(geometry_path)
+
+    if verbose:
+        logger.info(f"  ✓ Pass 2 complete: added mode_id ({mode_method}, n={n_modes})")
+        # Show distribution
+        dist = geo.group_by('mode_id').agg(pl.count().alias('count')).sort('mode_id')
+        for row in dist.iter_rows(named=True):
+            logger.info(f"    Mode {row['mode_id']}: {row['count']} rows")
+
+        # Validate severity ordering
+        logger.info(f"  Severity validation (lof_mean by mode):")
+        for mode in range(n_modes):
+            mode_data = geo.filter(pl.col('mode_id') == mode)
+            if len(mode_data) > 0:
+                avg_lof = mode_data['lof_mean'].mean()
+                logger.info(f"    Mode {mode}: lof_mean = {avg_lof:.4f}")
+
+    return geo
+
+
+def _add_mode_id_clustering(
+    geo: pl.DataFrame,
+    n_modes: int,
+    verbose: bool = True,
+) -> pl.DataFrame:
+    """
+    Cluster geometry features to discover natural operating modes.
+    Orders clusters by degradation severity (lof_mean).
+
+    Mode 0 = healthy (lowest lof_mean)
+    Mode N = critical (highest lof_mean)
+    """
+    cluster_features = [
+        'pca_var_1',
+        'pca_effective_dim',
+        'lof_mean',
+        'distance_mean',
+        'mst_total_weight',
+    ]
+
+    # Handle missing features gracefully
+    available_features = [f for f in cluster_features if f in geo.columns]
+    if len(available_features) < 2:
+        raise ValueError(f"Need at least 2 features for clustering, found: {available_features}")
+
+    if verbose:
+        logger.info(f"  Clustering on {len(available_features)} features: {available_features}")
+
+    X = geo.select(available_features).to_numpy()
+
+    # Handle NaNs
+    X = np.nan_to_num(X, nan=0.0)
+
+    # Standardize
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(X)
+
+    # Cluster
+    kmeans = KMeans(n_clusters=n_modes, random_state=42, n_init=10)
+    raw_labels = kmeans.fit_predict(X_scaled)
+
+    # Order clusters by severity (higher lof_mean = more degraded)
+    cluster_severity = {}
+    lof_values = geo['lof_mean'].to_numpy()
+
+    for cluster_id in range(n_modes):
+        mask = raw_labels == cluster_id
+        if mask.sum() > 0:
+            cluster_severity[cluster_id] = np.mean(lof_values[mask])
+        else:
+            cluster_severity[cluster_id] = 0.0
+
+    # Sort by ASCENDING lof_mean: lowest = mode 0 (healthy), highest = mode N (critical)
+    sorted_clusters = sorted(cluster_severity.keys(), key=lambda x: cluster_severity[x])
+    cluster_to_mode = {c: i for i, c in enumerate(sorted_clusters)}
+
+    if verbose:
+        logger.info(f"  Cluster severity (lof_mean):")
+        for c in sorted_clusters:
+            logger.info(f"    Cluster {c} -> Mode {cluster_to_mode[c]}: lof_mean={cluster_severity[c]:.4f}")
+
+    mode_ids = [cluster_to_mode[label] for label in raw_labels]
+
+    return geo.with_columns(pl.Series('mode_id', mode_ids).cast(pl.Int64))
+
+
+def _add_mode_id_lifecycle(
+    geo: pl.DataFrame,
+    n_modes: int,
+    verbose: bool = True,
+) -> pl.DataFrame:
+    """
+    Assign mode_id based on lifecycle percentage.
+    Only for benchmarking with known run-to-failure data.
+
+    Mode 0 = early life (0-33%)
+    Mode 1 = mid life (33-66%)
+    Mode 2 = end of life (66-100%)
+    """
+    if verbose:
+        logger.info(f"  Lifecycle-based mode assignment (n_modes={n_modes})")
+
+    return geo.with_columns(
+        (
+            (pl.col('timestamp') / pl.col('timestamp').max().over('entity_id') * n_modes)
+            .floor()
+            .clip(0, n_modes - 1)
+            .cast(pl.Int64)
+            .alias('mode_id')
+        )
+    )
 
 
 # =============================================================================
@@ -1506,53 +1922,71 @@ def run_v2_geometry(verbose: bool = True) -> Dict:
 
 def main():
     parser = argparse.ArgumentParser(
-        description='PRISM Geometry Runner - Compute structural geometry from vector signals',
+        description='PRISM Geometry Runner',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Output: data/geometry.parquet
 
 Examples:
-  python -m prism.entry_points.geometry              # Production run
-  python -m prism.entry_points.geometry --adaptive   # Auto-detect window
-  python -m prism.entry_points.geometry --force      # Force recompute
-  python -m prism.entry_points.geometry --testing    # Enable test mode
+  python -m prism.entry_points.geometry           # Full pipeline
+  python -m prism.entry_points.geometry --force   # Force recompute
 """
     )
 
-    # Production flags
     parser.add_argument('--adaptive', action='store_true',
-                        help='Use adaptive windowing from domain_info.json')
+                        help='Use adaptive windowing')
     parser.add_argument('--force', action='store_true',
-                        help='Clear progress tracker and recompute all')
-
-    # Testing mode
+                        help='Force recompute all')
     parser.add_argument('--testing', action='store_true',
                         help='Enable testing mode')
 
     args = parser.parse_args()
 
+    # Hardcoded settings (no more CLI bloat)
+    n_modes = None  # Auto-detect via Gap Statistic
+    mode_method = 'clustering'
+
     # Handle --force
     if args.force:
         clear_progress()
+        # Also delete existing geometry.parquet
+        geom_path = get_path(GEOMETRY)
+        if geom_path.exists():
+            geom_path.unlink()
+            logger.info(f"Deleted existing {geom_path}")
 
     # Ensure directories exist
     ensure_schema()
 
-    # Run V3 geometry (from vector metrics)
     logger.info("=" * 80)
-    logger.info("PRISM GEOMETRY - Vector Metrics Architecture")
+    logger.info("PRISM GEOMETRY - Two-Pass Pipeline")
     logger.info("=" * 80)
     logger.info(f"Source: data/vector.parquet")
     logger.info(f"Destination: data/geometry.parquet")
 
+    # Pass 1: Compute geometry features (streaming, batch writes)
+    logger.info("")
+    logger.info("[Pass 1] Computing geometry features...")
     result = run_v2_geometry(verbose=True)
+    logger.info(f"  Pass 1 complete: {result.get('saved_rows', 0)} rows")
 
+    # Pass 2: Add mode_id via clustering
+    logger.info("")
+    run_geometry_pass2(
+        n_modes=n_modes,
+        mode_method=mode_method,
+        verbose=True,
+    )
+
+    # Final summary
+    geo = pl.read_parquet(get_path(GEOMETRY))
     logger.info("")
     logger.info("=" * 80)
     logger.info("COMPLETE")
     logger.info("=" * 80)
-    logger.info(f"  Snapshots: {result.get('n_snapshots', 0)}")
-    logger.info(f"  Saved rows: {result.get('saved_rows', 0)}")
+    logger.info(f"  Total rows: {len(geo)}")
+    logger.info(f"  Entities: {geo['entity_id'].n_unique()}")
+
     return 0
 
 

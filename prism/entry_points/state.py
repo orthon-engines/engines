@@ -1018,6 +1018,9 @@ def run_v2_state(
         mean_velocity = float(np.nanmean(speed))
         mean_acceleration = float(np.nanmean(accel_mag))
 
+        # Get mode_id for this entity (from geometry)
+        mode_ids = entity_df['mode_id'].to_numpy() if 'mode_id' in entity_df.columns else np.zeros(len(timestamps), dtype=int)
+
         # Create rows for each timestamp
         for i in range(len(timestamps)):
             all_rows.append({
@@ -1030,6 +1033,7 @@ def run_v2_state(
                 'curvature': float(curvature[i]),
                 'mean_velocity': mean_velocity,
                 'mean_acceleration': mean_acceleration,
+                'mode_id': int(mode_ids[i]),
                 'computed_at': computed_at,
             })
 
@@ -1049,6 +1053,25 @@ def run_v2_state(
 
     # Save trajectory to parquet
     df = pl.DataFrame(all_rows, infer_schema_length=None)
+
+    # Add mode_transition and mode_delta columns
+    df = df.sort(['entity_id', 'timestamp'])
+    df = df.with_columns([
+        pl.col('mode_id').shift(1).over('entity_id').alias('_mode_prev'),
+    ])
+    df = df.with_columns([
+        # Did mode change from previous timestamp?
+        (pl.col('mode_id') != pl.col('_mode_prev')).fill_null(False).alias('mode_transition'),
+        # Direction of change: +1 = degrading, -1 = recovering, 0 = stable
+        (pl.col('mode_id') - pl.col('_mode_prev')).fill_null(0).cast(pl.Int64).alias('mode_delta'),
+    ])
+    df = df.drop('_mode_prev')
+
+    # Count mode transitions
+    n_transitions = df.filter(pl.col('mode_transition')).height
+    if verbose:
+        logger.info(f"  Mode transitions detected: {n_transitions}")
+
     state_path = get_path(STATE)
     df.write_parquet(state_path)
 

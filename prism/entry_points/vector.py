@@ -1941,3 +1941,89 @@ Examples:
         verbose=True,
         adaptive=args.adaptive,
     )
+
+    # Post-process: clean up vector.parquet
+    # 1. Remove mode_id (100% NULL - Mode layer concept)
+    # 2. Remove value_norm (58.7% NULL - inconsistent, normalize in ML layer)
+    # 3. Forward-fill sparse features within (entity, signal) groups
+    print()
+    print("=" * 80)
+    print("POST-PROCESSING")
+    print("=" * 80)
+
+    vector_path = get_path(VECTOR)
+    print(f"Reading {vector_path}...")
+    vec = pl.read_parquet(vector_path)
+    rows_before = len(vec)
+
+    # Separate dense and sparse signals
+    print("Separating dense and sparse signals...")
+    dense = vec.filter(pl.col('signal_type') == 'dense')
+    sparse = vec.filter(pl.col('signal_type') == 'sparse')
+
+    print(f"  Dense rows: {len(dense):,}")
+    print(f"  Sparse rows: {len(sparse):,}")
+
+    # Get all (entity_id, timestamp) pairs from dense signals
+    # These are the timestamps we need sparse values at
+    all_timestamps = dense.select(['entity_id', 'timestamp']).unique()
+    print(f"  Unique (entity, timestamp) pairs: {len(all_timestamps):,}")
+
+    # Get unique sparse signal definitions
+    sparse_signals = sparse.select([
+        'entity_id', 'signal_id', 'source_signal', 'engine', 'signal_type'
+    ]).unique()
+    print(f"  Unique sparse signals: {len(sparse_signals):,}")
+
+    # Cross join: all timestamps × all sparse signals for each entity
+    print("Expanding sparse signals to all timestamps...")
+    sparse_expanded = (
+        all_timestamps
+        .join(sparse_signals, on='entity_id', how='inner')
+        .join(
+            sparse.select(['entity_id', 'signal_id', 'timestamp', 'value']),
+            on=['entity_id', 'signal_id', 'timestamp'],
+            how='left'
+        )
+    )
+
+    # Sort and forward-fill within each (entity, signal) group
+    print("Forward-filling sparse values...")
+    sparse_expanded = (
+        sparse_expanded
+        .sort(['entity_id', 'signal_id', 'timestamp'])
+        .with_columns(
+            pl.col('value').forward_fill().over(['entity_id', 'signal_id'])
+        )
+    )
+
+    # Back-fill early timestamps (before first window computation)
+    # Assumes healthy initial state - valid for run-to-failure data
+    print("Back-filling early timestamps...")
+    sparse_expanded = sparse_expanded.with_columns(
+        pl.col('value').backward_fill().over(['entity_id', 'signal_id'])
+    )
+
+    # Recombine dense + expanded sparse
+    # Select only common columns to avoid schema mismatch
+    common_cols = list(set(dense.columns) & set(sparse_expanded.columns))
+    print(f"  Common columns: {common_cols}")
+    print("Combining dense + sparse...")
+    vec = pl.concat([dense.select(common_cols), sparse_expanded.select(common_cols)])
+
+    # Drop unnecessary columns
+    cols_to_drop = [c for c in ['mode_id', 'value_norm'] if c in vec.columns]
+    if cols_to_drop:
+        print(f"Dropping columns: {cols_to_drop}")
+        vec = vec.drop(cols_to_drop)
+
+    # Write back
+    print(f"Writing cleaned vector.parquet ({len(vec):,} rows)...")
+    vec.write_parquet(vector_path)
+
+    print()
+    print("Post-processing complete:")
+    print(f"  Rows: {rows_before:,} → {len(vec):,}")
+    print(f"  Columns: {vec.columns}")
+    null_pct = (vec['value'].null_count() / len(vec)) * 100
+    print(f"  Value null%: {null_pct:.1f}%")

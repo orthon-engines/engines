@@ -29,19 +29,19 @@ drilldown_tiers:
 
 windows:
   anchor:
-    window_days: 252
-    stride_days: 21
-    min_observations: 200
+    window_days: 64
+    stride_days: 5
+    min_observations: 50
     weight: 4.0
-    description: "Structural truth - regime detection (adults)"
+    description: "Structural truth - regime detection (fits shortest C-MAPSS entity)"
     always_run: true
 
   bridge:
-    window_days: 126
+    window_days: 32
     stride_days: 5
-    min_observations: 100
+    min_observations: 25
     weight: 2.0
-    description: "Confirmation layer (teenagers) - early warning"
+    description: "Confirmation layer - early warning"
     always_run: true
 
   scout:
