@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% if page.title %}{{ page.title }} | {% endif %}{{ site.title }}</title>
+  <link rel="stylesheet" href="{{ '/assets/css/main.css' | relative_url }}">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+  <!-- Wrapper -->
+  <div id="wrapper">
+
+    <!-- Main Content -->
+    <div id="main">
+      <div class="inner">
+        
+        <!-- Header -->
+        <header id="header">
+          <a href="{{ '/' | relative_url }}" class="logo">
+            <strong>{{ site.title }}</strong> {{ site.subtitle }}
+          </a>
+        </header>
+
+        <!-- Content -->
+        {{ content }}
+
+      </div>
+    </div>
+
+    <!-- Sidebar -->
+    <div id="sidebar">
+      <div class="inner">
+
+        <!-- Menu -->
+        <nav id="menu">
+          <header class="major">
+            <h2>Menu</h2>
+          </header>
+          <ul>
+            <li><a href="{{ '/' | relative_url }}">Home</a></li>
+            <li>
+              <span class="opener active">Architecture</span>
+              <ul>
+                <li><a href="{{ '/docs/overview/' | relative_url }}">System Overview</a></li>
+                <li><a href="{{ '/docs/vector-layer/' | relative_url }}">Vector Layer</a></li>
+                <li><a href="{{ '/docs/geometry-layer/' | relative_url }}">Geometry Layer</a></li>
+                <li><a href="{{ '/docs/state-layer/' | relative_url }}">State Layer</a></li>
+              </ul>
+            </li>
+            <li>
+              <span class="opener">Datasets</span>
+              <ul>
+                <li><a href="{{ '/docs/cmapss/' | relative_url }}">C-MAPSS (Turbofan)</a></li>
+                <li><a href="{{ '/docs/femto/' | relative_url }}">FEMTO (Bearings)</a></li>
+                <li><a href="{{ '/docs/hydraulic/' | relative_url }}">UCI Hydraulic</a></li>
+                <li><a href="{{ '/docs/tep/' | relative_url }}">Tennessee Eastman</a></li>
+              </ul>
+            </li>
+            <li>
+              <span class="opener">Getting Started</span>
+              <ul>
+                <li><a href="{{ '/docs/installation/' | relative_url }}">Installation</a></li>
+                <li><a href="{{ '/docs/quickstart/' | relative_url }}">Quickstart</a></li>
+                <li><a href="{{ '/docs/cli-reference/' | relative_url }}">CLI Reference</a></li>
+              </ul>
+            </li>
+            <li><a href="{{ '/docs/theory/' | relative_url }}">Theory & Background</a></li>
+          </ul>
+        </nav>
+
+        <!-- Section -->
+        <section>
+          <header class="major">
+            <h2>Core Insight</h2>
+          </header>
+          <div class="mini-posts">
+            <article>
+              <p><em>"Systems lose coherence before they fail."</em></p>
+              <p>Failing systems exhibit breakdown in relationships between components—not just individual sensor threshold violations.</p>
+            </article>
+          </div>
+        </section>
+
+        <!-- Footer -->
+        <footer id="footer">
+          <p class="copyright">
+            &copy; {{ 'now' | date: "%Y" }} Ørthon. 
+            Design: <a href="https://html5up.net">HTML5 UP</a>.
+          </p>
+        </footer>
+
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Scripts -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
+  <script src="{{ '/assets/js/main.js' | relative_url }}"></script>
+</body>
+</html>

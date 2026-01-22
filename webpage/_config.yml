@@ -1,0 +1,50 @@
+# Site settings
+title: Ørthon
+subtitle: Regime-Aware Behavioral Geometry for Predictive Diagnostics
+description: >-
+  A domain-agnostic diagnostic system for industrial predictive maintenance 
+  and fault detection. Systems lose coherence before they fail.
+url: "" # Update this when you deploy (e.g., https://username.github.io)
+baseurl: "" # Leave empty for root, or "/orthon-docs" if in subfolder
+
+# Author
+author:
+  name: Jason
+  email: # your email if you want
+
+# Build settings
+markdown: kramdown
+highlighter: rouge
+
+# Permalinks
+permalink: /:categories/:title/
+
+# Collections (for organizing docs by section)
+collections:
+  docs:
+    output: true
+    permalink: /docs/:path/
+
+# Default front matter
+defaults:
+  - scope:
+      path: ""
+      type: "docs"
+    values:
+      layout: "doc"
+  - scope:
+      path: ""
+      type: "posts"
+    values:
+      layout: "post"
+
+# Exclude from build
+exclude:
+  - Gemfile
+  - Gemfile.lock
+  - README.md
+  - vendor
+
+# Sass settings
+sass:
+  style: compressed
