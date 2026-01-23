@@ -187,11 +187,18 @@ def select_engines(axis_scores: Dict[str, float]) -> List[str]:
     Returns:
         Prioritized list of recommended engines
     """
+    # Only consider the 6 standard axes (ignore event lists)
+    STANDARD_AXES = {'memory', 'periodicity', 'volatility', 'discontinuity', 'impulsivity', 'complexity'}
+
     engines = []
     active_axes = []
 
     # Single-axis recommendations
     for axis, score in axis_scores.items():
+        if axis not in STANDARD_AXES:
+            continue
+        if not isinstance(score, (int, float)):
+            continue
         threshold = THRESHOLDS.get(axis, 0.5)
         if score >= threshold:
             engines.extend(ENGINE_MAP.get(axis, []))
@@ -224,9 +231,16 @@ def get_primary_classification(axis_scores: Dict[str, float]) -> str:
     Returns:
         Primary signal type classification
     """
+    # Only consider the 6 standard axes (ignore event lists)
+    STANDARD_AXES = {'memory', 'periodicity', 'volatility', 'discontinuity', 'impulsivity', 'complexity'}
+
     # Find axes above high threshold
     high_axes = []
     for axis, score in axis_scores.items():
+        if axis not in STANDARD_AXES:
+            continue
+        if not isinstance(score, (int, float)):
+            continue
         threshold = HIGH_THRESHOLDS.get(axis, 0.7)
         if score >= threshold:
             high_axes.append((axis, score))
@@ -234,6 +248,10 @@ def get_primary_classification(axis_scores: Dict[str, float]) -> str:
     if not high_axes:
         # Find axes above normal threshold
         for axis, score in axis_scores.items():
+            if axis not in STANDARD_AXES:
+                continue
+            if not isinstance(score, (int, float)):
+                continue
             threshold = THRESHOLDS.get(axis, 0.5)
             if score >= threshold:
                 high_axes.append((axis, score))

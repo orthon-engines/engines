@@ -138,7 +138,9 @@ def run(
         input_path = Path(input_path)
 
     if output_path is None:
-        output_path = get_path(SIGNAL_TYPOLOGY)
+        # Use same directory as observations
+        data_dir = Path(input_path).parent
+        output_path = data_dir / f"{SIGNAL_TYPOLOGY}.parquet"
     else:
         output_path = Path(output_path)
 
@@ -194,7 +196,7 @@ def run(
     output_df = pl.DataFrame(results)
 
     # Write output
-    ensure_directory(output_path.parent)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
     write_parquet_atomic(output_df, output_path)
 
     # Summary
