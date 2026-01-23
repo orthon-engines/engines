@@ -2,20 +2,23 @@
 PRISM Signal Typology
 =====================
 
-Entry point for signal typology analysis. Orchestrates three stages:
+Entry point for signal typology analysis. Uses the six orthogonal axes
+framework to classify signals into behavioral archetypes.
 
-    Stage 1: CHARACTERIZATION (pre-compute)
-        → Determine signal type, stationarity, window sizing, engine flags
+The Six Orthogonal Axes:
+    1. Memory        - Long-range dependence (Hurst, ACF decay, spectral slope)
+    2. Information   - Complexity (permutation entropy, sample entropy)
+    3. Recurrence    - Pattern structure (RQA: determinism, laminarity)
+    4. Volatility    - Amplitude dynamics (GARCH persistence, Hilbert envelope)
+    5. Frequency     - Spectral character (centroid, bandwidth, 1/f character)
+    6. Dynamics      - Stability (Lyapunov exponent, embedding dimension)
 
-    Stage 2: ENGINE COMPUTATION
-        → Run all applicable engines to compute behavioral metrics
-
-    Stage 3: CLASSIFICATION & INTERPRETATION
-        → Assign typology labels, generate summaries, detect shifts
+Plus: Structural Discontinuity Detection (Dirac impulse + Heaviside step)
 
 Output: signal_typology.parquet
 
-This is the INFORMATION layer - researchers get answers, not data dumps.
+Pipeline:
+    raw → signal_typology → behavioral_geometry → phase_state → dynamical_systems
 
 Usage:
     # Full run
@@ -29,9 +32,6 @@ Usage:
 
     # Testing mode
     python -m prism.entry_points.signal_typology --testing --limit 100
-
-Pipeline:
-    raw → signal_typology → behavioral_geometry → phase_state → dynamical_systems
 """
 
 import argparse
@@ -50,32 +50,15 @@ from prism.db.parquet_store import (
     get_data_root,
     get_path,
     OBSERVATIONS,
-    VECTOR,
 )
 from prism.db.polars_io import read_parquet, write_parquet_atomic
 
-# Characterization
-from prism.engines.characterize import (
-    characterize_signal,
-    get_engines_from_characterization,
-    get_characterization_summary,
-)
-
-# Engine computation
-from prism.modules.signal_behavior import (
-    compute_all_metrics,
-    get_engine_list_for_characterization,
-    CORE_ENGINES,
-)
-
-# Classification
-from prism.modules.typology_classifier import (
-    classify,
-    generate_summary,
-    generate_summary_text,
-    detect_shifts,
-    compute_typology,
-    get_persistence_label,
+# Typology package
+from prism.typology import (
+    analyze_signal,
+    analyze_windowed,
+    SignalTypology,
+    ARCHETYPES,
 )
 
 warnings.filterwarnings('ignore')
@@ -98,221 +81,6 @@ MIN_OBSERVATIONS = 30
 
 
 # =============================================================================
-# STAGE 1: CHARACTERIZATION
-# =============================================================================
-
-def characterize_signals(
-    df: pl.DataFrame,
-    entity_col: str = 'entity_id',
-    signal_col: str = 'signal_id',
-    time_col: str = 'timestamp',
-    value_col: str = 'value',
-    window_size: int = DEFAULT_WINDOW_SIZE,
-) -> Dict[str, Dict[str, Any]]:
-    """
-    Run characterization on all signals.
-
-    Returns dictionary keyed by (entity_id, signal_id) with characterization results.
-    """
-    logger.info("Stage 1: Characterizing signals...")
-
-    characterizations = {}
-
-    # Get unique (entity, signal) pairs
-    pairs = df.select([entity_col, signal_col]).unique().to_dicts()
-    logger.info(f"  Found {len(pairs)} unique (entity, signal) pairs")
-
-    for i, pair in enumerate(pairs):
-        entity_id = pair[entity_col]
-        signal_id = pair[signal_col]
-
-        # Get signal data
-        signal_df = df.filter(
-            (pl.col(entity_col) == entity_id) & (pl.col(signal_col) == signal_id)
-        ).sort(time_col)
-
-        values = signal_df[value_col].to_numpy()
-
-        if len(values) < MIN_OBSERVATIONS:
-            continue
-
-        # Characterize
-        try:
-            char_result = characterize_signal(
-                values=values,
-                signal_id=f"{entity_id}_{signal_id}",
-                window_size=min(window_size, len(values)),
-            )
-            characterizations[(entity_id, signal_id)] = char_result.to_dict()
-        except Exception as e:
-            logger.warning(f"  Failed to characterize {entity_id}/{signal_id}: {e}")
-            continue
-
-        if (i + 1) % 100 == 0:
-            logger.info(f"  Characterized {i + 1}/{len(pairs)} signals")
-
-    logger.info(f"  Completed characterization for {len(characterizations)} signals")
-    return characterizations
-
-
-# =============================================================================
-# STAGE 2: ENGINE COMPUTATION
-# =============================================================================
-
-def compute_signal_metrics(
-    df: pl.DataFrame,
-    characterizations: Dict[str, Dict[str, Any]],
-    entity_col: str = 'entity_id',
-    signal_col: str = 'signal_id',
-    time_col: str = 'timestamp',
-    value_col: str = 'value',
-    window_size: int = DEFAULT_WINDOW_SIZE,
-    stride: int = DEFAULT_STRIDE,
-) -> List[Dict[str, Any]]:
-    """
-    Compute engine metrics for all signals using sliding windows.
-
-    Returns list of result dictionaries (one per window).
-    """
-    logger.info("Stage 2: Computing engine metrics...")
-
-    results = []
-
-    pairs = df.select([entity_col, signal_col]).unique().to_dicts()
-    total_windows = 0
-
-    for i, pair in enumerate(pairs):
-        entity_id = pair[entity_col]
-        signal_id = pair[signal_col]
-
-        # Get signal data
-        signal_df = df.filter(
-            (pl.col(entity_col) == entity_id) & (pl.col(signal_col) == signal_id)
-        ).sort(time_col)
-
-        values = signal_df[value_col].to_numpy()
-        times = signal_df[time_col].to_numpy()
-
-        if len(values) < window_size:
-            continue
-
-        # Get characterization
-        char_key = (entity_id, signal_id)
-        characterization = characterizations.get(char_key, {})
-
-        # Determine engines to run
-        engines = get_engine_list_for_characterization(characterization)
-
-        # Process windows
-        prev_metrics = None
-
-        for start in range(0, len(values) - window_size + 1, stride):
-            window_values = values[start:start + window_size]
-            window_start = times[start]
-            window_end = times[start + window_size - 1]
-
-            # Compute engine metrics
-            metrics = compute_all_metrics(window_values, characterization)
-
-            # Build result row
-            row = {
-                # Identity
-                entity_col: entity_id,
-                signal_col: signal_id,
-                'source_signal': signal_id,
-                time_col: window_end,
-                'window_start': window_start,
-                'window_size': window_size,
-
-                # Characterization
-                'signal_type': characterization.get('frequency', 'unknown'),
-                'is_stationary': characterization.get('ax_stationarity', 0.5) > 0.5,
-                'ax_stationarity': characterization.get('ax_stationarity'),
-                'ax_memory': characterization.get('ax_memory'),
-                'ax_periodicity': characterization.get('ax_periodicity'),
-                'ax_complexity': characterization.get('ax_complexity'),
-                'ax_determinism': characterization.get('ax_determinism'),
-                'ax_volatility': characterization.get('ax_volatility'),
-                'recommended_window': characterization.get('window_size', window_size),
-
-                # All engine metrics
-                **metrics,
-            }
-
-            # Store this row's metrics for next iteration
-            current_metrics = metrics
-            results.append(row)
-            total_windows += 1
-
-            # Update prev_metrics for next window
-            prev_metrics = current_metrics
-
-        if (i + 1) % 50 == 0:
-            logger.info(f"  Processed {i + 1}/{len(pairs)} signals, {total_windows} windows")
-
-    logger.info(f"  Completed: {len(results)} windows from {len(pairs)} signals")
-    return results
-
-
-# =============================================================================
-# STAGE 3: CLASSIFICATION & INTERPRETATION
-# =============================================================================
-
-def classify_and_interpret(
-    results: List[Dict[str, Any]],
-    entity_col: str = 'entity_id',
-    signal_col: str = 'signal_id',
-    time_col: str = 'timestamp',
-) -> List[Dict[str, Any]]:
-    """
-    Add typology classification and interpretation to results.
-
-    For each row, computes:
-        - Typology classification
-        - Bullet summaries
-        - Shift detection (vs previous window)
-    """
-    logger.info("Stage 3: Classifying and interpreting...")
-
-    # Group by (entity, signal) for shift detection
-    from collections import defaultdict
-    signal_windows = defaultdict(list)
-
-    for row in results:
-        key = (row[entity_col], row[signal_col])
-        signal_windows[key].append(row)
-
-    # Sort each signal's windows by time
-    for key in signal_windows:
-        signal_windows[key].sort(key=lambda r: r[time_col])
-
-    # Process each signal
-    enriched_results = []
-
-    for key, windows in signal_windows.items():
-        prev_metrics = None
-
-        for row in windows:
-            # Extract metrics for classification
-            metrics = {k: v for k, v in row.items()
-                       if isinstance(v, (int, float)) and not k.startswith('ax_')}
-
-            # Compute typology
-            typology = compute_typology(metrics, prev_metrics)
-
-            # Add to row
-            row.update(typology)
-
-            enriched_results.append(row)
-
-            # Update prev_metrics
-            prev_metrics = metrics
-
-    logger.info(f"  Classified {len(enriched_results)} windows")
-    return enriched_results
-
-
-# =============================================================================
 # MAIN PIPELINE
 # =============================================================================
 
@@ -330,6 +98,7 @@ def run(
     testing: bool = False,
     limit: Optional[int] = None,
     signals: Optional[List[str]] = None,
+    hurst_method: str = 'dfa',
 ) -> Path:
     """
     Run the full signal typology pipeline.
@@ -348,6 +117,7 @@ def run(
         testing: Enable testing mode
         limit: Limit observations per signal (testing)
         signals: Only process these signals (testing)
+        hurst_method: 'dfa' or 'rs' for Hurst estimation
 
     Returns:
         Path to output parquet file
@@ -355,6 +125,7 @@ def run(
     start_time = datetime.now()
     logger.info("=" * 60)
     logger.info("  SIGNAL TYPOLOGY")
+    logger.info("  Six Orthogonal Axes + Discontinuity Detection")
     logger.info("  geometry leads — orthon")
     logger.info("=" * 60)
 
@@ -401,42 +172,25 @@ def run(
         window_size, stride = _auto_detect_window(df, time_col, entity_col)
         logger.info(f"  Adaptive: window={window_size}, stride={stride}")
 
-    # === STAGE 1: CHARACTERIZATION ===
-    characterizations = characterize_signals(
+    # Process all signals
+    logger.info(f"\nProcessing with window={window_size}, stride={stride}...")
+    results = _process_signals(
         df=df,
-        entity_col=entity_col,
-        signal_col=signal_col,
-        time_col=time_col,
-        value_col=value_col,
-        window_size=window_size,
-    )
-
-    # === STAGE 2: ENGINE COMPUTATION ===
-    results = compute_signal_metrics(
-        df=df,
-        characterizations=characterizations,
         entity_col=entity_col,
         signal_col=signal_col,
         time_col=time_col,
         value_col=value_col,
         window_size=window_size,
         stride=stride,
+        hurst_method=hurst_method,
     )
 
     if not results:
         logger.warning("No results computed!")
         return output_path
 
-    # === STAGE 3: CLASSIFICATION ===
-    enriched_results = classify_and_interpret(
-        results=results,
-        entity_col=entity_col,
-        signal_col=signal_col,
-        time_col=time_col,
-    )
-
     # Convert to DataFrame
-    output_df = pl.DataFrame(enriched_results)
+    output_df = pl.DataFrame(results)
 
     # Write output
     ensure_directory(output_path.parent)
@@ -450,15 +204,211 @@ def run(
     logger.info(f"  Columns: {len(output_df.columns)}")
     logger.info(f"  Elapsed: {elapsed:.1f}s")
 
-    # Typology distribution
-    if 'typology' in output_df.columns:
-        typology_counts = output_df.group_by('typology').len().sort('len', descending=True)
+    # Archetype distribution
+    if 'archetype' in output_df.columns:
+        archetype_counts = output_df.group_by('archetype').len().sort('len', descending=True)
         logger.info("")
-        logger.info("Typology Distribution:")
-        for row in typology_counts.iter_rows(named=True):
-            logger.info(f"  {row['typology']}: {row['len']:,}")
+        logger.info("Archetype Distribution:")
+        for row in archetype_counts.iter_rows(named=True):
+            logger.info(f"  {row['archetype']}: {row['len']:,}")
 
     return output_path
+
+
+# =============================================================================
+# SIGNAL PROCESSING
+# =============================================================================
+
+def _process_signals(
+    df: pl.DataFrame,
+    entity_col: str,
+    signal_col: str,
+    time_col: str,
+    value_col: str,
+    window_size: int,
+    stride: int,
+    hurst_method: str = 'dfa',
+) -> List[Dict[str, Any]]:
+    """Process all signals and return typology results."""
+    results = []
+
+    # Get unique (entity, signal) pairs
+    pairs = df.select([entity_col, signal_col]).unique().to_dicts()
+    logger.info(f"  Processing {len(pairs)} (entity, signal) pairs...")
+
+    total_windows = 0
+
+    for i, pair in enumerate(pairs):
+        entity_id = pair[entity_col]
+        signal_id = pair[signal_col]
+
+        # Get signal data
+        signal_df = df.filter(
+            (pl.col(entity_col) == entity_id) & (pl.col(signal_col) == signal_id)
+        ).sort(time_col)
+
+        values = signal_df[value_col].to_numpy()
+        times = signal_df[time_col].to_numpy()
+
+        n = len(values)
+        if n < window_size:
+            continue
+
+        # Analyze using windowed approach
+        previous_typology = None
+
+        for start in range(0, n - window_size + 1, stride):
+            end = start + window_size
+            window_values = values[start:end]
+            window_start = times[start]
+            window_end = times[end - 1]
+
+            # Analyze this window
+            typology = analyze_signal(
+                series=window_values,
+                entity_id=str(entity_id),
+                signal_id=str(signal_id),
+                window_start=datetime.now(),  # Could parse from times
+                window_end=datetime.now(),
+                previous_typology=previous_typology,
+                hurst_method=hurst_method,
+            )
+
+            # Convert to row
+            row = _typology_to_row(
+                typology=typology,
+                entity_id=entity_id,
+                signal_id=signal_id,
+                timestamp=window_end,
+                window_start=window_start,
+                window_size=window_size,
+                entity_col=entity_col,
+                signal_col=signal_col,
+                time_col=time_col,
+            )
+
+            results.append(row)
+            total_windows += 1
+            previous_typology = typology
+
+        if (i + 1) % 50 == 0:
+            logger.info(f"    Processed {i + 1}/{len(pairs)} pairs, {total_windows} windows")
+
+    logger.info(f"  Completed: {total_windows} windows from {len(pairs)} signals")
+    return results
+
+
+def _typology_to_row(
+    typology: SignalTypology,
+    entity_id: Any,
+    signal_id: Any,
+    timestamp: Any,
+    window_start: Any,
+    window_size: int,
+    entity_col: str,
+    signal_col: str,
+    time_col: str,
+) -> Dict[str, Any]:
+    """Convert SignalTypology to a flat dictionary row."""
+    row = {
+        # Identity
+        entity_col: entity_id,
+        signal_col: signal_id,
+        'source_signal': signal_id,
+        time_col: timestamp,
+        'window_start': window_start,
+        'window_size': window_size,
+        'n_observations': typology.n_observations,
+
+        # === AXIS 1: MEMORY ===
+        'hurst_exponent': typology.memory.hurst_exponent,
+        'hurst_method': typology.memory.hurst_method,
+        'hurst_confidence': typology.memory.hurst_confidence,
+        'acf_decay_type': typology.memory.acf_decay_type.value,
+        'acf_half_life': typology.memory.acf_half_life,
+        'spectral_slope': typology.memory.spectral_slope,
+        'spectral_slope_r2': typology.memory.spectral_slope_r2,
+        'memory_class': typology.memory.memory_class.value,
+
+        # === AXIS 2: INFORMATION ===
+        'entropy_permutation': typology.information.entropy_permutation,
+        'entropy_sample': typology.information.entropy_sample,
+        'entropy_rate': typology.information.entropy_rate,
+        'information_class': typology.information.information_class.value,
+
+        # === AXIS 3: RECURRENCE ===
+        'determinism': typology.recurrence.determinism,
+        'laminarity': typology.recurrence.laminarity,
+        'entropy_diagonal': typology.recurrence.entropy_diagonal,
+        'recurrence_rate': typology.recurrence.recurrence_rate,
+        'trapping_time': typology.recurrence.trapping_time,
+        'max_diagonal': typology.recurrence.max_diagonal,
+        'avg_diagonal': typology.recurrence.avg_diagonal,
+        'recurrence_class': typology.recurrence.recurrence_class.value,
+
+        # === AXIS 4: VOLATILITY ===
+        'garch_alpha': typology.volatility.garch_alpha,
+        'garch_beta': typology.volatility.garch_beta,
+        'garch_persistence': typology.volatility.garch_persistence,
+        'garch_omega': typology.volatility.garch_omega,
+        'garch_unconditional': typology.volatility.garch_unconditional,
+        'hilbert_amplitude_mean': typology.volatility.hilbert_amplitude_mean,
+        'hilbert_amplitude_std': typology.volatility.hilbert_amplitude_std,
+        'volatility_class': typology.volatility.volatility_class.value,
+
+        # === AXIS 5: FREQUENCY ===
+        'spectral_centroid': typology.frequency.spectral_centroid,
+        'spectral_bandwidth': typology.frequency.spectral_bandwidth,
+        'spectral_low_high_ratio': typology.frequency.spectral_low_high_ratio,
+        'spectral_rolloff': typology.frequency.spectral_rolloff,
+        'frequency_class': typology.frequency.frequency_class.value,
+
+        # === AXIS 6: DYNAMICS ===
+        'lyapunov_exponent': typology.dynamics.lyapunov_exponent,
+        'lyapunov_confidence': typology.dynamics.lyapunov_confidence,
+        'embedding_dimension': typology.dynamics.embedding_dimension,
+        'correlation_dimension': typology.dynamics.correlation_dimension,
+        'dynamics_class': typology.dynamics.dynamics_class.value,
+
+        # === STRUCTURAL DISCONTINUITY ===
+        'dirac_detected': typology.discontinuity.dirac.detected,
+        'dirac_count': typology.discontinuity.dirac.count,
+        'dirac_max_magnitude': typology.discontinuity.dirac.max_magnitude,
+        'dirac_mean_magnitude': typology.discontinuity.dirac.mean_magnitude,
+        'dirac_mean_half_life': typology.discontinuity.dirac.mean_half_life,
+        'dirac_up_ratio': typology.discontinuity.dirac.up_ratio,
+
+        'heaviside_detected': typology.discontinuity.heaviside.detected,
+        'heaviside_count': typology.discontinuity.heaviside.count,
+        'heaviside_max_magnitude': typology.discontinuity.heaviside.max_magnitude,
+        'heaviside_mean_magnitude': typology.discontinuity.heaviside.mean_magnitude,
+        'heaviside_up_ratio': typology.discontinuity.heaviside.up_ratio,
+
+        'discontinuity_mean_interval': typology.discontinuity.mean_interval,
+        'discontinuity_interval_cv': typology.discontinuity.interval_cv,
+        'discontinuity_dominant_period': typology.discontinuity.dominant_period,
+        'discontinuity_is_accelerating': typology.discontinuity.is_accelerating,
+
+        # === CLASSIFICATION ===
+        'archetype': typology.archetype,
+        'archetype_distance': typology.archetype_distance,
+        'secondary_archetype': typology.secondary_archetype,
+        'secondary_distance': typology.secondary_distance,
+        'boundary_proximity': typology.boundary_proximity,
+        'fingerprint': typology.fingerprint.tolist(),
+
+        # === TRANSITION ===
+        'regime_transition': typology.regime_transition.value,
+        'axes_moving': typology.axes_moving,
+        'axes_stable': typology.axes_stable,
+
+        # === SUMMARY ===
+        'summary': typology.summary,
+        'confidence': typology.confidence,
+        'alerts': typology.alerts,
+    }
+
+    return row
 
 
 # =============================================================================
@@ -535,8 +485,23 @@ def _auto_detect_window(
 def main():
     """Command-line interface."""
     parser = argparse.ArgumentParser(
-        description='PRISM Signal Typology - Behavioral classification and interpretation',
+        description='PRISM Signal Typology - Six Orthogonal Axes Classification',
         formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+The Six Orthogonal Axes:
+    1. Memory        - Long-range dependence (Hurst exponent)
+    2. Information   - Complexity (permutation/sample entropy)
+    3. Recurrence    - Pattern structure (RQA determinism)
+    4. Volatility    - Amplitude dynamics (GARCH persistence)
+    5. Frequency     - Spectral character (bandwidth)
+    6. Dynamics      - Stability (Lyapunov exponent)
+
+Archetypes:
+    Stable Trend, Momentum Decay, Trending Volatile,
+    Mean Reversion Stable, Mean Reversion Volatile,
+    Random Walk, Consolidation, Chaotic, Edge of Chaos,
+    Regime Transition, Post-Shock Recovery, Periodic, Quasi-Periodic
+"""
     )
 
     parser.add_argument('--input', type=str, help='Input observations parquet')
@@ -547,6 +512,7 @@ def main():
     parser.add_argument('--value-col', type=str, default='value')
     parser.add_argument('--window', type=int, default=DEFAULT_WINDOW_SIZE)
     parser.add_argument('--stride', type=int, default=DEFAULT_STRIDE)
+    parser.add_argument('--hurst-method', type=str, default='dfa', choices=['dfa', 'rs'])
     parser.add_argument('--force', action='store_true', help='Force recompute')
     parser.add_argument('--adaptive', action='store_true', help='Auto-detect window size')
 
@@ -568,6 +534,7 @@ def main():
         value_col=args.value_col,
         window_size=args.window,
         stride=args.stride,
+        hurst_method=args.hurst_method,
         force=args.force,
         adaptive=args.adaptive,
         testing=args.testing,
