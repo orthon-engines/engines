@@ -3,84 +3,151 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Ørthon Explorer</title>
-    
+    <title>Orthon Explorer</title>
+
     <!-- Plotly for charts -->
     <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
-    
+
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
-        
+
         :root {
-            --primary: #f56a6a;
-            --primary-dark: #e55555;
-            --bg: #f5f6f7;
-            --text: #3d4449;
-            --text-light: #7f888f;
-            --border: rgba(210, 215, 217, 0.75);
-            --white: #ffffff;
-            --success: #4caf50;
-            --warning: #ff9800;
-            --sidebar-width: 300px;
+            --bg-dark: #0d1117;
+            --bg-card: #161b22;
+            --bg-card-hover: #1c2128;
+            --border: #30363d;
+            --text: #e6edf3;
+            --text-muted: #8b949e;
+            --text-dim: #6e7681;
+            --accent: #58a6ff;
+            --accent-green: #3fb950;
+            --accent-yellow: #d29922;
+            --accent-red: #f85149;
+            --accent-purple: #a371f7;
+            --accent-orange: #db6d28;
         }
-        
+
         body {
-            font-family: 'Source Sans Pro', -apple-system, BlinkMacSystemFont, sans-serif;
-            font-weight: 300;
-            line-height: 1.65;
+            font-family: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+            font-weight: 400;
+            line-height: 1.5;
             color: var(--text);
-            background: var(--bg);
+            background: var(--bg-dark);
+            min-height: 100vh;
         }
-        
-        /* Layout */
-        .wrapper { display: flex; min-height: 100vh; }
-        
-        /* Sidebar */
-        .sidebar {
-            width: var(--sidebar-width);
-            min-width: var(--sidebar-width);
-            background: var(--bg);
-            border-right: 1px solid var(--border);
-            padding: 1.5rem;
-            position: fixed;
-            height: 100vh;
-            overflow-y: auto;
+
+        /* Header */
+        .header {
+            padding: 1rem 1.5rem;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: var(--bg-card);
         }
-        
-        .logo { margin-bottom: 1.5rem; }
-        .logo h1 { font-size: 1.5rem; font-weight: 900; }
-        .logo .tagline { font-size: 0.85rem; color: var(--text-light); font-style: italic; }
-        
-        .sidebar h2 {
+
+        .logo {
+            display: flex;
+            align-items: baseline;
+            gap: 0.75rem;
+        }
+
+        .logo h1 {
+            font-size: 1.5rem;
+            font-weight: 600;
+            letter-spacing: -0.02em;
+        }
+
+        .logo .tagline {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            font-style: italic;
+        }
+
+        .header-controls {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .domain-badge {
+            background: var(--accent);
+            color: var(--bg-dark);
+            padding: 0.35rem 0.75rem;
+            border-radius: 4px;
             font-size: 0.75rem;
-            font-weight: 900;
-            letter-spacing: 0.1em;
+            font-weight: 600;
             text-transform: uppercase;
-            margin-bottom: 0.75rem;
-            padding-bottom: 0.5rem;
-            border-bottom: 1px solid var(--border);
+            letter-spacing: 0.05em;
         }
-        
-        .sidebar section { margin-bottom: 1.5rem; }
-        
-        /* Folder browser */
-        .folder-browser {
-            background: var(--white);
-            border-radius: 6px;
+
+        .btn {
+            padding: 0.5rem 1rem;
+            background: var(--accent);
+            color: var(--bg-dark);
+            border: none;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: opacity 0.15s;
+        }
+
+        .btn:hover { opacity: 0.9; }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn-secondary {
+            background: var(--bg-dark);
+            color: var(--text);
             border: 1px solid var(--border);
-            max-height: 250px;
+        }
+
+        /* Main Layout */
+        .main-layout {
+            display: grid;
+            grid-template-columns: 300px 1fr 320px;
+            min-height: calc(100vh - 57px);
+        }
+
+        /* Panels */
+        .panel {
+            border-right: 1px solid var(--border);
+            padding: 1rem;
             overflow-y: auto;
+            background: var(--bg-card);
         }
-        
+
+        .panel:last-child { border-right: none; border-left: 1px solid var(--border); }
+
+        .panel-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 0.75rem;
+        }
+
+        .panel-title {
+            font-size: 0.7rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: var(--text-muted);
+        }
+
+        /* Folder Browser */
         .folder-path {
-            padding: 0.5rem 0.75rem;
-            background: var(--bg);
-            border-bottom: 1px solid var(--border);
             font-size: 0.75rem;
-            color: var(--text-light);
+            color: var(--text-dim);
+            padding: 0.5rem;
+            background: var(--bg-dark);
+            border-radius: 4px;
+            margin-bottom: 0.75rem;
             word-break: break-all;
+            font-family: 'IBM Plex Mono', monospace;
         }
-        
+
         .folder-item {
             padding: 0.5rem 0.75rem;
             cursor: pointer;
@@ -88,476 +155,615 @@
             align-items: center;
             gap: 0.5rem;
             font-size: 0.85rem;
-            border-bottom: 1px solid var(--border);
+            border-radius: 4px;
+            margin-bottom: 0.25rem;
         }
-        
-        .folder-item:last-child { border-bottom: none; }
-        .folder-item:hover { background: rgba(245, 106, 106, 0.1); }
-        .folder-item.parent { color: var(--text-light); }
+
+        .folder-item:hover { background: var(--bg-card-hover); }
+        .folder-item.parent { color: var(--text-muted); }
         .folder-item .icon { width: 16px; text-align: center; }
-        
-        /* File status */
-        .file-status { margin-top: 1rem; }
-        
+
+        .file-status {
+            margin-top: 0.75rem;
+            padding-top: 0.75rem;
+            border-top: 1px solid var(--border);
+        }
+
         .file-check {
             display: flex;
             align-items: center;
             gap: 0.5rem;
-            padding: 0.3rem 0;
-            font-size: 0.85rem;
+            padding: 0.25rem 0;
+            font-size: 0.8rem;
         }
-        
+
         .file-check .dot {
             width: 8px;
             height: 8px;
             border-radius: 50%;
-            background: #ccc;
         }
-        
-        .file-check .dot.found { background: var(--success); }
-        .file-check .dot.missing { background: #ccc; }
-        
-        /* Load button */
-        .btn {
-            display: block;
+
+        .file-check .dot.found { background: var(--accent-green); }
+        .file-check .dot.missing { background: var(--text-dim); }
+
+        /* Search */
+        .search-input {
             width: 100%;
-            padding: 0.75rem;
-            background: var(--primary);
-            color: white;
-            border: none;
-            border-radius: 4px;
-            font-size: 0.9rem;
-            font-weight: 600;
-            cursor: pointer;
-            margin-top: 1rem;
-            transition: background 0.2s;
+            padding: 0.5rem 0.75rem;
+            background: var(--bg-dark);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text);
+            font-size: 0.85rem;
+            margin-bottom: 0.75rem;
         }
-        
-        .btn:hover { background: var(--primary-dark); }
-        .btn:disabled { background: #ccc; cursor: not-allowed; }
-        
-        /* Filters */
-        .filter-group { margin-bottom: 0.75rem; }
-        .filter-group label {
-            display: block;
+
+        .search-input:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+
+        .search-input::placeholder { color: var(--text-dim); }
+
+        /* Entity Cards */
+        .entity-list {
+            max-height: calc(100vh - 280px);
+            overflow-y: auto;
+        }
+
+        .entity-card {
+            background: var(--bg-dark);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 0.875rem;
+            margin-bottom: 0.5rem;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .entity-card:hover {
+            border-color: var(--accent);
+            background: var(--bg-card-hover);
+        }
+
+        .entity-card.selected {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 1px var(--accent);
+        }
+
+        .entity-name {
+            font-weight: 600;
+            font-size: 0.9rem;
+            margin-bottom: 0.35rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .entity-role {
+            font-size: 0.6rem;
+            padding: 0.1rem 0.35rem;
+            border-radius: 3px;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+        }
+
+        .role-source { background: rgba(63, 185, 80, 0.2); color: var(--accent-green); }
+        .role-sink { background: rgba(248, 81, 73, 0.2); color: var(--accent-red); }
+        .role-neutral { background: rgba(139, 148, 158, 0.2); color: var(--text-muted); }
+
+        .entity-summary {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            line-height: 1.4;
+        }
+
+        .entity-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.3rem;
+            margin-top: 0.5rem;
+        }
+
+        .tag {
+            font-size: 0.65rem;
+            padding: 0.15rem 0.4rem;
+            background: var(--bg-card);
+            border-radius: 3px;
+            color: var(--text-muted);
+            font-family: 'IBM Plex Mono', monospace;
+        }
+
+        /* Main Content */
+        .main-content {
+            padding: 1.25rem 1.5rem;
+            overflow-y: auto;
+            background: var(--bg-dark);
+        }
+
+        .content-header {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            margin-bottom: 1.25rem;
+        }
+
+        .entity-title {
+            font-size: 1.5rem;
+            font-weight: 600;
+            letter-spacing: -0.02em;
+            margin-bottom: 0.2rem;
+        }
+
+        .entity-subtitle {
+            color: var(--text-muted);
+            font-size: 0.85rem;
+        }
+
+        .regime-badge {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.4rem 0.75rem;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+        }
+
+        .regime-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--accent-green);
+            animation: pulse 2s infinite;
+        }
+
+        .regime-dot.warning { background: var(--accent-yellow); }
+        .regime-dot.alert { background: var(--accent-red); }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .regime-text {
+            font-size: 0.75rem;
+            font-weight: 500;
+        }
+
+        /* Welcome Screen */
+        .welcome-screen {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            text-align: center;
+            padding: 2rem;
+        }
+
+        .welcome-screen h2 {
+            font-size: 1.5rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .welcome-screen p {
+            color: var(--text-muted);
+            font-size: 0.9rem;
+            max-width: 400px;
+        }
+
+        /* Insight Cards */
+        .insight-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 0.75rem;
+            margin-bottom: 1.25rem;
+        }
+
+        .insight-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 1rem;
+        }
+
+        .insight-card h3 {
+            font-size: 0.65rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: var(--text-muted);
+            margin-bottom: 0.5rem;
+        }
+
+        .insight-value {
+            font-size: 1.5rem;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+            margin-bottom: 0.15rem;
+        }
+
+        .insight-label {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+        }
+
+        .insight-change {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.2rem;
+            font-size: 0.7rem;
+            font-weight: 500;
+            margin-left: 0.35rem;
+        }
+
+        .change-up { color: var(--accent-green); }
+        .change-down { color: var(--accent-red); }
+
+        /* Sections */
+        .section {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 1.25rem;
+            margin-bottom: 1rem;
+        }
+
+        .section-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 1rem;
+        }
+
+        .section-title {
+            font-size: 0.95rem;
+            font-weight: 600;
+        }
+
+        .chart-container {
+            height: 280px;
+        }
+
+        .chart-container-small {
+            height: 180px;
+        }
+
+        /* Similar Panel */
+        .similar-entity {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.65rem;
+            background: var(--bg-dark);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            margin-bottom: 0.5rem;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .similar-entity:hover {
+            border-color: var(--accent);
+        }
+
+        .similarity-score {
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: var(--bg-card);
+            border-radius: 6px;
+            font-size: 0.8rem;
+            font-weight: 700;
+            font-family: 'IBM Plex Mono', monospace;
+        }
+
+        .similarity-high { color: var(--accent-green); }
+        .similarity-med { color: var(--accent-yellow); }
+        .similarity-low { color: var(--text-muted); }
+
+        .similar-info { flex: 1; }
+        .similar-name { font-weight: 600; font-size: 0.85rem; margin-bottom: 0.1rem; }
+        .similar-desc { font-size: 0.7rem; color: var(--text-muted); }
+
+        /* Cohort */
+        .cohort-section {
+            margin-top: 1rem;
+            padding-top: 1rem;
+            border-top: 1px solid var(--border);
+        }
+
+        .cohort-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.4rem 0.65rem;
+            background: var(--bg-dark);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            margin-bottom: 0.5rem;
+        }
+
+        .cohort-color {
+            width: 10px;
+            height: 10px;
+            border-radius: 3px;
+        }
+
+        .cohort-name {
             font-size: 0.8rem;
             font-weight: 600;
-            margin-bottom: 0.25rem;
         }
-        
-        .filter-group select, .filter-group input {
-            width: 100%;
-            padding: 0.5rem;
-            font-size: 0.85rem;
-            border: 1px solid var(--border);
-            border-radius: 4px;
+
+        .cohort-desc {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            line-height: 1.4;
         }
-        
-        /* Main content */
-        .main {
-            flex: 1;
-            margin-left: var(--sidebar-width);
-            padding: 1.5rem 2rem;
+
+        /* SQL Section */
+        .sql-section {
+            margin-top: 1rem;
+            padding-top: 1rem;
+            border-top: 1px solid var(--border);
         }
-        
-        /* Tabs */
-        .tabs {
-            display: flex;
-            border-bottom: 2px solid var(--border);
-            margin-bottom: 1.5rem;
-            flex-wrap: wrap;
-        }
-        
-        .tab {
-            padding: 0.6rem 1rem;
-            font-size: 0.85rem;
-            font-weight: 600;
-            color: var(--text-light);
-            cursor: pointer;
-            border-bottom: 2px solid transparent;
-            margin-bottom: -2px;
-            transition: all 0.2s;
-        }
-        
-        .tab:hover { color: var(--text); }
-        .tab.active { color: var(--primary); border-bottom-color: var(--primary); }
-        .tab.disabled { opacity: 0.4; cursor: not-allowed; }
-        
-        /* Tab content */
-        .tab-content { display: none; }
-        .tab-content.active { display: block; }
-        
-        .tab-content h2 { font-size: 1.5rem; font-weight: 400; margin-bottom: 0.25rem; }
-        .tab-content .description { color: var(--text-light); margin-bottom: 1.5rem; font-size: 0.95rem; }
-        
-        /* Cards */
-        .card {
-            background: var(--white);
-            border-radius: 6px;
-            padding: 1.25rem;
-            margin-bottom: 1.25rem;
-            box-shadow: 0 1px 4px rgba(0,0,0,0.05);
-        }
-        
-        .card h3 { font-size: 0.95rem; font-weight: 600; margin-bottom: 0.75rem; }
-        
-        /* Metrics */
-        .metrics {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-            gap: 1rem;
-            margin-bottom: 1.5rem;
-        }
-        
-        .metric {
-            background: var(--white);
-            border-radius: 6px;
-            padding: 1rem;
-            text-align: center;
-        }
-        
-        .metric .value { font-size: 1.75rem; font-weight: 700; color: var(--primary); }
-        .metric .label { font-size: 0.7rem; color: var(--text-light); text-transform: uppercase; letter-spacing: 0.05em; }
-        
-        /* SQL Console */
+
         .sql-input {
             width: 100%;
-            height: 100px;
-            font-family: 'Monaco', 'Consolas', monospace;
-            font-size: 0.85rem;
+            height: 80px;
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 0.8rem;
             padding: 0.75rem;
+            background: var(--bg-dark);
             border: 1px solid var(--border);
-            border-radius: 4px;
-            margin-bottom: 0.75rem;
+            border-radius: 6px;
+            color: var(--text);
             resize: vertical;
+            margin-bottom: 0.5rem;
         }
-        
-        /* Data table */
-        .data-table { overflow-x: auto; }
-        
+
+        .sql-input:focus { outline: none; border-color: var(--accent); }
+
+        /* Data Table */
+        .data-table {
+            overflow-x: auto;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
         .data-table table {
             width: 100%;
             border-collapse: collapse;
-            font-size: 0.8rem;
+            font-size: 0.75rem;
         }
-        
+
         .data-table th, .data-table td {
-            padding: 0.5rem 0.75rem;
+            padding: 0.5rem 0.65rem;
             text-align: left;
             border-bottom: 1px solid var(--border);
         }
-        
-        .data-table th { font-weight: 600; background: var(--bg); position: sticky; top: 0; }
-        .data-table tr:hover { background: rgba(245, 106, 106, 0.03); }
-        
-        /* Chart */
-        .chart-container { width: 100%; height: 350px; }
-        
-        /* Controls */
-        .controls { display: flex; gap: 0.75rem; margin-bottom: 1rem; flex-wrap: wrap; align-items: end; }
-        .controls .filter-group { margin-bottom: 0; min-width: 150px; }
-        
-        /* Welcome */
-        .welcome { text-align: center; padding: 3rem; }
-        .welcome h2 { font-size: 1.75rem; margin-bottom: 0.75rem; }
-        .welcome p { color: var(--text-light); max-width: 450px; margin: 0 auto 0.75rem; }
-        
-        /* Status */
-        .status { padding: 0.75rem; border-radius: 4px; margin-bottom: 1rem; font-size: 0.9rem; }
-        .status.info { background: #e3f2fd; color: #1565c0; }
-        .status.success { background: #e8f5e9; color: #2e7d32; }
-        .status.error { background: #ffebee; color: #c62828; }
-        .status.loading { background: #fff3e0; color: #e65100; }
-        
+
+        .data-table th {
+            font-weight: 600;
+            background: var(--bg-card);
+            position: sticky;
+            top: 0;
+            color: var(--text-muted);
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .data-table tr:hover { background: var(--bg-card-hover); }
+
+        /* Tabs */
+        .tab-nav {
+            display: flex;
+            gap: 0.25rem;
+            background: var(--bg-dark);
+            padding: 0.2rem;
+            border-radius: 6px;
+            width: fit-content;
+        }
+
+        .tab-btn {
+            padding: 0.4rem 0.75rem;
+            font-size: 0.75rem;
+            font-weight: 500;
+            background: transparent;
+            border: none;
+            color: var(--text-muted);
+            cursor: pointer;
+            border-radius: 4px;
+            transition: all 0.15s ease;
+        }
+
+        .tab-btn:hover { color: var(--text); }
+        .tab-btn.active { background: var(--bg-card); color: var(--text); }
+
         /* Responsive */
+        @media (max-width: 1200px) {
+            .main-layout { grid-template-columns: 280px 1fr; }
+            .panel:last-child { display: none; }
+        }
+
         @media (max-width: 900px) {
-            .sidebar { position: relative; width: 100%; height: auto; border-right: none; border-bottom: 1px solid var(--border); }
-            .main { margin-left: 0; }
-            .wrapper { flex-direction: column; }
+            .main-layout { grid-template-columns: 1fr; }
+            .panel:first-child { display: none; }
         }
     </style>
 </head>
 <body>
-    <div class="wrapper">
-        <!-- Sidebar -->
-        <aside class="sidebar">
-            <div class="logo">
-                <h1>Ørthon</h1>
-                <p class="tagline">geometry leads</p>
-            </div>
-            
-            <section>
-                <h2>Select Folder</h2>
-                <div class="folder-browser" id="folderBrowser">
-                    <div class="folder-path" id="currentPath">Loading...</div>
-                    <div id="folderList"></div>
-                </div>
-                
-                <div class="file-status" id="fileStatus"></div>
-                
-                <button class="btn" id="loadBtn" disabled>Load Data</button>
-            </section>
-            
-            <section id="filtersSection" style="display: none;">
-                <h2>Filters</h2>
-                <div class="filter-group">
-                    <label>Entity</label>
-                    <select id="entityFilter"><option value="">All entities</option></select>
-                </div>
-                <div class="filter-group">
-                    <label>Window</label>
-                    <select id="windowFilter"><option value="">All windows</option></select>
-                </div>
-            </section>
-            
-            <section>
-                <h2>About</h2>
-                <p style="font-size: 0.8rem; color: var(--text-light);">
-                    Ørthon detects degradation by analyzing how relationships between components evolve.
-                </p>
-                <p style="font-size: 0.8rem; color: var(--text-light); margin-top: 0.5rem; font-style: italic;">
-                    "Systems lose coherence before they fail."
-                </p>
-            </section>
-        </aside>
-        
-        <!-- Main -->
-        <main class="main">
-            <div class="tabs" id="tabs">
-                <div class="tab active" data-tab="summary">Summary</div>
-                <div class="tab disabled" data-tab="vector">Vector</div>
-                <div class="tab disabled" data-tab="geometry">Geometry</div>
-                <div class="tab disabled" data-tab="state">State</div>
-                <div class="tab disabled" data-tab="cohort">Cohort</div>
-                <div class="tab disabled" data-tab="derivatives">Derivatives</div>
-            </div>
-            
-            <!-- Welcome -->
-            <div id="welcome" class="welcome">
-                <h2>Welcome to Ørthon Explorer</h2>
-                <p>Select a folder containing your analysis results using the sidebar.</p>
-                <p style="font-size: 0.85rem;">
-                    Expected files: <strong>vector.parquet</strong>, <strong>geometry.parquet</strong>, 
-                    <strong>state.parquet</strong>, <strong>cohort.parquet</strong>
-                </p>
-            </div>
-            
-            <!-- Tab: Summary -->
-            <div class="tab-content" id="tab-summary">
-                <h2>Data Summary</h2>
-                <p class="description">Overview of loaded analysis outputs</p>
-                <div class="metrics" id="summaryMetrics"></div>
-                <div class="card">
-                    <h3>Loaded Tables</h3>
-                    <div id="tableSummary"></div>
-                </div>
-                <div class="card">
-                    <h3>Generate Thesis</h3>
-                    <p style="font-size: 0.85rem; color: var(--text-light); margin-bottom: 0.75rem;">
-                        Generate publication-ready LaTeX with formulas, derivations, and interpretations.
-                    </p>
-                    <div class="controls">
-                        <div class="filter-group">
-                            <label>Entity (optional)</label>
-                            <select id="thesisEntity"><option value="">All entities</option></select>
-                        </div>
-                        <div class="filter-group">
-                            <label>Title</label>
-                            <input type="text" id="thesisTitle" placeholder="Orthon Analysis" />
-                        </div>
-                    </div>
-                    <button class="btn" id="generateThesis" style="margin-top: 0.5rem;">Generate LaTeX</button>
-                    <div id="thesisResult" style="display: none; margin-top: 1rem;">
-                        <textarea id="thesisContent" style="width: 100%; height: 200px; font-family: monospace; font-size: 0.8rem;"></textarea>
-                        <button class="btn" id="downloadThesis" style="margin-top: 0.5rem; background: var(--text-light);">Download .tex</button>
-                    </div>
-                </div>
+    <header class="header">
+        <div class="logo">
+            <h1>Orthon</h1>
+            <span class="tagline">geometry leads</span>
+        </div>
+        <div class="header-controls">
+            <span class="domain-badge" id="domainBadge">Select Folder</span>
+            <button class="btn" id="loadBtn" disabled>Load Data</button>
+        </div>
+    </header>
+
+    <div class="main-layout">
+        <!-- Left Panel: Folder Browser / Entity List -->
+        <aside class="panel" id="leftPanel">
+            <div class="panel-header">
+                <span class="panel-title">Data Source</span>
             </div>
 
-            <!-- Tab: Vector -->
-            <div class="tab-content" id="tab-vector">
-                <h2>Vector Layer</h2>
-                <p class="description">Behavioral metrics per signal</p>
-                <div class="card">
-                    <div class="controls">
-                        <div class="filter-group">
-                            <label>Entity</label>
-                            <select id="vectorEntity"></select>
-                        </div>
-                        <div class="filter-group">
-                            <label>Metric</label>
-                            <select id="vectorMetric"></select>
+            <div id="folderBrowser">
+                <div class="folder-path" id="currentPath">Loading...</div>
+                <div id="folderList"></div>
+                <div class="file-status" id="fileStatus"></div>
+            </div>
+
+            <div id="entityPanel" style="display: none;">
+                <input type="text" class="search-input" id="entitySearch" placeholder="Search entities...">
+                <div class="entity-list" id="entityList"></div>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content" id="mainContent">
+            <div class="welcome-screen" id="welcomeScreen">
+                <h2>Welcome to Orthon Explorer</h2>
+                <p>Select a folder containing analysis results, then click Load Data to explore behavioral geometry.</p>
+                <p style="margin-top: 1rem; font-size: 0.8rem; font-style: italic;">"Systems lose coherence before they fail."</p>
+            </div>
+
+            <div id="entityView" style="display: none;">
+                <div class="content-header">
+                    <div>
+                        <h1 class="entity-title" id="selectedEntityName">-</h1>
+                        <p class="entity-subtitle" id="selectedEntitySubtitle">Select an entity to view details</p>
+                    </div>
+                    <div class="regime-badge">
+                        <div class="regime-dot" id="regimeDot"></div>
+                        <span class="regime-text" id="regimeText">-</span>
+                    </div>
+                </div>
+
+                <!-- Key Metrics -->
+                <div class="insight-grid" id="insightGrid"></div>
+
+                <!-- Fingerprint Chart -->
+                <div class="section">
+                    <div class="section-header">
+                        <h2 class="section-title">Behavioral Fingerprint</h2>
+                        <div class="tab-nav">
+                            <button class="tab-btn active" data-chart="radar">Radar</button>
+                            <button class="tab-btn" data-chart="bar">Bar</button>
                         </div>
                     </div>
-                    <div class="chart-container" id="vectorChart"></div>
+                    <div class="chart-container" id="fingerprintChart"></div>
                 </div>
-                <div class="card">
-                    <h3>Data</h3>
-                    <div class="data-table" id="vectorTable"></div>
-                </div>
-            </div>
-            
-            <!-- Tab: Geometry -->
-            <div class="tab-content" id="tab-geometry">
-                <h2>Geometry Layer</h2>
-                <p class="description">Pairwise relationships between signals</p>
-                <div class="card">
-                    <div class="controls">
-                        <div class="filter-group">
-                            <label>Entity</label>
-                            <select id="geometryEntity"></select>
-                        </div>
-                        <div class="filter-group">
-                            <label>Metric</label>
-                            <select id="geometryMetric">
-                                <option value="mean_correlation">Mean Correlation</option>
-                                <option value="clustering_silhouette">Clustering Silhouette</option>
-                                <option value="lof_mean_score">LOF Score</option>
-                            </select>
-                        </div>
+
+                <!-- Timeline -->
+                <div class="section">
+                    <div class="section-header">
+                        <h2 class="section-title">Temporal Evolution</h2>
                     </div>
-                    <div class="chart-container" id="geometryChart"></div>
+                    <div class="chart-container-small" id="timelineChart"></div>
                 </div>
-                <div class="card">
-                    <h3>Data</h3>
-                    <div class="data-table" id="geometryTable"></div>
-                </div>
-            </div>
-            
-            <!-- Tab: State -->
-            <div class="tab-content" id="tab-state">
-                <h2>State Layer</h2>
-                <p class="description">Coherence tracking, regime detection</p>
-                <div class="card">
-                    <div class="controls">
-                        <div class="filter-group">
-                            <label>Entity</label>
-                            <select id="stateEntity"></select>
-                        </div>
-                        <div class="filter-group">
-                            <label>Metric</label>
-                            <select id="stateMetric">
-                                <option value="hd_slope">hd_slope (coherence velocity)</option>
-                                <option value="distance_from_baseline">Distance from Baseline</option>
-                                <option value="velocity">Velocity</option>
-                                <option value="regime_stability">Regime Stability</option>
-                            </select>
-                        </div>
+
+                <!-- Data Table -->
+                <div class="section">
+                    <div class="section-header">
+                        <h2 class="section-title">Raw Data</h2>
                     </div>
-                    <div class="chart-container" id="stateChart"></div>
-                </div>
-                <div class="card">
-                    <h3>Data</h3>
-                    <div class="data-table" id="stateTable"></div>
-                </div>
-            </div>
-            
-            <!-- Tab: Cohort -->
-            <div class="tab-content" id="tab-cohort">
-                <h2>Cohort Analysis</h2>
-                <p class="description">Behavioral groupings</p>
-                <div class="metrics" id="cohortMetrics"></div>
-                <div class="card">
-                    <h3>Cohort Assignments</h3>
-                    <div class="data-table" id="cohortTable"></div>
-                </div>
-            </div>
-            
-            <!-- Tab: Derivatives -->
-            <div class="tab-content" id="tab-derivatives">
-                <h2>Derivatives Layer</h2>
-                <p class="description">Velocity, acceleration, jerk — rate of change features</p>
-                <div class="card">
-                    <div class="controls">
-                        <div class="filter-group">
-                            <label>Entity</label>
-                            <select id="derivativesEntity"></select>
-                        </div>
-                        <div class="filter-group">
-                            <label>Metric</label>
-                            <select id="derivativesMetric">
-                                <option value="velocity">Velocity (1st derivative)</option>
-                                <option value="acceleration">Acceleration (2nd derivative)</option>
-                                <option value="jerk">Jerk (3rd derivative)</option>
-                                <option value="curvature">Curvature</option>
-                            </select>
-                        </div>
-                    </div>
-                    <div class="chart-container" id="derivativesChart"></div>
-                </div>
-                <div class="card">
-                    <h3>Data</h3>
-                    <div class="data-table" id="derivativesTable"></div>
-                </div>
-                <div class="card" id="sqlCard">
-                    <h3>SQL Console</h3>
-                    <p id="availableTables" style="font-family: monospace; font-size: 0.85rem; color: var(--text-light); margin-bottom: 0.75rem;"></p>
-                    <textarea class="sql-input" id="sqlInput" placeholder="SELECT * FROM vector LIMIT 100"></textarea>
-                    <button class="btn" id="runSql">Run Query</button>
-                </div>
-                <div class="card" id="sqlResultCard" style="display: none;">
-                    <h3>SQL Results</h3>
-                    <div class="data-table" id="sqlResult"></div>
+                    <div class="data-table" id="entityDataTable"></div>
                 </div>
             </div>
         </main>
+
+        <!-- Right Panel: Similar / SQL -->
+        <aside class="panel" id="rightPanel">
+            <div class="panel-header">
+                <span class="panel-title">Similar Entities</span>
+            </div>
+            <p style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.75rem;">
+                Entities with similar behavioral characteristics
+            </p>
+            <div id="similarList"></div>
+
+            <div class="cohort-section" id="cohortSection">
+                <div class="panel-title" style="margin-bottom: 0.5rem;">Cohort</div>
+                <div class="cohort-badge">
+                    <div class="cohort-color" id="cohortColor" style="background: var(--accent);"></div>
+                    <span class="cohort-name" id="cohortName">-</span>
+                </div>
+                <p class="cohort-desc" id="cohortDesc">Load data to see cohort assignments</p>
+            </div>
+
+            <div class="sql-section">
+                <div class="panel-title" style="margin-bottom: 0.5rem;">SQL Console</div>
+                <textarea class="sql-input" id="sqlInput" placeholder="SELECT * FROM vector LIMIT 10"></textarea>
+                <button class="btn btn-secondary" id="runSqlBtn" style="width: 100%; font-size: 0.75rem;">Run Query</button>
+                <div class="data-table" id="sqlResult" style="margin-top: 0.75rem; max-height: 200px;"></div>
+            </div>
+        </aside>
     </div>
 
     <script>
     // =============================================================================
     // STATE
     // =============================================================================
-    
+
     const state = {
         currentPath: null,
         expectedFiles: {},
-        config: null,
         db: null,
         tables: {},
+        entities: [],
+        selectedEntity: null,
+        vectorData: null,
+        geometryData: null,
+        stateData: null,
+        cohortData: null,
     };
-    
+
     const API = 'http://localhost:8000/api';
-    
+
     // =============================================================================
     // FOLDER BROWSER
     // =============================================================================
-    
-    async function loadFolder(path = '~') {
-        try {
-            const res = await fetch(`${API}/folders?path=${encodeURIComponent(path)}`);
-            const data = await res.json();
-            
-            state.currentPath = data.current_path;
-            state.expectedFiles = data.expected_files;
-            state.config = data.config;
-            
-            renderFolderBrowser(data);
-            renderFileStatus(data.expected_files);
-            
-            console.log('data.ready:', data.ready, 'parquet_files:', data.parquet_files);
-            document.getElementById('loadBtn').disabled = !data.ready;
-            if (data.ready) {
-                console.log('Load button ENABLED');
-            } else {
-                console.log('Load button DISABLED');
-            }
-        } catch (err) {
-            console.error('Failed to load folder:', err);
-            document.getElementById('folderList').innerHTML = '<div style="padding: 1rem; color: #c62828;">Failed to connect to server</div>';
-        }
-    }
-    
-    // Helper to escape paths for onclick handlers
+
     function escapePath(path) {
-        // Escape backslashes and single quotes for JavaScript string
         return path.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
     }
 
-    // Helper to escape HTML entities
     function escapeHtml(text) {
         const div = document.createElement('div');
         div.textContent = text;
         return div.innerHTML;
+    }
+
+    async function loadFolder(path = '~') {
+        try {
+            const res = await fetch(`${API}/folders?path=${encodeURIComponent(path)}`);
+            const data = await res.json();
+
+            state.currentPath = data.current_path;
+            state.expectedFiles = data.expected_files;
+
+            renderFolderBrowser(data);
+            renderFileStatus(data.expected_files);
+
+            document.getElementById('loadBtn').disabled = !data.ready;
+
+            // Update domain badge
+            const folderName = data.current_path.split('/').pop() || 'Home';
+            document.getElementById('domainBadge').textContent = folderName.toUpperCase();
+
+        } catch (err) {
+            console.error('Failed to load folder:', err);
+            document.getElementById('folderList').innerHTML = '<div style="padding: 1rem; color: var(--accent-red);">Failed to connect to server</div>';
+        }
     }
 
     function renderFolderBrowser(data) {
@@ -565,7 +771,6 @@
 
         let html = '';
 
-        // Parent folder - ALWAYS show if we have a parent path
         if (data.parent_path) {
             const escapedPath = escapePath(data.parent_path);
             html += `<div class="folder-item parent" onclick="loadFolder('${escapedPath}')">
@@ -573,7 +778,6 @@
             </div>`;
         }
 
-        // Folders
         for (const folder of data.folders) {
             const escapedPath = escapePath(folder.path);
             const escapedName = escapeHtml(folder.name);
@@ -582,20 +786,19 @@
             </div>`;
         }
 
-        // Parquet files
         for (const file of data.parquet_files) {
+            const color = file.expected ? 'var(--accent-green)' : 'var(--text-muted)';
             const icon = file.expected ? '✓' : '📄';
-            const escapedName = escapeHtml(file.name);
-            html += `<div class="folder-item" style="color: ${file.expected ? 'var(--success)' : 'var(--text-light)'}">
-                <span class="icon">${icon}</span> ${escapedName}
+            html += `<div class="folder-item" style="color: ${color}">
+                <span class="icon">${icon}</span> ${escapeHtml(file.name)}
             </div>`;
         }
 
         document.getElementById('folderList').innerHTML = html;
     }
-    
+
     function renderFileStatus(expected) {
-        const files = ['vector.parquet', 'geometry.parquet', 'state.parquet', 'cohort.parquet', 'derivatives.parquet'];
+        const files = ['vector.parquet', 'geometry.parquet', 'state.parquet', 'cohort.parquet'];
         let html = '';
 
         for (const file of files) {
@@ -608,13 +811,12 @@
 
         document.getElementById('fileStatus').innerHTML = html;
     }
-    
+
     // =============================================================================
-    // DATA LOADING (DuckDB)
+    // DATA LOADING
     // =============================================================================
-    
+
     async function initDuckDB() {
-        // Dynamically import DuckDB WASM
         const duckdb = await import('https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.28.0/+esm');
         window.duckdb = duckdb;
 
@@ -629,560 +831,453 @@
         await state.db.instantiate(bundle.mainModule, bundle.pthreadWorker);
         URL.revokeObjectURL(worker_url);
     }
-    
+
     async function loadData() {
-        console.log('loadData called');
-        console.log('state.expectedFiles:', state.expectedFiles);
-        console.log('state.currentPath:', state.currentPath);
+        document.getElementById('loadBtn').textContent = 'Loading...';
+        document.getElementById('loadBtn').disabled = true;
 
         try {
             if (!state.db) {
-                console.log('Initializing DuckDB...');
                 await initDuckDB();
-                console.log('DuckDB initialized');
             }
 
             const conn = await state.db.connect();
-            console.log('Connected to DuckDB');
-
-            // Load each parquet file
-            const files = ['vector', 'geometry', 'state', 'cohort', 'derivatives'];
+            const files = ['vector', 'geometry', 'state', 'cohort'];
 
             for (const name of files) {
-                console.log(`Checking ${name}.parquet:`, state.expectedFiles[`${name}.parquet`]);
                 if (state.expectedFiles[`${name}.parquet`]) {
                     try {
                         const url = `${API}/parquet/${state.currentPath}/${name}.parquet`;
-                        console.log('Fetching:', url);
                         const res = await fetch(url);
-                        if (!res.ok) {
-                            throw new Error(`HTTP ${res.status}: ${res.statusText}`);
-                        }
+                        if (!res.ok) throw new Error(`HTTP ${res.status}`);
                         const buffer = await res.arrayBuffer();
-                        console.log(`Got ${name} buffer:`, buffer.byteLength, 'bytes');
-                    
-                    await state.db.registerFileBuffer(`${name}.parquet`, new Uint8Array(buffer));
-                    await conn.query(`CREATE OR REPLACE TABLE ${name} AS SELECT * FROM read_parquet('${name}.parquet')`);
-                    
-                    const countResult = await conn.query(`SELECT COUNT(*) as cnt FROM ${name}`);
-                    state.tables[name] = { loaded: true, rows: Number(countResult.toArray()[0].cnt) };
-                    
-                    console.log(`Loaded ${name}: ${state.tables[name].rows} rows`);
-                } catch (err) {
-                    console.error(`Failed to load ${name}:`, err);
-                    state.tables[name] = { loaded: false, error: err.message };
-                }
-            }
-        }
-        
-            await conn.close();
-            console.log('Data loading complete');
 
-            // Update UI
-            showDataUI();
-            populateFilters();
-            renderSummary();
-        } catch (err) {
-            console.error('loadData error:', err);
-            alert('Error loading data: ' + err.message);
-        }
-    }
+                        await state.db.registerFileBuffer(`${name}.parquet`, new Uint8Array(buffer));
+                        await conn.query(`CREATE OR REPLACE TABLE ${name} AS SELECT * FROM read_parquet('${name}.parquet')`);
 
-    // =============================================================================
-    // UI UPDATES
-    // =============================================================================
-    
-    function showDataUI() {
-        document.getElementById('welcome').style.display = 'none';
-        document.getElementById('filtersSection').style.display = 'block';
+                        const countResult = await conn.query(`SELECT COUNT(*) as cnt FROM ${name}`);
+                        state.tables[name] = { loaded: true, rows: Number(countResult.toArray()[0].cnt) };
 
-        // Enable summary tab (always available if any data loaded)
-        document.querySelector('.tab[data-tab="summary"]').classList.remove('disabled');
-
-        // Enable tabs only for loaded tables
-        const tabMap = {
-            'vector': 'vector',
-            'geometry': 'geometry',
-            'state': 'state',
-            'cohort': 'cohort',
-            'derivatives': 'derivatives'
-        };
-
-        for (const [table, tabName] of Object.entries(tabMap)) {
-            const tab = document.querySelector(`.tab[data-tab="${tabName}"]`);
-            if (tab) {
-                if (state.tables[table]?.loaded) {
-                    tab.classList.remove('disabled');
-                } else {
-                    tab.classList.add('disabled');
-                }
-            }
-        }
-
-        // Show summary tab
-        showTab('summary');
-    }
-    
-    function showTab(tabName) {
-        // Update tab buttons
-        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-        document.querySelector(`.tab[data-tab="${tabName}"]`).classList.add('active');
-        
-        // Update content
-        document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-        const content = document.getElementById(`tab-${tabName}`);
-        if (content) {
-            content.classList.add('active');
-            
-            // Load tab-specific data
-            if (tabName === 'vector') loadVectorTab();
-            if (tabName === 'geometry') loadGeometryTab();
-            if (tabName === 'state') loadStateTab();
-            if (tabName === 'cohort') loadCohortTab();
-            if (tabName === 'derivatives') loadDerivativesTab();
-        }
-    }
-    
-    async function populateFilters() {
-        const conn = await state.db.connect();
-
-        try {
-            // Try to get entities from any available table
-            let entityList = [];
-            const tablesToTry = ['state', 'vector', 'geometry', 'cohort', 'derivatives'];
-
-            for (const table of tablesToTry) {
-                if (state.tables[table]?.loaded) {
-                    try {
-                        const entities = await conn.query(`SELECT DISTINCT entity_id FROM ${table} ORDER BY entity_id`);
-                        entityList = entities.toArray().map(r => r.entity_id);
-                        if (entityList.length > 0) break;
-                    } catch (e) {
-                        // Table might not have entity_id column, try next
+                    } catch (err) {
+                        console.error(`Failed to load ${name}:`, err);
+                        state.tables[name] = { loaded: false, error: err.message };
                     }
                 }
             }
 
-            // Populate all entity dropdowns
-            ['entityFilter', 'vectorEntity', 'geometryEntity', 'stateEntity', 'derivativesEntity', 'thesisEntity'].forEach(id => {
-                const select = document.getElementById(id);
-                if (select) {
-                    select.innerHTML = '<option value="">All entities</option>' +
-                        entityList.map(e => `<option value="${e}">${e}</option>`).join('');
+            await conn.close();
+
+            // Extract entities
+            await extractEntities();
+
+            // Show data UI
+            showDataUI();
+
+        } catch (err) {
+            console.error('loadData error:', err);
+            alert('Error loading data: ' + err.message);
+        }
+
+        document.getElementById('loadBtn').textContent = 'Reload';
+        document.getElementById('loadBtn').disabled = false;
+    }
+
+    async function extractEntities() {
+        const conn = await state.db.connect();
+
+        try {
+            // Try to get entities from any available table
+            const tablesToTry = ['state', 'vector', 'geometry', 'cohort'];
+
+            for (const table of tablesToTry) {
+                if (state.tables[table]?.loaded) {
+                    try {
+                        const result = await conn.query(`SELECT DISTINCT entity_id FROM ${table} ORDER BY entity_id`);
+                        state.entities = result.toArray().map(r => r.entity_id);
+                        break;
+                    } catch (e) {
+                        // Table might not have entity_id
+                    }
                 }
-            });
+            }
 
-            // Get window sizes if available
-            if (state.config && state.config.windows) {
-                const windowSelect = document.getElementById('windowFilter');
-                windowSelect.innerHTML = '<option value="">All windows</option>' +
-                    state.config.windows.map(w => `<option value="${w}">${w}</option>`).join('');
+            // Load vector data for metrics
+            if (state.tables.vector?.loaded) {
+                const result = await conn.query(`SELECT * FROM vector`);
+                state.vectorData = result.toArray();
             }
+
+            // Load cohort data
+            if (state.tables.cohort?.loaded) {
+                const result = await conn.query(`SELECT * FROM cohort`);
+                state.cohortData = result.toArray();
+            }
+
         } catch (err) {
-            console.error('Error populating filters:', err);
+            console.error('Error extracting entities:', err);
         }
 
         await conn.close();
     }
-    
-    async function renderSummary() {
-        // Metrics
-        let metricsHtml = '';
-        for (const [name, info] of Object.entries(state.tables)) {
-            if (info.loaded) {
-                metricsHtml += `<div class="metric">
-                    <div class="value">${info.rows.toLocaleString()}</div>
-                    <div class="label">${name} rows</div>
-                </div>`;
-            }
-        }
-        document.getElementById('summaryMetrics').innerHTML = metricsHtml;
-        
-        // Table details
-        const conn = await state.db.connect();
-        let tableHtml = '';
-        
-        for (const [name, info] of Object.entries(state.tables)) {
-            if (info.loaded) {
-                const schema = await conn.query(`DESCRIBE ${name}`);
-                const cols = schema.toArray().map(r => r.column_name).join(', ');
-                tableHtml += `<p style="margin-bottom: 0.75rem;"><strong>${name}</strong>: ${cols}</p>`;
-            }
-        }
-        
-        document.getElementById('tableSummary').innerHTML = tableHtml;
-        await conn.close();
-    }
-    
+
     // =============================================================================
-    // TAB LOADERS
+    // UI RENDERING
     // =============================================================================
-    
-    async function loadVectorTab() {
-        const conn = await state.db.connect();
-        
-        try {
-            // Get metrics
-            const cols = await conn.query(`DESCRIBE vector`);
-            const numericCols = cols.toArray()
-                .filter(r => ['DOUBLE', 'FLOAT', 'INTEGER', 'BIGINT'].some(t => r.column_type.includes(t)))
-                .filter(r => !['entity_id', 'signal_id', 'timestamp', 'window_start', 'window_size'].includes(r.column_name))
-                .map(r => r.column_name);
-            
-            const metricSelect = document.getElementById('vectorMetric');
-            metricSelect.innerHTML = numericCols.map(c => `<option value="${c}">${c}</option>`).join('');
-            
-            // Load data
-            const data = await conn.query(`SELECT * FROM vector LIMIT 100`);
-            renderTable('vectorTable', data);
-            
-            // Chart
-            await renderVectorChart();
-        } catch (err) {
-            console.error('Vector tab error:', err);
+
+    function showDataUI() {
+        document.getElementById('welcomeScreen').style.display = 'none';
+        document.getElementById('entityView').style.display = 'block';
+        document.getElementById('folderBrowser').style.display = 'none';
+        document.getElementById('entityPanel').style.display = 'block';
+
+        // Update domain badge with count
+        const totalRows = Object.values(state.tables).reduce((sum, t) => sum + (t.rows || 0), 0);
+        document.getElementById('domainBadge').textContent = `${state.entities.length} Entities • ${totalRows.toLocaleString()} Rows`;
+
+        renderEntityList();
+
+        // Select first entity
+        if (state.entities.length > 0) {
+            selectEntity(state.entities[0]);
         }
-        
-        await conn.close();
     }
-    
-    async function renderVectorChart() {
-        const entity = document.getElementById('vectorEntity').value;
-        const metric = document.getElementById('vectorMetric').value || 'mean';
-        
-        const conn = await state.db.connect();
-        
-        let query = `SELECT timestamp, ${metric} as value FROM vector`;
-        if (entity) query += ` WHERE entity_id = '${entity}'`;
-        query += ` ORDER BY timestamp LIMIT 500`;
-        
-        const data = await conn.query(query);
-        const rows = data.toArray();
-        
-        Plotly.newPlot('vectorChart', [{
-            x: rows.map(r => r.timestamp),
-            y: rows.map(r => r.value),
-            type: 'scatter',
-            mode: 'lines',
-            line: { color: '#f56a6a' }
-        }], {
-            margin: { t: 20, r: 20, b: 40, l: 50 },
-            xaxis: { title: 'Timestamp' },
-            yaxis: { title: metric }
-        }, { responsive: true });
-        
-        await conn.close();
-    }
-    
-    async function loadGeometryTab() {
-        const conn = await state.db.connect();
-        const data = await conn.query(`SELECT * FROM geometry LIMIT 100`);
-        renderTable('geometryTable', data);
-        await conn.close();
-        await renderGeometryChart();
-    }
-    
-    async function renderGeometryChart() {
-        const entity = document.getElementById('geometryEntity').value;
-        const metric = document.getElementById('geometryMetric').value || 'mean_correlation';
-        
-        const conn = await state.db.connect();
-        
-        let query = `SELECT timestamp, ${metric} as value FROM geometry`;
-        if (entity) query += ` WHERE entity_id = '${entity}'`;
-        query += ` ORDER BY timestamp LIMIT 500`;
-        
-        try {
-            const data = await conn.query(query);
-            const rows = data.toArray();
-            
-            Plotly.newPlot('geometryChart', [{
-                x: rows.map(r => r.timestamp),
-                y: rows.map(r => r.value),
-                type: 'scatter',
-                mode: 'lines',
-                line: { color: '#f56a6a' }
-            }], {
-                margin: { t: 20, r: 20, b: 40, l: 50 },
-                xaxis: { title: 'Timestamp' },
-                yaxis: { title: metric }
-            }, { responsive: true });
-        } catch (err) {
-            console.error('Geometry chart error:', err);
-        }
-        
-        await conn.close();
-    }
-    
-    async function loadStateTab() {
-        const conn = await state.db.connect();
-        const data = await conn.query(`SELECT * FROM state LIMIT 100`);
-        renderTable('stateTable', data);
-        await conn.close();
-        await renderStateChart();
-    }
-    
-    async function renderStateChart() {
-        const entity = document.getElementById('stateEntity').value;
-        const metric = document.getElementById('stateMetric').value || 'hd_slope';
-        
-        const conn = await state.db.connect();
-        
-        let query = `SELECT timestamp, ${metric} as value FROM state`;
-        if (entity) query += ` WHERE entity_id = '${entity}'`;
-        query += ` ORDER BY timestamp LIMIT 500`;
-        
-        try {
-            const data = await conn.query(query);
-            const rows = data.toArray();
-            
-            Plotly.newPlot('stateChart', [{
-                x: rows.map(r => r.timestamp),
-                y: rows.map(r => r.value),
-                type: 'scatter',
-                mode: 'lines',
-                line: { color: '#f56a6a' }
-            }], {
-                margin: { t: 20, r: 20, b: 40, l: 50 },
-                xaxis: { title: 'Timestamp' },
-                yaxis: { title: metric }
-            }, { responsive: true });
-        } catch (err) {
-            console.error('State chart error:', err);
-        }
-        
-        await conn.close();
-    }
-    
-    async function loadCohortTab() {
-        const conn = await state.db.connect();
-        
-        // Metrics
-        const summary = await conn.query(`
-            SELECT cohort, COUNT(*) as count 
-            FROM cohort 
-            GROUP BY cohort 
-            ORDER BY cohort
-        `);
-        const rows = summary.toArray();
-        
-        let metricsHtml = '';
-        for (const row of rows) {
-            metricsHtml += `<div class="metric">
-                <div class="value">${row.count}</div>
-                <div class="label">Cohort ${row.cohort}</div>
+
+    function renderEntityList() {
+        const searchTerm = document.getElementById('entitySearch').value.toLowerCase();
+        const filtered = state.entities.filter(e => e.toString().toLowerCase().includes(searchTerm));
+
+        let html = '';
+        for (const entity of filtered.slice(0, 50)) {
+            const isSelected = entity === state.selectedEntity;
+            const entityData = state.vectorData?.filter(r => r.entity_id === entity) || [];
+
+            // Get summary metrics
+            const hurst = entityData.length > 0 ? (entityData[0].hurst_exponent || entityData[0].mean || 0) : 0;
+            const entropy = entityData.length > 0 ? (entityData[0].sample_entropy || entityData[0].std || 0) : 0;
+
+            // Determine role based on metrics
+            let role = 'neutral';
+            let roleLabel = 'Neutral';
+            if (hurst > 0.6) { role = 'source'; roleLabel = 'Source'; }
+            else if (hurst < 0.4) { role = 'sink'; roleLabel = 'Sink'; }
+
+            html += `
+            <div class="entity-card ${isSelected ? 'selected' : ''}" onclick="selectEntity('${entity}')">
+                <div class="entity-name">
+                    ${escapeHtml(String(entity))}
+                    <span class="entity-role role-${role}">${roleLabel}</span>
+                </div>
+                <div class="entity-tags">
+                    <span class="tag">H: ${typeof hurst === 'number' ? hurst.toFixed(2) : '-'}</span>
+                    <span class="tag">E: ${typeof entropy === 'number' ? entropy.toFixed(2) : '-'}</span>
+                    <span class="tag">${entityData.length} pts</span>
+                </div>
             </div>`;
         }
-        document.getElementById('cohortMetrics').innerHTML = metricsHtml;
-        
-        // Table
-        const data = await conn.query(`SELECT * FROM cohort ORDER BY cohort, entity_id`);
-        renderTable('cohortTable', data);
-        
-        await conn.close();
+
+        if (filtered.length > 50) {
+            html += `<div style="padding: 0.5rem; color: var(--text-dim); font-size: 0.75rem;">+ ${filtered.length - 50} more entities</div>`;
+        }
+
+        document.getElementById('entityList').innerHTML = html;
     }
-    
-    async function loadDerivativesTab() {
-        const conn = await state.db.connect();
 
-        // Show SQL console tables
-        const tables = Object.keys(state.tables).filter(t => state.tables[t].loaded);
-        document.getElementById('availableTables').textContent = 'Tables: ' + tables.join(', ');
+    async function selectEntity(entityId) {
+        state.selectedEntity = entityId;
+        renderEntityList();
 
-        // Check if derivatives table exists
-        if (!state.tables.derivatives?.loaded) {
-            document.getElementById('derivativesTable').innerHTML =
-                '<p style="color: var(--text-light);">No derivatives.parquet found. Derivatives are computed from vector data.</p>';
-            document.getElementById('derivativesChart').innerHTML = '';
-            await conn.close();
+        document.getElementById('selectedEntityName').textContent = entityId;
+        document.getElementById('selectedEntitySubtitle').textContent = `Entity ID: ${entityId}`;
+
+        // Get entity data
+        const entityVector = state.vectorData?.filter(r => r.entity_id === entityId) || [];
+        const entityCohort = state.cohortData?.find(r => r.entity_id === entityId);
+
+        // Render insights
+        renderInsights(entityVector);
+
+        // Render fingerprint chart
+        renderFingerprintChart(entityVector);
+
+        // Render timeline
+        await renderTimelineChart(entityId);
+
+        // Render data table
+        renderEntityDataTable(entityVector);
+
+        // Render similar entities
+        renderSimilarEntities(entityId);
+
+        // Render cohort
+        renderCohort(entityCohort);
+
+        // Update regime indicator
+        updateRegimeIndicator(entityVector);
+    }
+
+    function renderInsights(data) {
+        if (data.length === 0) {
+            document.getElementById('insightGrid').innerHTML = '<div style="color: var(--text-muted);">No data</div>';
             return;
         }
 
-        // Load derivatives data
-        const data = await conn.query(`SELECT * FROM derivatives LIMIT 100`);
-        renderTable('derivativesTable', data);
-        await conn.close();
+        const latest = data[data.length - 1];
+        const metrics = [
+            { key: 'mean', label: 'Mean', format: v => v?.toFixed(4) || '-' },
+            { key: 'std', label: 'Std Dev', format: v => v?.toFixed(4) || '-' },
+            { key: 'hurst_exponent', label: 'Hurst', format: v => v?.toFixed(3) || '-' },
+            { key: 'sample_entropy', label: 'Entropy', format: v => v?.toFixed(3) || '-' },
+        ];
 
-        // Render chart
-        await renderDerivativesChart();
-    }
-
-    async function renderDerivativesChart() {
-        if (!state.tables.derivatives?.loaded) return;
-
-        const entity = document.getElementById('derivativesEntity').value;
-        const metric = document.getElementById('derivativesMetric').value || 'velocity';
-
-        const conn = await state.db.connect();
-
-        let query = `SELECT timestamp, ${metric} as value FROM derivatives`;
-        if (entity) query += ` WHERE entity_id = '${entity}'`;
-        query += ` ORDER BY timestamp LIMIT 500`;
-
-        try {
-            const data = await conn.query(query);
-            const rows = data.toArray();
-
-            Plotly.newPlot('derivativesChart', [{
-                x: rows.map(r => r.timestamp),
-                y: rows.map(r => r.value),
-                type: 'scatter',
-                mode: 'lines',
-                line: { color: '#f56a6a' }
-            }], {
-                margin: { t: 20, r: 20, b: 40, l: 50 },
-                xaxis: { title: 'Timestamp' },
-                yaxis: { title: metric }
-            }, { responsive: true });
-        } catch (err) {
-            console.error('Derivatives chart error:', err);
+        let html = '';
+        for (const m of metrics) {
+            const value = latest[m.key];
+            html += `
+            <div class="insight-card">
+                <h3>${m.label}</h3>
+                <div class="insight-value">${m.format(value)}</div>
+            </div>`;
         }
 
-        await conn.close();
+        document.getElementById('insightGrid').innerHTML = html;
     }
 
-    async function runSql() {
-        const sql = document.getElementById('sqlInput').value;
-        if (!sql.trim()) return;
-        
-        const conn = await state.db.connect();
-        
-        try {
-            const data = await conn.query(sql);
-            renderTable('sqlResult', data);
-            document.getElementById('sqlResultCard').style.display = 'block';
-        } catch (err) {
-            document.getElementById('sqlResult').innerHTML = `<div class="status error">${err.message}</div>`;
-            document.getElementById('sqlResultCard').style.display = 'block';
+    function renderFingerprintChart(data) {
+        if (data.length === 0) return;
+
+        const latest = data[data.length - 1];
+        const metrics = ['mean', 'std', 'skewness', 'kurtosis', 'hurst_exponent', 'sample_entropy'];
+        const values = metrics.map(m => {
+            const v = latest[m];
+            if (typeof v !== 'number' || isNaN(v)) return 0;
+            return Math.min(1, Math.max(0, Math.abs(v)));
+        });
+
+        const labels = ['Mean', 'Std', 'Skew', 'Kurt', 'Hurst', 'Entropy'];
+
+        Plotly.newPlot('fingerprintChart', [{
+            type: 'scatterpolar',
+            r: [...values, values[0]],
+            theta: [...labels, labels[0]],
+            fill: 'toself',
+            fillcolor: 'rgba(88, 166, 255, 0.2)',
+            line: { color: '#58a6ff', width: 2 },
+            marker: { size: 6, color: '#58a6ff' },
+        }], {
+            polar: {
+                radialaxis: {
+                    visible: true,
+                    range: [0, 1],
+                    tickfont: { color: '#8b949e', size: 10 },
+                    gridcolor: '#30363d',
+                },
+                angularaxis: {
+                    tickfont: { color: '#e6edf3', size: 11 },
+                    gridcolor: '#30363d',
+                },
+                bgcolor: 'transparent'
+            },
+            paper_bgcolor: 'transparent',
+            plot_bgcolor: 'transparent',
+            margin: { t: 40, r: 60, b: 40, l: 60 },
+            showlegend: false,
+        }, { responsive: true });
+    }
+
+    async function renderTimelineChart(entityId) {
+        if (!state.tables.state?.loaded) {
+            document.getElementById('timelineChart').innerHTML = '<div style="color: var(--text-muted); padding: 1rem;">No state data</div>';
+            return;
         }
-        
-        await conn.close();
-    }
-    
-    // =============================================================================
-    // THESIS GENERATION
-    // =============================================================================
 
-    async function generateThesis() {
-        const entity = document.getElementById('thesisEntity').value || null;
-        const title = document.getElementById('thesisTitle').value || 'Orthon Analysis';
-
-        console.log('Generating thesis for:', state.currentPath, 'entity:', entity);
-
+        const conn = await state.db.connect();
         try {
-            const res = await fetch(`${API}/thesis`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    folder_path: state.currentPath,
-                    entity_id: entity,
-                    title: title,
-                }),
-            });
+            const result = await conn.query(`
+                SELECT timestamp, distance_from_baseline, hd_slope
+                FROM state
+                WHERE entity_id = '${entityId}'
+                ORDER BY timestamp
+                LIMIT 500
+            `);
+            const rows = result.toArray();
 
-            if (!res.ok) {
-                const err = await res.json();
-                throw new Error(err.detail || 'Thesis generation failed');
+            if (rows.length === 0) {
+                document.getElementById('timelineChart').innerHTML = '<div style="color: var(--text-muted); padding: 1rem;">No timeline data</div>';
+                return;
             }
 
-            const data = await res.json();
-
-            document.getElementById('thesisContent').value = data.content;
-            document.getElementById('thesisResult').style.display = 'block';
-
-            // Store for download
-            window.thesisData = data;
+            Plotly.newPlot('timelineChart', [{
+                x: rows.map(r => r.timestamp),
+                y: rows.map(r => r.distance_from_baseline || r.hd_slope || 0),
+                type: 'scatter',
+                mode: 'lines',
+                line: { color: '#58a6ff', width: 2 },
+                fill: 'tozeroy',
+                fillcolor: 'rgba(88, 166, 255, 0.1)'
+            }], {
+                paper_bgcolor: 'transparent',
+                plot_bgcolor: 'transparent',
+                margin: { t: 10, r: 20, b: 30, l: 50 },
+                xaxis: { gridcolor: '#30363d', tickfont: { color: '#8b949e', size: 10 } },
+                yaxis: { gridcolor: '#30363d', tickfont: { color: '#8b949e', size: 10 }, title: { text: 'Distance', font: { color: '#8b949e', size: 10 } } },
+            }, { responsive: true });
 
         } catch (err) {
-            console.error('Thesis error:', err);
-            alert('Error generating thesis: ' + err.message);
+            console.error('Timeline error:', err);
         }
+        await conn.close();
     }
 
-    function downloadThesis() {
-        if (!window.thesisData) return;
-
-        const blob = new Blob([window.thesisData.content], { type: 'text/plain' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = window.thesisData.path.split('/').pop() || 'thesis.tex';
-        a.click();
-        URL.revokeObjectURL(url);
-    }
-
-    // =============================================================================
-    // HELPERS
-    // =============================================================================
-
-    function renderTable(containerId, data) {
-        const rows = data.toArray();
-        if (rows.length === 0) {
-            document.getElementById(containerId).innerHTML = '<p style="color: var(--text-light);">No data</p>';
+    function renderEntityDataTable(data) {
+        if (data.length === 0) {
+            document.getElementById('entityDataTable').innerHTML = '<div style="color: var(--text-muted);">No data</div>';
             return;
         }
-        
-        const cols = Object.keys(rows[0]);
-        
+
+        const cols = Object.keys(data[0]).filter(c => c !== 'entity_id');
         let html = '<table><thead><tr>';
-        for (const col of cols) {
+        for (const col of cols.slice(0, 8)) {
             html += `<th>${col}</th>`;
         }
         html += '</tr></thead><tbody>';
-        
-        for (const row of rows.slice(0, 100)) {
+
+        for (const row of data.slice(0, 20)) {
             html += '<tr>';
-            for (const col of cols) {
+            for (const col of cols.slice(0, 8)) {
                 let val = row[col];
-                if (typeof val === 'number') val = val.toFixed ? val.toFixed(4) : val;
+                if (typeof val === 'number') val = val.toFixed(4);
                 html += `<td>${val ?? ''}</td>`;
             }
             html += '</tr>';
         }
-        
         html += '</tbody></table>';
-        if (rows.length > 100) {
-            html += `<p style="color: var(--text-light); margin-top: 0.5rem; font-size: 0.8rem;">Showing 100 of ${rows.length} rows</p>`;
+
+        if (data.length > 20) {
+            html += `<div style="padding: 0.5rem; color: var(--text-dim); font-size: 0.7rem;">Showing 20 of ${data.length} rows</div>`;
         }
-        
-        document.getElementById(containerId).innerHTML = html;
+
+        document.getElementById('entityDataTable').innerHTML = html;
     }
-    
+
+    function renderSimilarEntities(entityId) {
+        // Simple similarity based on cohort
+        const cohort = state.cohortData?.find(r => r.entity_id === entityId)?.cohort;
+        const similar = state.cohortData?.filter(r => r.cohort === cohort && r.entity_id !== entityId).slice(0, 5) || [];
+
+        let html = '';
+        for (const s of similar) {
+            html += `
+            <div class="similar-entity" onclick="selectEntity('${s.entity_id}')">
+                <div class="similarity-score similarity-high">--</div>
+                <div class="similar-info">
+                    <div class="similar-name">${escapeHtml(String(s.entity_id))}</div>
+                    <div class="similar-desc">Cohort ${s.cohort}</div>
+                </div>
+            </div>`;
+        }
+
+        if (html === '') {
+            html = '<div style="color: var(--text-muted); font-size: 0.8rem;">No similar entities found</div>';
+        }
+
+        document.getElementById('similarList').innerHTML = html;
+    }
+
+    function renderCohort(cohortData) {
+        if (!cohortData) {
+            document.getElementById('cohortName').textContent = 'Unknown';
+            document.getElementById('cohortDesc').textContent = 'No cohort data available';
+            return;
+        }
+
+        document.getElementById('cohortName').textContent = `Cohort ${cohortData.cohort}`;
+        document.getElementById('cohortDesc').textContent = `This entity belongs to behavioral cohort ${cohortData.cohort}.`;
+
+        // Color based on cohort number
+        const colors = ['#58a6ff', '#3fb950', '#d29922', '#f85149', '#a371f7'];
+        document.getElementById('cohortColor').style.background = colors[cohortData.cohort % colors.length];
+    }
+
+    function updateRegimeIndicator(data) {
+        if (data.length === 0) {
+            document.getElementById('regimeText').textContent = 'No data';
+            return;
+        }
+
+        const latest = data[data.length - 1];
+        const hurst = latest.hurst_exponent || 0.5;
+
+        if (hurst > 0.6) {
+            document.getElementById('regimeDot').className = 'regime-dot';
+            document.getElementById('regimeText').textContent = 'Trending';
+        } else if (hurst < 0.4) {
+            document.getElementById('regimeDot').className = 'regime-dot warning';
+            document.getElementById('regimeText').textContent = 'Mean Reverting';
+        } else {
+            document.getElementById('regimeDot').className = 'regime-dot';
+            document.getElementById('regimeText').textContent = 'Stable';
+        }
+    }
+
+    // =============================================================================
+    // SQL
+    // =============================================================================
+
+    async function runSql() {
+        const sql = document.getElementById('sqlInput').value;
+        if (!sql.trim() || !state.db) return;
+
+        const conn = await state.db.connect();
+        try {
+            const result = await conn.query(sql);
+            const rows = result.toArray();
+
+            if (rows.length === 0) {
+                document.getElementById('sqlResult').innerHTML = '<div style="color: var(--text-muted);">No results</div>';
+                return;
+            }
+
+            const cols = Object.keys(rows[0]);
+            let html = '<table><thead><tr>';
+            for (const col of cols.slice(0, 6)) {
+                html += `<th>${col}</th>`;
+            }
+            html += '</tr></thead><tbody>';
+
+            for (const row of rows.slice(0, 20)) {
+                html += '<tr>';
+                for (const col of cols.slice(0, 6)) {
+                    let val = row[col];
+                    if (typeof val === 'number') val = val.toFixed(4);
+                    html += `<td>${val ?? ''}</td>`;
+                }
+                html += '</tr>';
+            }
+            html += '</tbody></table>';
+
+            document.getElementById('sqlResult').innerHTML = html;
+
+        } catch (err) {
+            document.getElementById('sqlResult').innerHTML = `<div style="color: var(--accent-red);">${err.message}</div>`;
+        }
+        await conn.close();
+    }
+
     // =============================================================================
     // EVENT LISTENERS
     // =============================================================================
-    
-    document.addEventListener('DOMContentLoaded', () => {
-        // Load initial folder
-        loadFolder('~');
-        
-        // Tab clicks
-        document.querySelectorAll('.tab').forEach(tab => {
-            tab.addEventListener('click', () => {
-                if (!tab.classList.contains('disabled')) {
-                    showTab(tab.dataset.tab);
-                }
-            });
-        });
-        
-        // Load button
-        document.getElementById('loadBtn').addEventListener('click', loadData);
-        
-        // SQL run
-        document.getElementById('runSql').addEventListener('click', runSql);
 
-        // Thesis generation
-        document.getElementById('generateThesis')?.addEventListener('click', generateThesis);
-        document.getElementById('downloadThesis')?.addEventListener('click', downloadThesis);
-        
-        // Chart updates
-        document.getElementById('vectorEntity')?.addEventListener('change', renderVectorChart);
-        document.getElementById('vectorMetric')?.addEventListener('change', renderVectorChart);
-        document.getElementById('geometryEntity')?.addEventListener('change', renderGeometryChart);
-        document.getElementById('geometryMetric')?.addEventListener('change', renderGeometryChart);
-        document.getElementById('stateEntity')?.addEventListener('change', renderStateChart);
-        document.getElementById('stateMetric')?.addEventListener('change', renderStateChart);
-        document.getElementById('derivativesEntity')?.addEventListener('change', renderDerivativesChart);
-        document.getElementById('derivativesMetric')?.addEventListener('change', renderDerivativesChart);
+    document.addEventListener('DOMContentLoaded', () => {
+        loadFolder('~');
+
+        document.getElementById('loadBtn').addEventListener('click', loadData);
+        document.getElementById('runSqlBtn').addEventListener('click', runSql);
+        document.getElementById('entitySearch').addEventListener('input', renderEntityList);
+
+        // SQL on Enter
+        document.getElementById('sqlInput').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && e.ctrlKey) runSql();
+        });
     });
     </script>
 </body>
