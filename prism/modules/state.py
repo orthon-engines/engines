@@ -59,10 +59,17 @@ def compute_state_features(
         X = entity_df.select(feature_cols).to_numpy()
         times = entity_df[time_col].to_numpy()
 
-        # Remove NaN rows
-        mask = ~np.isnan(X).any(axis=1)
-        X = X[mask]
-        times = times[mask]
+        # Remove columns that are all NaN
+        col_mask = ~np.isnan(X).all(axis=0)
+        X = X[:, col_mask]
+
+        if X.shape[1] == 0:
+            continue
+
+        # Remove rows with NaN (after dropping all-NaN columns)
+        row_mask = ~np.isnan(X).any(axis=1)
+        X = X[row_mask]
+        times = times[row_mask]
 
         if len(X) < 5:
             continue

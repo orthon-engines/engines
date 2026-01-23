@@ -53,7 +53,11 @@ def discover_cohorts(
     entities = entity_features[entity_col].to_list()
     X = entity_features.select(feature_cols).to_numpy()
 
-    # Remove NaN
+    # Remove columns that are all NaN
+    col_mask = ~np.isnan(X).all(axis=0)
+    X = X[:, col_mask]
+
+    # Remove rows with NaN
     nan_mask = np.isnan(X).any(axis=1)
     X_clean = X[~nan_mask]
     entities_clean = [e for e, m in zip(entities, nan_mask) if not m]
