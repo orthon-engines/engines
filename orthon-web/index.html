@@ -504,33 +504,50 @@
         }
     }
     
+    // Helper to escape paths for onclick handlers
+    function escapePath(path) {
+        // Escape backslashes and single quotes for JavaScript string
+        return path.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    }
+
+    // Helper to escape HTML entities
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
     function renderFolderBrowser(data) {
         document.getElementById('currentPath').textContent = data.current_path;
-        
+
         let html = '';
-        
-        // Parent folder
+
+        // Parent folder - ALWAYS show if we have a parent path
         if (data.parent_path) {
-            html += `<div class="folder-item parent" onclick="loadFolder('${data.parent_path}')">
+            const escapedPath = escapePath(data.parent_path);
+            html += `<div class="folder-item parent" onclick="loadFolder('${escapedPath}')">
                 <span class="icon">📁</span> ..
             </div>`;
         }
-        
+
         // Folders
         for (const folder of data.folders) {
-            html += `<div class="folder-item" onclick="loadFolder('${folder.path}')">
-                <span class="icon">📁</span> ${folder.name}
+            const escapedPath = escapePath(folder.path);
+            const escapedName = escapeHtml(folder.name);
+            html += `<div class="folder-item" onclick="loadFolder('${escapedPath}')">
+                <span class="icon">📁</span> ${escapedName}
             </div>`;
         }
-        
+
         // Parquet files
         for (const file of data.parquet_files) {
             const icon = file.expected ? '✓' : '📄';
+            const escapedName = escapeHtml(file.name);
             html += `<div class="folder-item" style="color: ${file.expected ? 'var(--success)' : 'var(--text-light)'}">
-                <span class="icon">${icon}</span> ${file.name}
+                <span class="icon">${icon}</span> ${escapedName}
             </div>`;
         }
-        
+
         document.getElementById('folderList').innerHTML = html;
     }
     
