@@ -7,13 +7,15 @@ of sensor data from turbofans, bearings, hydraulic systems, and chemical process
 Quick Start:
     import orthon
 
-    # Read sensor data
-    df = orthon.read_parquet("observations.parquet")
+    # Full pipeline
+    pipeline = orthon.Pipeline("data.csv", entity_col="unit_id", time_col="cycle")
+    results = pipeline.run()
 
-    # Compute behavioral metrics
+    # Or use convenience function
+    results = orthon.run("data.csv", entity_col="unit_id", time_col="cycle")
+
+    # Individual engines
     metrics = orthon.compute_hurst(signal_array)
-
-    # Use geometry engines
     pca = orthon.PCAEngine()
     result = pca.compute(data_matrix)
 
@@ -135,6 +137,24 @@ from orthon.report import (
 )
 
 # =============================================================================
+# Pipeline
+# =============================================================================
+from orthon.pipeline import Pipeline, run
+
+# =============================================================================
+# Cohort Discovery
+# =============================================================================
+from orthon.cohort import (
+    discover_cohorts,
+    discover_signal_types,
+    discover_structural_groups,
+    discover_temporal_cohorts,
+    CohortResult,
+    compute_clustering_confidence,
+    ConfidenceMetrics,
+)
+
+# =============================================================================
 # Public API
 # =============================================================================
 __all__ = [
@@ -215,4 +235,15 @@ __all__ = [
     "ComparisonResult",
     "PairwiseDivergence",
     "TemporalDivergence",
+    # Pipeline
+    "Pipeline",
+    "run",
+    # Cohort discovery
+    "discover_cohorts",
+    "discover_signal_types",
+    "discover_structural_groups",
+    "discover_temporal_cohorts",
+    "CohortResult",
+    "compute_clustering_confidence",
+    "ConfidenceMetrics",
 ]
