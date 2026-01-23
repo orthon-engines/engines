@@ -5,9 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Ørthon Explorer</title>
     
-    <!-- DuckDB WASM -->
-    <script src="https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.28.0/dist/duckdb-browser-mvp.js"></script>
-    
     <!-- Plotly for charts -->
     <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
     
@@ -354,8 +351,29 @@
                     <h3>Loaded Tables</h3>
                     <div id="tableSummary"></div>
                 </div>
+                <div class="card">
+                    <h3>Generate Thesis</h3>
+                    <p style="font-size: 0.85rem; color: var(--text-light); margin-bottom: 0.75rem;">
+                        Generate publication-ready LaTeX with formulas, derivations, and interpretations.
+                    </p>
+                    <div class="controls">
+                        <div class="filter-group">
+                            <label>Entity (optional)</label>
+                            <select id="thesisEntity"><option value="">All entities</option></select>
+                        </div>
+                        <div class="filter-group">
+                            <label>Title</label>
+                            <input type="text" id="thesisTitle" placeholder="Orthon Analysis" />
+                        </div>
+                    </div>
+                    <button class="btn" id="generateThesis" style="margin-top: 0.5rem;">Generate LaTeX</button>
+                    <div id="thesisResult" style="display: none; margin-top: 1rem;">
+                        <textarea id="thesisContent" style="width: 100%; height: 200px; font-family: monospace; font-size: 0.8rem;"></textarea>
+                        <button class="btn" id="downloadThesis" style="margin-top: 0.5rem; background: var(--text-light);">Download .tex</button>
+                    </div>
+                </div>
             </div>
-            
+
             <!-- Tab: Vector -->
             <div class="tab-content" id="tab-vector">
                 <h2>Vector Layer</h2>
@@ -516,7 +534,13 @@
             renderFolderBrowser(data);
             renderFileStatus(data.expected_files);
             
+            console.log('data.ready:', data.ready, 'parquet_files:', data.parquet_files);
             document.getElementById('loadBtn').disabled = !data.ready;
+            if (data.ready) {
+                console.log('Load button ENABLED');
+            } else {
+                console.log('Load button DISABLED');
+            }
         } catch (err) {
             console.error('Failed to load folder:', err);
             document.getElementById('folderList').innerHTML = '<div style="padding: 1rem; color: #c62828;">Failed to connect to server</div>';
@@ -590,6 +614,10 @@
     // =============================================================================
     
     async function initDuckDB() {
+        // Dynamically import DuckDB WASM
+        const duckdb = await import('https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.28.0/+esm');
+        window.duckdb = duckdb;
+
         const JSDELIVR_BUNDLES = duckdb.getJsDelivrBundles();
         const bundle = await duckdb.selectBundle(JSDELIVR_BUNDLES);
         const worker_url = URL.createObjectURL(
@@ -603,21 +631,35 @@
     }
     
     async function loadData() {
-        if (!state.db) {
-            await initDuckDB();
-        }
-        
-        const conn = await state.db.connect();
-        
-        // Load each parquet file
-        const files = ['vector', 'geometry', 'state', 'cohort', 'derivatives'];
-        
-        for (const name of files) {
-            if (state.expectedFiles[`${name}.parquet`]) {
-                try {
-                    const url = `${API}/parquet/${state.currentPath}/${name}.parquet`;
-                    const res = await fetch(url);
-                    const buffer = await res.arrayBuffer();
+        console.log('loadData called');
+        console.log('state.expectedFiles:', state.expectedFiles);
+        console.log('state.currentPath:', state.currentPath);
+
+        try {
+            if (!state.db) {
+                console.log('Initializing DuckDB...');
+                await initDuckDB();
+                console.log('DuckDB initialized');
+            }
+
+            const conn = await state.db.connect();
+            console.log('Connected to DuckDB');
+
+            // Load each parquet file
+            const files = ['vector', 'geometry', 'state', 'cohort', 'derivatives'];
+
+            for (const name of files) {
+                console.log(`Checking ${name}.parquet:`, state.expectedFiles[`${name}.parquet`]);
+                if (state.expectedFiles[`${name}.parquet`]) {
+                    try {
+                        const url = `${API}/parquet/${state.currentPath}/${name}.parquet`;
+                        console.log('Fetching:', url);
+                        const res = await fetch(url);
+                        if (!res.ok) {
+                            throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+                        }
+                        const buffer = await res.arrayBuffer();
+                        console.log(`Got ${name} buffer:`, buffer.byteLength, 'bytes');
                     
                     await state.db.registerFileBuffer(`${name}.parquet`, new Uint8Array(buffer));
                     await conn.query(`CREATE OR REPLACE TABLE ${name} AS SELECT * FROM read_parquet('${name}.parquet')`);
@@ -633,14 +675,19 @@
             }
         }
         
-        await conn.close();
-        
-        // Update UI
-        showDataUI();
-        populateFilters();
-        renderSummary();
+            await conn.close();
+            console.log('Data loading complete');
+
+            // Update UI
+            showDataUI();
+            populateFilters();
+            renderSummary();
+        } catch (err) {
+            console.error('loadData error:', err);
+            alert('Error loading data: ' + err.message);
+        }
     }
-    
+
     // =============================================================================
     // UI UPDATES
     // =============================================================================
@@ -717,7 +764,7 @@
             }
 
             // Populate all entity dropdowns
-            ['entityFilter', 'vectorEntity', 'geometryEntity', 'stateEntity', 'derivativesEntity'].forEach(id => {
+            ['entityFilter', 'vectorEntity', 'geometryEntity', 'stateEntity', 'derivativesEntity', 'thesisEntity'].forEach(id => {
                 const select = document.getElementById(id);
                 if (select) {
                     select.innerHTML = '<option value="">All entities</option>' +
@@ -1012,9 +1059,61 @@
     }
     
     // =============================================================================
+    // THESIS GENERATION
+    // =============================================================================
+
+    async function generateThesis() {
+        const entity = document.getElementById('thesisEntity').value || null;
+        const title = document.getElementById('thesisTitle').value || 'Orthon Analysis';
+
+        console.log('Generating thesis for:', state.currentPath, 'entity:', entity);
+
+        try {
+            const res = await fetch(`${API}/thesis`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    folder_path: state.currentPath,
+                    entity_id: entity,
+                    title: title,
+                }),
+            });
+
+            if (!res.ok) {
+                const err = await res.json();
+                throw new Error(err.detail || 'Thesis generation failed');
+            }
+
+            const data = await res.json();
+
+            document.getElementById('thesisContent').value = data.content;
+            document.getElementById('thesisResult').style.display = 'block';
+
+            // Store for download
+            window.thesisData = data;
+
+        } catch (err) {
+            console.error('Thesis error:', err);
+            alert('Error generating thesis: ' + err.message);
+        }
+    }
+
+    function downloadThesis() {
+        if (!window.thesisData) return;
+
+        const blob = new Blob([window.thesisData.content], { type: 'text/plain' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = window.thesisData.path.split('/').pop() || 'thesis.tex';
+        a.click();
+        URL.revokeObjectURL(url);
+    }
+
+    // =============================================================================
     // HELPERS
     // =============================================================================
-    
+
     function renderTable(containerId, data) {
         const rows = data.toArray();
         if (rows.length === 0) {
@@ -1070,6 +1169,10 @@
         
         // SQL run
         document.getElementById('runSql').addEventListener('click', runSql);
+
+        // Thesis generation
+        document.getElementById('generateThesis')?.addEventListener('click', generateThesis);
+        document.getElementById('downloadThesis')?.addEventListener('click', downloadThesis);
         
         // Chart updates
         document.getElementById('vectorEntity')?.addEventListener('change', renderVectorChart);

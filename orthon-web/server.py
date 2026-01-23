@@ -260,6 +260,54 @@ async def run_pipeline(
 
 
 # =============================================================================
+# THESIS GENERATION
+# =============================================================================
+
+@app.post("/api/thesis")
+async def generate_thesis(
+    folder_path: str,
+    entity_id: str = None,
+    title: str = None,
+    author: str = None,
+) -> Dict[str, Any]:
+    """
+    Generate thesis-ready LaTeX document with derivations.
+    """
+    from pathlib import Path
+
+    folder = Path(folder_path)
+    if not folder.exists():
+        raise HTTPException(status_code=404, detail=f"Folder not found: {folder_path}")
+
+    try:
+        from prism.entry_points.thesis import run
+
+        output_path = folder / f"thesis_{entity_id or 'all'}.tex"
+
+        result_path = run(
+            input_path=folder,
+            output_path=output_path,
+            entity_id=entity_id,
+            title=title,
+            author=author,
+            generate_pdf=False,
+        )
+
+        # Read the generated LaTeX
+        latex_content = result_path.read_text()
+
+        return {
+            "status": "success",
+            "path": str(result_path),
+            "content": latex_content,
+            "entity": entity_id,
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
 # SCHEMA INFO
 # =============================================================================
 

@@ -1,0 +1,518 @@
+"""
+thesis.py
+Orthon Thesis Mode Orchestrator
+
+Generates publication-ready LaTeX documents showing all computations
+with formulas, intermediate values, and interpretations.
+
+Cost: Citation + leftover ramen
+
+Usage:
+    python -m prism.entry_points.thesis --input results/ --entity unit_001 --window 47
+    python -m prism.entry_points.thesis --input data.parquet --all-engines
+    python -m prism.entry_points.thesis --input results/ --output thesis.tex --pdf
+"""
+
+from pathlib import Path
+from typing import Optional, List, Dict, Any
+from datetime import datetime
+from dataclasses import dataclass
+import numpy as np
+import polars as pl
+import subprocess
+import shutil
+
+from prism.modules.derivatives import (
+    DerivationResult,
+    SINGLE_SIGNAL_ENGINES,
+    PAIRWISE_ENGINES,
+    STATE_ENGINES,
+    compute_all,
+    compute_hd_slope,
+    compute_correlation,
+    compute_mutual_information,
+)
+
+
+@dataclass
+class ThesisConfig:
+    """Configuration for thesis generation."""
+    title: str = "Orthon Behavioral Geometry Analysis"
+    author: str = ""
+    include_raw_data: bool = False
+    include_figures: bool = True
+    include_interpretation: bool = True
+    max_variables_shown: int = 10
+
+
+# =============================================================================
+# LATEX GENERATION
+# =============================================================================
+
+def escape_latex(text: str) -> str:
+    """Escape special LaTeX characters."""
+    replacements = {
+        '&': r'\&',
+        '%': r'\%',
+        '$': r'\$',
+        '#': r'\#',
+        '_': r'\_',
+        '{': r'\{',
+        '}': r'\}',
+        '~': r'\textasciitilde{}',
+        '^': r'\^{}',
+    }
+    for old, new in replacements.items():
+        text = text.replace(old, new)
+    return text
+
+
+def format_number(val: Any) -> str:
+    """Format a number for LaTeX."""
+    if val is None:
+        return "N/A"
+    if isinstance(val, float):
+        if np.isnan(val) or np.isinf(val):
+            return "N/A"
+        if abs(val) < 0.0001 or abs(val) > 10000:
+            return f"{val:.4e}"
+        return f"{val:.4f}"
+    if isinstance(val, (list, np.ndarray)):
+        if len(val) > 5:
+            return f"[{val[0]:.4f}, ..., {val[-1]:.4f}]"
+        return str([round(v, 4) if isinstance(v, float) else v for v in val])
+    return str(val)
+
+
+def derivation_to_latex(result: DerivationResult, section_level: int = 2) -> str:
+    """Convert a DerivationResult to LaTeX."""
+    level = "sub" * (section_level - 1) + "section"
+
+    lines = []
+    lines.append(f"\\{level}{{{escape_latex(result.name)}}}")
+    lines.append(f"\\label{{sec:{result.name.lower().replace(' ', '_')}}}")
+    lines.append("")
+
+    # Category badge
+    lines.append(f"\\textbf{{Category:}} {result.category}")
+    lines.append("")
+
+    # Formula
+    lines.append("\\textbf{Formula:}")
+    lines.append("\\begin{equation}")
+    lines.append(result.formula)
+    lines.append("\\end{equation}")
+    lines.append("")
+
+    # Computed value
+    lines.append(f"\\textbf{{Computed Value:}} ${format_number(result.value)}$")
+    lines.append("")
+
+    # Variables
+    if result.variables:
+        lines.append("\\textbf{Intermediate Values:}")
+        lines.append("\\begin{itemize}")
+        for key, val in list(result.variables.items())[:10]:
+            lines.append(f"  \\item ${escape_latex(key)} = {format_number(val)}$")
+        if len(result.variables) > 10:
+            lines.append(f"  \\item \\textit{{... and {len(result.variables) - 10} more}}")
+        lines.append("\\end{itemize}")
+        lines.append("")
+
+    # Interpretation
+    lines.append(f"\\textbf{{Interpretation:}} {escape_latex(result.interpretation)}")
+    lines.append("")
+    lines.append("\\vspace{1em}")
+    lines.append("")
+
+    return "\n".join(lines)
+
+
+def generate_latex_document(
+    results: List[DerivationResult],
+    config: ThesisConfig,
+    entity_id: str = None,
+    window: int = None,
+    metadata: Dict[str, Any] = None,
+) -> str:
+    """Generate complete LaTeX document."""
+
+    # Group by category
+    by_category: Dict[str, List[DerivationResult]] = {}
+    for r in results:
+        if r.category not in by_category:
+            by_category[r.category] = []
+        by_category[r.category].append(r)
+
+    # Build document
+    doc = []
+
+    # Preamble
+    doc.append(r"""\documentclass[11pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{geometry}
+\usepackage{fancyhdr}
+\usepackage{xcolor}
+
+\geometry{margin=1in}
+
+\definecolor{orthonred}{RGB}{245, 106, 106}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=orthonred,
+    urlcolor=orthonred,
+    citecolor=orthonred,
+}
+
+\pagestyle{fancy}
+\fancyhf{}
+\rhead{\textit{geometry leads --- orthon}}
+\lhead{\leftmark}
+\cfoot{\thepage}
+
+\title{""" + escape_latex(config.title) + r"""}
+\author{""" + escape_latex(config.author) + r""" \\ \small{Generated by Orthon}}
+\date{""" + datetime.now().strftime("%B %d, %Y") + r"""}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+This document presents the mathematical derivations computed by the Orthon
+behavioral geometry analysis system. Each metric is shown with its formula,
+intermediate computation values, and interpretation.
+\textbf{Systems lose coherence before they fail.}
+\end{abstract}
+
+\tableofcontents
+\newpage
+""")
+
+    # Metadata section
+    doc.append(r"\section{Analysis Metadata}")
+    doc.append(r"\begin{itemize}")
+    if entity_id:
+        doc.append(f"  \\item \\textbf{{Entity:}} {escape_latex(str(entity_id))}")
+    if window is not None:
+        doc.append(f"  \\item \\textbf{{Window:}} {window}")
+    doc.append(f"  \\item \\textbf{{Generated:}} {datetime.now().isoformat()}")
+    doc.append(f"  \\item \\textbf{{Total Metrics:}} {len(results)}")
+    if metadata:
+        for key, val in metadata.items():
+            doc.append(f"  \\item \\textbf{{{escape_latex(key)}:}} {escape_latex(str(val))}")
+    doc.append(r"\end{itemize}")
+    doc.append(r"\newpage")
+    doc.append("")
+
+    # Derivations by category
+    category_order = ["Statistical", "Complexity", "Frequency", "Dynamics", "Geometry", "State", "Error"]
+
+    for category in category_order:
+        if category not in by_category:
+            continue
+
+        doc.append(f"\\section{{{category} Metrics}}")
+        doc.append("")
+
+        for result in by_category[category]:
+            doc.append(derivation_to_latex(result, section_level=2))
+
+        doc.append(r"\newpage")
+        doc.append("")
+
+    # Citation
+    doc.append(r"""
+\section{Citation}
+
+If you use Orthon in your research, please cite:
+
+\begin{verbatim}
+@software{orthon,
+  title = {Orthon: Regime-Aware Behavioral Geometry for Predictive Diagnostics},
+  author = {Rudder, Jason},
+  year = {2025},
+  url = {https://github.com/orthon/orthon},
+  note = {geometry leads --- orthon}
+}
+\end{verbatim}
+
+\vspace{2em}
+\begin{center}
+\textit{"Systems lose coherence before they fail."}
+\end{center}
+
+\end{document}
+""")
+
+    return "\n".join(doc)
+
+
+# =============================================================================
+# DATA LOADING
+# =============================================================================
+
+def load_data(input_path: Path, entity_id: str = None, window: int = None) -> Dict[str, Any]:
+    """Load data from parquet for derivation computation."""
+
+    if input_path.is_dir():
+        # Load from results directory
+        data = {}
+
+        for name in ["vector", "geometry", "state", "cohort"]:
+            path = input_path / f"{name}.parquet"
+            if path.exists():
+                df = pl.read_parquet(path)
+
+                # Filter by entity if specified
+                if entity_id and "entity_id" in df.columns:
+                    df = df.filter(pl.col("entity_id") == entity_id)
+
+                data[name] = df
+
+        return data
+
+    else:
+        # Single parquet file
+        df = pl.read_parquet(input_path)
+
+        if entity_id and "entity_id" in df.columns:
+            df = df.filter(pl.col("entity_id") == entity_id)
+
+        return {"data": df}
+
+
+def extract_signal(df: pl.DataFrame, column: str) -> Optional[np.ndarray]:
+    """Extract a numeric column as numpy array."""
+    if column not in df.columns:
+        return None
+    return df[column].drop_nulls().to_numpy()
+
+
+# =============================================================================
+# MAIN ORCHESTRATOR
+# =============================================================================
+
+def run(
+    input_path: str | Path,
+    output_path: str | Path = None,
+    entity_id: str = None,
+    window: int = None,
+    engines: List[str] = None,
+    generate_pdf: bool = False,
+    title: str = None,
+    author: str = None,
+) -> Path:
+    """
+    Generate thesis-ready LaTeX document with all derivations.
+
+    Args:
+        input_path: Path to results folder or parquet file
+        output_path: Output .tex file path
+        entity_id: Filter to specific entity
+        window: Filter to specific window
+        engines: List of engines to include (default: all)
+        generate_pdf: Run pdflatex to create PDF
+        title: Document title
+        author: Document author
+
+    Returns:
+        Path to generated .tex file
+    """
+    input_path = Path(input_path)
+
+    if output_path is None:
+        output_path = Path(f"thesis_{entity_id or 'all'}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.tex")
+    else:
+        output_path = Path(output_path)
+
+    print("=" * 60)
+    print("  Orthon Thesis Mode")
+    print("  geometry leads - orthon")
+    print("=" * 60)
+    print()
+    print(f"  Input: {input_path}")
+    print(f"  Entity: {entity_id or 'all'}")
+    print(f"  Window: {window or 'all'}")
+    print()
+
+    # Load data
+    print("Loading data...")
+    data = load_data(input_path, entity_id, window)
+
+    # Collect all derivation results
+    results: List[DerivationResult] = []
+
+    # Process vector data
+    if "vector" in data:
+        df = data["vector"]
+        print(f"  Vector: {len(df)} rows")
+
+        # Get numeric columns (metrics)
+        numeric_cols = [c for c in df.columns if df[c].dtype in [pl.Float64, pl.Float32, pl.Int64, pl.Int32]]
+        numeric_cols = [c for c in numeric_cols if c not in ["entity_id", "signal_id", "timestamp", "window_start", "window_size"]]
+
+        for col in numeric_cols[:5]:  # Limit for demo
+            values = extract_signal(df, col)
+            if values is not None and len(values) > 10:
+                print(f"    Computing derivations for {col}...")
+                col_results = compute_all(values)
+                for r in col_results:
+                    r.name = f"{col}: {r.name}"
+                results.extend(col_results)
+
+    # Process state data
+    if "state" in data:
+        df = data["state"]
+        print(f"  State: {len(df)} rows")
+
+        # hd_slope
+        if "distance_from_baseline" in df.columns:
+            distances = extract_signal(df, "distance_from_baseline")
+            timestamps = extract_signal(df, "timestamp")
+            if distances is not None:
+                results.append(compute_hd_slope(distances, timestamps))
+
+    # Process geometry data (pairwise)
+    if "geometry" in data:
+        df = data["geometry"]
+        print(f"  Geometry: {len(df)} rows")
+
+        # If we have pairwise columns
+        numeric_cols = [c for c in df.columns if df[c].dtype in [pl.Float64, pl.Float32]]
+        if len(numeric_cols) >= 2:
+            col_a = numeric_cols[0]
+            col_b = numeric_cols[1]
+            values_a = extract_signal(df, col_a)
+            values_b = extract_signal(df, col_b)
+
+            if values_a is not None and values_b is not None:
+                min_len = min(len(values_a), len(values_b))
+                results.append(compute_correlation(values_a[:min_len], values_b[:min_len]))
+                results.append(compute_mutual_information(values_a[:min_len], values_b[:min_len]))
+
+    print(f"\n  Total derivations: {len(results)}")
+
+    # Generate LaTeX
+    print("\nGenerating LaTeX...")
+    config = ThesisConfig(
+        title=title or f"Orthon Analysis: {entity_id or 'Full Dataset'}",
+        author=author or "",
+    )
+
+    metadata = {
+        "Input Path": str(input_path),
+        "Total Derivations": len(results),
+    }
+
+    latex = generate_latex_document(
+        results=results,
+        config=config,
+        entity_id=entity_id,
+        window=window,
+        metadata=metadata,
+    )
+
+    # Write output
+    output_path.write_text(latex, encoding="utf-8")
+    print(f"  Saved: {output_path}")
+
+    # Generate PDF if requested
+    if generate_pdf:
+        print("\nGenerating PDF...")
+        if shutil.which("pdflatex"):
+            try:
+                subprocess.run(
+                    ["pdflatex", "-interaction=nonstopmode", str(output_path)],
+                    capture_output=True,
+                    cwd=output_path.parent or Path("."),
+                )
+                # Run twice for TOC
+                subprocess.run(
+                    ["pdflatex", "-interaction=nonstopmode", str(output_path)],
+                    capture_output=True,
+                    cwd=output_path.parent or Path("."),
+                )
+                pdf_path = output_path.with_suffix(".pdf")
+                if pdf_path.exists():
+                    print(f"  PDF: {pdf_path}")
+            except Exception as e:
+                print(f"  PDF generation failed: {e}")
+        else:
+            print("  pdflatex not found. Install TeX Live or similar.")
+
+    print("\n" + "=" * 60)
+    print("  Complete!")
+    print("=" * 60)
+
+    return output_path
+
+
+# =============================================================================
+# CLI
+# =============================================================================
+
+def main():
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Orthon Thesis Mode - Generate publication-ready derivations",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Cost: Citation + leftover ramen
+
+Examples:
+    python -m prism.entry_points.thesis --input results/
+    python -m prism.entry_points.thesis --input results/ --entity unit_001
+    python -m prism.entry_points.thesis --input results/ --entity unit_001 --window 47
+    python -m prism.entry_points.thesis --input results/ --output thesis.tex --pdf
+
+Output:
+    - thesis.tex: LaTeX document with all derivations
+    - thesis.pdf: PDF (if --pdf and pdflatex available)
+
+Each metric shows:
+    - LaTeX formula
+    - Variable definitions
+    - Computed values
+    - Interpretation
+"""
+    )
+
+    parser.add_argument("--input", "-i", type=str, required=True,
+                        help="Input results folder or parquet file")
+    parser.add_argument("--output", "-o", type=str, default=None,
+                        help="Output .tex file path")
+    parser.add_argument("--entity", "-e", type=str, default=None,
+                        help="Filter to specific entity_id")
+    parser.add_argument("--window", "-w", type=int, default=None,
+                        help="Filter to specific window")
+    parser.add_argument("--pdf", action="store_true",
+                        help="Generate PDF (requires pdflatex)")
+    parser.add_argument("--title", type=str, default=None,
+                        help="Document title")
+    parser.add_argument("--author", type=str, default=None,
+                        help="Document author")
+
+    args = parser.parse_args()
+
+    run(
+        input_path=args.input,
+        output_path=args.output,
+        entity_id=args.entity,
+        window=args.window,
+        generate_pdf=args.pdf,
+        title=args.title,
+        author=args.author,
+    )
+
+
+if __name__ == "__main__":
+    main()
