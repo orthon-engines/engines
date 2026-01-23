@@ -107,7 +107,7 @@ async def list_folders(path: str = "~") -> Dict[str, Any]:
         "folders": folders,
         "parquet_files": parquet_files,
         "expected_files": expected_status,
-        "ready": any(expected_status.get(f, False) for f in EXPECTED_FILES),  # Enable if ANY parquet exists
+        "ready": len(parquet_files) > 0,  # Enable if ANY parquet file exists in folder
         "config": config,
     }
 
