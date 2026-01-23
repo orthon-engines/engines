@@ -1,8 +1,9 @@
 """
-PRISM Geometry Runner
-=====================
+PRISM Behavioral Geometry
+=========================
 
-Computes structural geometry from vector signals using Laplace fields.
+Computes structural geometry from signal typology using Laplace fields.
+This is the RELATIONAL layer - it answers "how do signals relate to each other?"
 
 GEOMETRY ENGINES (9 canonical):
     - distance:            Euclidean/Mahalanobis/cosine distance matrices
@@ -15,13 +16,16 @@ GEOMETRY ENGINES (9 canonical):
     - convex_hull:         Phase space volume
     - barycenter:          Conviction-weighted center of mass
 
-Output: data/geometry.parquet
+Output: data/behavioral_geometry.parquet
+
+Pipeline:
+    raw → signal_typology → behavioral_geometry → phase_state → dynamical_systems
 
 Usage:
-    python -m prism.entry_points.geometry              # Production run
-    python -m prism.entry_points.geometry --adaptive   # Auto-detect window
-    python -m prism.entry_points.geometry --force      # Force recompute
-    python -m prism.entry_points.geometry --testing    # Enable test mode
+    python -m prism.entry_points.behavioral_geometry              # Production run
+    python -m prism.entry_points.behavioral_geometry --adaptive   # Auto-detect window
+    python -m prism.entry_points.behavioral_geometry --force      # Force recompute
+    python -m prism.entry_points.behavioral_geometry --testing    # Enable test mode
 """
 
 import argparse

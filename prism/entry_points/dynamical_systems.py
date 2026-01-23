@@ -1,20 +1,27 @@
 """
-Ørthon Cohort Discovery
+PRISM Dynamical Systems
+=======================
 
-Three-layer hierarchical cohort discovery:
-1. VECTOR → Signal Types (behavioral fingerprints)
-2. GEOMETRY → Structural Groups (correlation patterns)
-3. STATE → Temporal Cohorts WITHIN structural groups
+Three-layer hierarchical cohort discovery for dynamical system classification.
+This is the CLASSIFICATION layer - it answers "what type of dynamical system is this entity?"
+
+Layers:
+1. SIGNAL TYPOLOGY → Signal Types (behavioral fingerprints)
+2. BEHAVIORAL GEOMETRY → Structural Groups (correlation patterns)
+3. PHASE STATE → Temporal Cohorts WITHIN structural groups
 
 Key insight: Temporal cohorts must be discovered within structural groups,
 otherwise structural differences confound trajectory differences.
 
-Input: vector.parquet, geometry.parquet, state.parquet
-Output: cohorts.parquet
+Input: signal_typology.parquet, behavioral_geometry.parquet, phase_state.parquet
+Output: dynamical_systems.parquet
+
+Pipeline:
+    raw → signal_typology → behavioral_geometry → phase_state → dynamical_systems
 
 Usage:
-    python -m prism.entry_points.cohort
-    python cohort.py --data-path /path/to/data
+    python -m prism.entry_points.dynamical_systems
+    python -m prism.entry_points.dynamical_systems --data-path /path/to/data
 """
 
 import argparse

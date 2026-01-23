@@ -1,8 +1,9 @@
 """
-PRISM State Runner
-==================
+PRISM Phase State
+=================
 
 Computes temporal state dynamics by analyzing geometry evolution over time.
+This is the TEMPORAL layer - it answers "how is the system evolving?"
 
 STATE DYNAMICS ENGINES (5):
     - energy_dynamics:    Energy trends, acceleration, z-scores
@@ -11,13 +12,16 @@ STATE DYNAMICS ENGINES (5):
     - cohort_aggregator:  Signal-level to cohort-level metrics
     - transfer_detector:  Cross-cohort transmission patterns
 
-Output: data/state.parquet
+Output: data/phase_state.parquet
+
+Pipeline:
+    raw → signal_typology → behavioral_geometry → phase_state → dynamical_systems
 
 Usage:
-    python -m prism.entry_points.state              # Production run
-    python -m prism.entry_points.state --adaptive   # Auto-detect window
-    python -m prism.entry_points.state --force      # Force recompute
-    python -m prism.entry_points.state --testing    # Enable test mode
+    python -m prism.entry_points.phase_state              # Production run
+    python -m prism.entry_points.phase_state --adaptive   # Auto-detect window
+    python -m prism.entry_points.phase_state --force      # Force recompute
+    python -m prism.entry_points.phase_state --testing    # Enable test mode
 """
 
 import argparse
