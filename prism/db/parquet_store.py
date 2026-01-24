@@ -2,33 +2,34 @@
 PRISM Parquet Storage Layer
 ===========================
 
-5 files. No more, no less.
+Core storage for PRISM diagnostics pipeline.
 
 Directory Structure:
     data/
         observations.parquet        # Raw sensor data
-        vector.parquet              # All behavioral signals (dense + sparse)
-        geometry.parquet            # System structure at each timestamp
-        state.parquet               # Dynamics at each timestamp
-        cohorts.parquet             # Discovered entity groupings
+        signal_typology.parquet     # ORTHON Layer 1: Signal classification
+        manifold_geometry.parquet   # ORTHON Layer 2: Structural geometry
+        dynamical_systems.parquet   # ORTHON Layer 3: System dynamics
+        causal_mechanics.parquet    # ORTHON Layer 4: Physics-inspired analysis
+        cohorts.parquet             # User-defined entity groupings
 
-Entity Hierarchy:
-    entity (engine_47)              # Fails, gets RUL, joins cohort
-    └── signal (sensor_1)           # Measures entity
-        └── derived (inst_freq)     # Computed from signal
+ORTHON Four-Layer Architecture:
+    Each layer produces ONE parquet file with:
+    - Identifiers: entity_id, unit_id, signal_id, window_idx, timestamp
+    - Raw metrics: metric_* columns from engine computations
+    - Classifications: categorical states (e.g., topology_class, dynamics_class)
+    - Numeric states: normalized scores (0-1 or -1 to 1)
 
-File Schemas:
-    observations: entity_id, signal_id, timestamp, value
-    vector:       entity_id, signal_id, source_signal, engine, signal_type, timestamp, value, mode_id
-    geometry:     entity_id, timestamp, divergence, mode_count, coupling_mean, transition_flag, regime, ...
-    state:        entity_id, timestamp, position_*, velocity_*, acceleration_*, failure_signature, ...
-    cohorts:      entity_id, cohort_id, trajectory_similarity, failure_mode, ...
+    Transitions are NOT stored separately - they are identified by comparing
+    consecutive windows using thresholds from prism.config.thresholds.
 
 Usage:
-    from prism.db.parquet_store import get_path, OBSERVATIONS, VECTOR, GEOMETRY, STATE, COHORTS
+    from prism.db.parquet_store import get_path, OBSERVATIONS, SIGNAL_TYPOLOGY
+    from prism.db.parquet_store import MANIFOLD_GEOMETRY, DYNAMICAL_SYSTEMS, CAUSAL_MECHANICS
 
     # Get path to a file
     obs_path = get_path(OBSERVATIONS)  # -> data/observations.parquet
+    typology_path = get_path(SIGNAL_TYPOLOGY)  # -> data/signal_typology.parquet
 """
 
 import os
@@ -36,16 +37,33 @@ from pathlib import Path
 from typing import List, Optional
 
 # =============================================================================
-# THE 5 FILES
+# CORE FILES
 # =============================================================================
 
 OBSERVATIONS = "observations"   # Raw sensor data
-VECTOR = "vector"               # All behavioral signals (was SIGNALS)
-SIGNALS = VECTOR                # Backwards compatibility alias
-GEOMETRY = "geometry"           # System structure at each t (legacy)
-MANIFOLD_GEOMETRY = "manifold_geometry"  # Manifold geometry with curvature
-STATE = "state"                 # Dynamics at each t
-COHORTS = "cohorts"             # Discovered entity groupings
+
+# =============================================================================
+# ORTHON FOUR-LAYER ARCHITECTURE (one parquet per layer)
+# =============================================================================
+
+SIGNAL_TYPOLOGY = "signal_typology"         # Layer 1: 9-axis profile + classification
+MANIFOLD_GEOMETRY = "manifold_geometry"     # Layer 2: Structural geometry + curvature
+STRUCTURAL_GEOMETRY = "structural_geometry" # Layer 2 alias (backwards compat)
+DYNAMICAL_SYSTEMS = "dynamical_systems"     # Layer 3: 6 dynamics metrics + classification
+CAUSAL_MECHANICS = "causal_mechanics"       # Layer 4: 4 mechanics metrics + classification
+
+# ORTHON deliverables - the four parquet files users receive
+ORTHON_FILES = [SIGNAL_TYPOLOGY, MANIFOLD_GEOMETRY, DYNAMICAL_SYSTEMS, CAUSAL_MECHANICS]
+
+# =============================================================================
+# LEGACY FILES (kept for backwards compatibility)
+# =============================================================================
+
+VECTOR = "vector"               # Legacy: behavioral signals
+SIGNALS = VECTOR                # Legacy alias
+GEOMETRY = "geometry"           # Legacy: system structure
+STATE = "state"                 # Legacy: dynamics
+COHORTS = "cohorts"             # User-defined entity groupings
 
 # Intermediate cohort files
 COHORTS_RAW = "cohorts_raw"     # Cohorts discovered from raw observations
@@ -56,27 +74,33 @@ SIGNAL_STATES = "signal_states"     # Unified signal states across all layers
 COHORT_MEMBERS = "cohort_members"   # User-defined cohort memberships
 CORPUS_CLASS = "corpus_class"       # Corpus-level classifications
 
-# Dynamics (state + transitions architecture)
-DYNAMICS_STATES = "dynamics_states"         # 6 metrics per entity per window
-DYNAMICS_TRANSITIONS = "dynamics_transitions"  # Only when state changes
+# =============================================================================
+# ML ACCELERATOR FILES
+# =============================================================================
 
-# Mechanics (state + transitions architecture)
-MECHANICS_STATES = "mechanics_states"       # 4 metrics per signal per window
-MECHANICS_TRANSITIONS = "mechanics_transitions"  # Only when state changes
-
-# ML Accelerator files
 ML_FEATURES = "ml_features"     # Denormalized feature table for ML
 ML_RESULTS = "ml_results"       # Model predictions vs actuals
 ML_IMPORTANCE = "ml_importance" # Feature importance rankings
 ML_MODEL = "ml_model"           # Serialized model (actually .pkl)
 
-# All valid file names
-FILES = [OBSERVATIONS, VECTOR, GEOMETRY, MANIFOLD_GEOMETRY, STATE, COHORTS]
+# =============================================================================
+# FILE LISTS
+# =============================================================================
+
+# Core pipeline files
+FILES = [OBSERVATIONS] + ORTHON_FILES + [COHORTS]
+
+# ML files
 ML_FILES = [ML_FEATURES, ML_RESULTS, ML_IMPORTANCE, ML_MODEL]
+
+# State architecture files
 STATE_FILES = [SIGNAL_STATES, COHORT_MEMBERS, CORPUS_CLASS]
-DYNAMICS_FILES = [DYNAMICS_STATES, DYNAMICS_TRANSITIONS]
-MECHANICS_FILES = [MECHANICS_STATES, MECHANICS_TRANSITIONS]
-ALL_FILES = FILES + [COHORTS_RAW, COHORTS_VECTOR] + ML_FILES + STATE_FILES + DYNAMICS_FILES + MECHANICS_FILES
+
+# Legacy files (still supported)
+LEGACY_FILES = [VECTOR, GEOMETRY, STATE, STRUCTURAL_GEOMETRY]
+
+# All valid file names
+ALL_FILES = FILES + [COHORTS_RAW, COHORTS_VECTOR] + ML_FILES + STATE_FILES + LEGACY_FILES
 
 
 # =============================================================================
