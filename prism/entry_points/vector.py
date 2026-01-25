@@ -353,7 +353,7 @@ def load_config(data_path: Path) -> Dict[str, Any]:
 
 def generate_windows(
     values: np.ndarray,
-    timestamps: np.ndarray,
+    indices: np.ndarray,
     window_size: int,
     stride: int,
     min_samples: int,
@@ -363,13 +363,13 @@ def generate_windows(
 
     Args:
         values: Signal values
-        timestamps: Corresponding timestamps
+        indices: Corresponding sequence indices (time, depth, cycle, etc.)
         window_size: Window size (REQUIRED)
         stride: Stride between windows (REQUIRED)
         min_samples: Minimum samples per window (REQUIRED)
 
     Yields:
-        Dict with window_idx, window_start, window_end, values, timestamps
+        Dict with window_idx, window_start, window_end, values, indices
     """
     n = len(values)
 
@@ -381,15 +381,15 @@ def generate_windows(
     for start in range(0, n - window_size + 1, stride):
         end = start + window_size
         window_values = values[start:end]
-        window_timestamps = timestamps[start:end]
+        window_indices = indices[start:end]
 
         if len(window_values) >= min_samples:
             yield {
                 'window_idx': window_idx,
-                'window_start': float(window_timestamps[0]),
-                'window_end': float(window_timestamps[-1]),
+                'window_start': float(window_indices[0]),
+                'window_end': float(window_indices[-1]),
                 'values': window_values,
-                'timestamps': window_timestamps,
+                'indices': window_indices,
             }
             window_idx += 1
 
@@ -461,7 +461,7 @@ def compute_vector(
     # Group observations by entity+signal
     signals = observations.group_by(['entity_id', 'signal_id']).agg([
         pl.col('value').alias('values'),
-        pl.col('timestamp').alias('timestamps'),
+        pl.col('index').alias('indices'),
     ])
 
     n_signals = len(signals)
@@ -475,23 +475,23 @@ def compute_vector(
         entity_id = row['entity_id']
         signal_id = row['signal_id']
         values = np.array(row['values'], dtype=float)
-        timestamps = np.array(row['timestamps'], dtype=float)
+        indices = np.array(row['indices'], dtype=float)
 
-        # Sort by timestamp
-        sort_idx = np.argsort(timestamps)
+        # Sort by index
+        sort_idx = np.argsort(indices)
         values = values[sort_idx]
-        timestamps = timestamps[sort_idx]
+        indices = indices[sort_idx]
 
         # Remove NaN
         valid = ~np.isnan(values)
         values = values[valid]
-        timestamps = timestamps[valid]
+        indices = indices[valid]
 
         if len(values) < min_samples:
             continue
 
         # Generate windows
-        for window in generate_windows(values, timestamps, window_size, stride, min_samples):
+        for window in generate_windows(values, indices, window_size, stride, min_samples):
             window_values = window['values']
 
             row_data = {

@@ -3,11 +3,14 @@
 PRISM Schema Validator — Verify observations match canonical schema.
 
 Checks:
-1. Required columns exist (entity_id, signal_id, timestamp, value)
+1. Required columns exist (entity_id, signal_id, index, value)
 2. Column types are correct (string, string, float, float)
-3. timestamp is monotonic within each entity
+3. index is monotonic within each entity
 4. No null values in required columns
 5. Signals match domain YAML (if provided)
+
+The 'index' column is sequence-agnostic: time, depth, distance, cycle, etc.
+Aliases accepted: timestamp, time, cycle, depth, distance, position, step
 
 Usage:
     python -m prism.entry_points.validate_schema
@@ -33,8 +36,19 @@ from prism.db.parquet_store import get_path, get_data_root, OBSERVATIONS
 CANONICAL_SCHEMA = {
     'entity_id': pl.Utf8,
     'signal_id': pl.Utf8,
-    'timestamp': pl.Float64,
+    'index': pl.Float64,      # Sequence-agnostic: time, depth, distance, cycle, etc.
     'value': pl.Float64,
+}
+
+# Backwards compatibility - accept 'timestamp' as alias for 'index'
+COLUMN_ALIASES = {
+    'timestamp': 'index',
+    'time': 'index',
+    'cycle': 'index',
+    'depth': 'index',
+    'distance': 'index',
+    'position': 'index',
+    'step': 'index',
 }
 
 OPTIONAL_COLUMNS = {
@@ -50,12 +64,25 @@ OPTIONAL_COLUMNS = {
 # =============================================================================
 
 def check_columns_exist(df: pl.DataFrame) -> List[Tuple[str, bool, str]]:
-    """Check required columns exist."""
+    """Check required columns exist (including aliases)."""
     results = []
 
     for col in CANONICAL_SCHEMA.keys():
         exists = col in df.columns
-        msg = f"found" if exists else f"MISSING"
+        alias_used = None
+
+        # Check for aliases (e.g., 'timestamp' -> 'index')
+        if not exists and col == 'index':
+            for alias, target in COLUMN_ALIASES.items():
+                if target == 'index' and alias in df.columns:
+                    exists = True
+                    alias_used = alias
+                    break
+
+        if exists:
+            msg = f"found as '{alias_used}'" if alias_used else "found"
+        else:
+            msg = "MISSING"
         results.append((f"Column '{col}'", exists, msg))
 
     return results
@@ -102,21 +129,32 @@ def check_no_nulls(df: pl.DataFrame) -> List[Tuple[str, bool, str]]:
     return results
 
 
-def check_timestamp_monotonic(df: pl.DataFrame) -> List[Tuple[str, bool, str]]:
-    """Check timestamp is monotonically increasing within each entity."""
+def get_index_column(df: pl.DataFrame) -> str:
+    """Get the index column name (handles aliases)."""
+    if 'index' in df.columns:
+        return 'index'
+    for alias, target in COLUMN_ALIASES.items():
+        if target == 'index' and alias in df.columns:
+            return alias
+    return None
+
+
+def check_index_monotonic(df: pl.DataFrame) -> List[Tuple[str, bool, str]]:
+    """Check index is monotonically increasing within each entity."""
     results = []
 
-    if 'timestamp' not in df.columns or 'entity_id' not in df.columns:
+    index_col = get_index_column(df)
+    if index_col is None or 'entity_id' not in df.columns:
         return results
 
     # Check monotonicity per entity (need to also partition by signal_id)
     violations = (
         df
-        .sort(['entity_id', 'signal_id', 'timestamp'])
+        .sort(['entity_id', 'signal_id', index_col])
         .with_columns(
-            pl.col('timestamp').diff().over(['entity_id', 'signal_id']).alias('ts_diff')
+            pl.col(index_col).diff().over(['entity_id', 'signal_id']).alias('idx_diff')
         )
-        .filter(pl.col('ts_diff') < 0)
+        .filter(pl.col('idx_diff') < 0)
     )
 
     n_violations = len(violations)
@@ -130,7 +168,7 @@ def check_timestamp_monotonic(df: pl.DataFrame) -> List[Tuple[str, bool, str]]:
         entity = example['entity_id'][0]
         msg = f"{n_violations:,} violations (e.g., entity={entity})"
 
-    results.append(("Timestamp monotonic", ok, msg))
+    results.append((f"Index '{index_col}' monotonic", ok, msg))
 
     return results
 
@@ -261,7 +299,7 @@ def main():
     all_results.extend(check_columns_exist(df))
     all_results.extend(check_column_types(df))
     all_results.extend(check_no_nulls(df))
-    all_results.extend(check_timestamp_monotonic(df))
+    all_results.extend(check_index_monotonic(df))
 
     if domain_yaml:
         all_results.extend(check_signal_coverage(df, domain_yaml))
