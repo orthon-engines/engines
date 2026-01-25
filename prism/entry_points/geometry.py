@@ -382,10 +382,18 @@ def compute_entity_geometry(
     # Covariance (critical for Mahalanobis)
     cov = compute_covariance_structure(feature_matrix)
     if cov:
-        if 'covariance_matrix' in cov:
-            results['covariance_matrix_json'] = json.dumps(cov['covariance_matrix'].tolist())
+        # Store precision matrix as binary blob (not JSON) for efficiency
+        # DuckDB can read binary blobs directly
         if 'covariance_inverse' in cov:
-            results['covariance_inverse_json'] = json.dumps(cov['covariance_inverse'].tolist())
+            # Store as bytes: float64 array flattened, with shape prefix
+            cov_inv = cov['covariance_inverse']
+            n = cov_inv.shape[0]
+            # Pack as: [n (int32)] + [flattened float64 array]
+            results['precision_matrix_blob'] = (
+                np.array([n], dtype=np.int32).tobytes() +
+                cov_inv.astype(np.float64).tobytes()
+            )
+            results['precision_matrix_dim'] = n
 
         for k in ['cov_trace', 'cov_det_log', 'cov_condition', 'effective_dimensionality', 'n_features']:
             if k in cov:

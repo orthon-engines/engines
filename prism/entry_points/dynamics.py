@@ -125,24 +125,39 @@ def build_behavioral_matrix(
 
 def extract_covariance_inverse(geometry_df: pl.DataFrame, entity_id: str) -> Optional[np.ndarray]:
     """
-    Extract covariance inverse from geometry for Mahalanobis distance.
+    Extract covariance inverse (precision matrix) from geometry for Mahalanobis distance.
+    Supports both binary blob format (new) and JSON format (legacy).
     """
     entity_geom = geometry_df.filter(pl.col('entity_id') == entity_id)
 
     if len(entity_geom) == 0:
         return None
 
-    if 'covariance_inverse_json' not in entity_geom.columns:
-        return None
+    # Try binary blob format first (new, efficient)
+    if 'precision_matrix_blob' in entity_geom.columns:
+        try:
+            blob = entity_geom['precision_matrix_blob'][0]
+            if blob is None:
+                return None
+            # Unpack: first 4 bytes = int32 dimension, rest = float64 array
+            n = np.frombuffer(blob[:4], dtype=np.int32)[0]
+            cov_inv = np.frombuffer(blob[4:], dtype=np.float64).reshape(n, n)
+            return cov_inv
+        except Exception:
+            pass
 
-    try:
-        json_str = entity_geom['covariance_inverse_json'][0]
-        if json_str is None:
-            return None
-        cov_inv = np.array(json.loads(json_str))
-        return cov_inv
-    except Exception:
-        return None
+    # Fall back to JSON format (legacy)
+    if 'covariance_inverse_json' in entity_geom.columns:
+        try:
+            json_str = entity_geom['covariance_inverse_json'][0]
+            if json_str is None:
+                return None
+            cov_inv = np.array(json.loads(json_str))
+            return cov_inv
+        except Exception:
+            pass
+
+    return None
 
 
 def extract_cluster_centers(geometry_df: pl.DataFrame, entity_id: str) -> Optional[np.ndarray]:

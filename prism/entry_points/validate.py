@@ -85,12 +85,17 @@ def validate_architecture(data_path: Path) -> bool:
         if len(geo) != n_entities:
             errors.append(f"geometry.parquet: expected {n_entities} rows (one per entity), got {len(geo)}")
 
-        # Check precision matrix
-        has_precision = 'covariance_inverse_json' in geo.columns or 'precision_matrix' in geo.columns
+        # Check precision matrix (binary blob or legacy JSON)
+        has_precision = (
+            'precision_matrix_blob' in geo.columns or
+            'covariance_inverse_json' in geo.columns or
+            'precision_matrix' in geo.columns
+        )
         if not has_precision:
             errors.append("geometry.parquet: missing precision matrix (needed for Mahalanobis)")
         else:
-            logger.info(f"  ✓ Geometry: {len(geo)} rows (one per entity), has precision matrix")
+            fmt = "binary" if 'precision_matrix_blob' in geo.columns else "JSON"
+            logger.info(f"  ✓ Geometry: {len(geo)} rows (one per entity), has precision matrix ({fmt})")
     else:
         errors.append("geometry.parquet not found")
 
