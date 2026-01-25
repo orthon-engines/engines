@@ -1,8 +1,10 @@
 """
-Heaviside Step Detection
-========================
+Step Detection Engine
+=====================
 
-Detects step (H-like) discontinuities characterized by:
+Detects step changes (level shifts) in time series.
+
+Characteristics of detected steps:
     - Permanent level shift
     - New stable level after change
     - Non-transient effect
@@ -11,36 +13,53 @@ Examples:
     - Regime changes
     - Structural breaks
     - Policy changes
+    - Setpoint changes
+    - Sudden degradation
 
-The Heaviside step is the integral of the Dirac impulse.
+HONEST NAMING:
+    This is NOT the Heaviside function H(x).
+    The Heaviside function is defined as:
+        H(x) = 0 for x < 0
+        H(x) = 1 for x >= 0
+
+    This engine detects WHERE step-like events occur in a time series.
+    It does not compute the Heaviside function.
+
+    If you need the actual Heaviside function, use:
+        numpy.heaviside(x, 0.5)
 """
 
 import numpy as np
-from typing import Dict, List
+from typing import Dict, List, Any
 
 
 def compute(
     series: np.ndarray,
     threshold_sigma: float = 2.0,
     min_stable_periods: int = 5
-) -> Dict[str, float]:
+) -> Dict[str, Any]:
     """
-    Detect step (Heaviside-like) discontinuities.
+    Detect step changes (level shifts) in time series.
+
+    A step is confirmed when:
+    1. A large jump exceeds threshold_sigma * rolling_std
+    2. The post-jump level is stable (low variance)
 
     Args:
         series: 1D numpy array of observations
-        threshold_sigma: Threshold for jump detection (σ units)
+        threshold_sigma: Threshold for jump detection (sigma units)
         min_stable_periods: Minimum periods for post-jump stability
 
     Returns:
         dict with:
             - detected: Boolean - any steps found?
             - count: Number of steps
-            - max_magnitude: Largest step (σ units)
+            - max_magnitude: Largest step (sigma units)
             - mean_magnitude: Average step size
             - up_ratio: Fraction of positive steps
             - locations: Indices of steps (list)
     """
+    series = np.asarray(series).flatten()
     n = len(series)
 
     if n < min_stable_periods * 3:
@@ -51,9 +70,14 @@ def compute(
 
     # Rolling std for threshold
     window = min(20, n // 5)
-    rolling_std = np.std(series[:window]) if window > 0 else 1.0
+    if window < 2:
+        return _empty_result()
+
+    rolling_std = np.std(series[:window])
     if rolling_std < 1e-10:
-        rolling_std = 1.0
+        rolling_std = np.std(series)
+        if rolling_std < 1e-10:
+            return _empty_result()
 
     threshold = threshold_sigma * rolling_std
 
@@ -95,17 +119,21 @@ def compute(
         'max_magnitude': float(np.max(step_magnitudes)),
         'mean_magnitude': float(np.mean(step_magnitudes)),
         'up_ratio': float(np.mean(step_directions > 0)),
-        'locations': confirmed_steps
+        'locations': confirmed_steps,
+        'threshold_used': float(threshold),
+        'rolling_std': float(rolling_std),
     }
 
 
-def _empty_result() -> Dict[str, float]:
+def _empty_result() -> Dict[str, Any]:
     """Return empty result for no detections."""
     return {
         'detected': False,
         'count': 0,
-        'max_magnitude': 0.0,
-        'mean_magnitude': 0.0,
-        'up_ratio': 0.5,
-        'locations': []
+        'max_magnitude': None,
+        'mean_magnitude': None,
+        'up_ratio': None,
+        'locations': [],
+        'threshold_used': None,
+        'rolling_std': None,
     }

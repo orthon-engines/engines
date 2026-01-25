@@ -55,12 +55,17 @@ def compute_garch(values: np.ndarray) -> dict:
     """
     Compute GARCH volatility metrics for a single signal.
 
+    Uses REAL arch package MLE when available, falls back to moment matching.
+
     Args:
         values: Array of observed values (levels, not returns)
 
     Returns:
         Dict of GARCH metrics
     """
+    # Import the real GARCH implementation
+    from prism.engines.volatility.garch import compute as compute_garch_real
+
     values = np.asarray(values, dtype=float)
     values = values[~np.isnan(values)]
 
@@ -71,46 +76,20 @@ def compute_garch(values: np.ndarray) -> dict:
             "beta": None,
             "persistence": None,
             "unconditional_vol": None,
+            "method": None,
         }
 
-    # Convert to returns
-    returns = np.diff(np.log(np.maximum(values, 1e-10)))
-    returns = returns[~np.isnan(returns) & ~np.isinf(returns)]
-
-    if len(returns) < 20:
-        return {
-            "omega": None,
-            "alpha": None,
-            "beta": None,
-            "persistence": None,
-            "unconditional_vol": None,
-        }
-
-    # Simple GARCH(1,1) estimation via moment matching
-    sample_var = np.var(returns)
-    r2 = returns ** 2
-
-    # Autocorrelation of squared returns
-    if len(r2) > 1:
-        acf1 = np.corrcoef(r2[:-1], r2[1:])[0, 1]
-        if np.isnan(acf1):
-            acf1 = 0.0
-    else:
-        acf1 = 0.0
-
-    # Persistence assumption and parameter estimation
-    persistence = 0.9
-    alpha = min(max(0.05, acf1 * 0.5), 0.3)
-    beta = persistence - alpha
-    omega = sample_var * (1 - persistence)
-    unconditional_vol = np.sqrt(sample_var)
+    # Use the real implementation
+    result = compute_garch_real(values, mode='static')
 
     return {
-        "omega": float(omega),
-        "alpha": float(alpha),
-        "beta": float(beta),
-        "persistence": float(persistence),
-        "unconditional_vol": float(unconditional_vol),
+        "omega": result.get('omega'),
+        "alpha": result.get('alpha'),
+        "beta": result.get('beta'),
+        "persistence": result.get('persistence'),
+        "unconditional_vol": result.get('unconditional_volatility'),
+        "is_stationary": result.get('is_stationary'),
+        "method": result.get('method'),
     }
 
 

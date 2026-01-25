@@ -94,20 +94,34 @@ from prism.engines.state.break_detector import (
     DEFAULT_CONFIG as BREAK_DETECTOR_CONFIG,
 )
 
-from prism.engines.discontinuity.heaviside import compute as compute_heaviside
+# Detection engines (honestly named)
+from prism.engines.detection.step_detector import compute as compute_step
+from prism.engines.detection.spike_detector import compute as compute_spike
 
-from prism.engines.discontinuity.dirac import compute as compute_dirac
+# Backwards compatibility aliases (deprecated)
+compute_heaviside = compute_step
+compute_dirac = compute_spike
 
 
 # Adapter functions for backwards compatibility
 def get_heaviside_metrics(series):
-    """Get heaviside metrics - adapter for discontinuity.heaviside."""
-    return compute_heaviside(series)
+    """DEPRECATED: Use compute_step. Get step metrics."""
+    return compute_step(series)
 
 
 def get_dirac_metrics(series):
-    """Get dirac metrics - adapter for discontinuity.dirac."""
-    return compute_dirac(series)
+    """DEPRECATED: Use compute_spike. Get spike metrics."""
+    return compute_spike(series)
+
+
+def get_step_metrics(series):
+    """Get step detection metrics."""
+    return compute_step(series)
+
+
+def get_spike_metrics(series):
+    """Get spike detection metrics."""
+    return compute_spike(series)
 
 
 # =============================================================================

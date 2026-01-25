@@ -219,6 +219,8 @@ def compute_lyapunov(values: np.ndarray, embedding_dim: int = 3,
     """
     Compute Lyapunov exponent for a single signal.
 
+    Uses REAL nolds package when available, falls back to simplified method.
+
     Args:
         values: Array of observed values
         embedding_dim: Dimension for phase space embedding
@@ -227,6 +229,9 @@ def compute_lyapunov(values: np.ndarray, embedding_dim: int = 3,
     Returns:
         Dict with Lyapunov metrics
     """
+    # Import the real Lyapunov implementation
+    from prism.engines.dynamics.lyapunov import compute as compute_lyapunov_real
+
     values = np.asarray(values, dtype=float)
     values = values[~np.isnan(values)]
 
@@ -235,38 +240,24 @@ def compute_lyapunov(values: np.ndarray, embedding_dim: int = 3,
             "lyapunov_exponent": None,
             "is_chaotic": None,
             "embedding_dim": embedding_dim,
+            "method": None,
         }
 
-    # Normalize
-    values = (values - np.mean(values)) / (np.std(values) + 1e-10)
+    # Use the real implementation
+    result = compute_lyapunov_real(
+        values,
+        mode='static',
+        embedding_dim=embedding_dim,
+        delay=time_delay,
+    )
 
-    try:
-        lle, _ = _rosenstein_lyapunov(
-            values,
-            dim=embedding_dim,
-            tau=time_delay,
-            min_separation=10,
-            max_iterations=50
-        )
-
-        if np.isnan(lle) or np.isinf(lle):
-            return {
-                "lyapunov_exponent": None,
-                "is_chaotic": None,
-                "embedding_dim": embedding_dim,
-            }
-
-        return {
-            "lyapunov_exponent": float(lle),
-            "is_chaotic": bool(lle > 0),
-            "embedding_dim": embedding_dim,
-        }
-    except Exception:
-        return {
-            "lyapunov_exponent": None,
-            "is_chaotic": None,
-            "embedding_dim": embedding_dim,
-        }
+    return {
+        "lyapunov_exponent": result.get('lyapunov_exponent'),
+        "is_chaotic": result.get('is_chaotic'),
+        "is_stable": result.get('is_stable'),
+        "embedding_dim": result.get('embedding_dimension', embedding_dim),
+        "method": result.get('method'),
+    }
 
 
 def _embed_signal_topology(x: np.ndarray, dim: int, tau: int) -> np.ndarray:

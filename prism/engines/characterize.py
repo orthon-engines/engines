@@ -43,13 +43,17 @@ except ImportError:
     HAS_BREAK_DETECTOR = False
 
 try:
-    from prism.engines.discontinuity.heaviside import compute as get_heaviside_metrics
+    from prism.engines.detection.step_detector import compute as get_step_metrics
+    # Backwards compat alias
+    get_heaviside_metrics = get_step_metrics
     HAS_HEAVISIDE = True
 except ImportError:
     HAS_HEAVISIDE = False
 
 try:
-    from prism.engines.discontinuity.dirac import compute as get_dirac_metrics
+    from prism.engines.detection.spike_detector import compute as get_spike_metrics
+    # Backwards compat alias
+    get_dirac_metrics = get_spike_metrics
     HAS_DIRAC = True
 except ImportError:
     HAS_DIRAC = False

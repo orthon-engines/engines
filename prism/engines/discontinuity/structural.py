@@ -12,12 +12,14 @@ process itself.
 """
 
 import numpy as np
-from typing import Dict, List
-from .dirac import compute as compute_dirac
-from .heaviside import compute as compute_heaviside
+from typing import Dict, List, Any
+
+# Use honest names
+from prism.engines.detection.spike_detector import compute as detect_spikes
+from prism.engines.detection.step_detector import compute as detect_steps
 
 
-def compute(series: np.ndarray) -> Dict[str, float]:
+def compute(series: np.ndarray) -> Dict[str, Any]:
     """
     Analyze structural discontinuity patterns.
 
@@ -26,8 +28,8 @@ def compute(series: np.ndarray) -> Dict[str, float]:
 
     Returns:
         dict with:
-            - dirac: Dirac detection results
-            - heaviside: Heaviside detection results
+            - spikes: Spike detection results
+            - steps: Step detection results
             - total_count: Combined discontinuity count
             - mean_interval: Average time between discontinuities
             - interval_cv: Coefficient of variation (regularity)
@@ -36,25 +38,28 @@ def compute(series: np.ndarray) -> Dict[str, float]:
             - any_detected: Boolean - any discontinuities found?
     """
     # Detect both types
-    dirac_result = compute_dirac(series)
-    heaviside_result = compute_heaviside(series)
+    spike_result = detect_spikes(series)
+    step_result = detect_steps(series)
 
     # Combine locations
     all_locations = sorted(
-        dirac_result['locations'] + heaviside_result['locations']
+        spike_result['locations'] + step_result['locations']
     )
 
     total_count = len(all_locations)
-    any_detected = dirac_result['detected'] or heaviside_result['detected']
+    any_detected = spike_result['detected'] or step_result['detected']
 
     if total_count < 2:
         return {
-            'dirac': dirac_result,
-            'heaviside': heaviside_result,
+            'spikes': spike_result,
+            'steps': step_result,
+            # Backwards compat
+            'dirac': spike_result,
+            'heaviside': step_result,
             'total_count': total_count,
-            'mean_interval': 0.0,
-            'interval_cv': 0.0,
-            'dominant_period': 0.0,
+            'mean_interval': None,
+            'interval_cv': None,
+            'dominant_period': None,
             'is_accelerating': False,
             'any_detected': any_detected
         }
@@ -62,7 +67,7 @@ def compute(series: np.ndarray) -> Dict[str, float]:
     # Analyze intervals
     intervals = np.diff(all_locations)
     mean_interval = float(np.mean(intervals))
-    interval_cv = float(np.std(intervals) / mean_interval) if mean_interval > 0 else 0.0
+    interval_cv = float(np.std(intervals) / mean_interval) if mean_interval > 0 else None
 
     # Check if accelerating (intervals getting shorter)
     if len(intervals) >= 3:
@@ -73,14 +78,17 @@ def compute(series: np.ndarray) -> Dict[str, float]:
         is_accelerating = False
 
     # Dominant period (if regular)
-    if interval_cv < 0.5:  # Relatively regular
+    if interval_cv is not None and interval_cv < 0.5:  # Relatively regular
         dominant_period = mean_interval
     else:
-        dominant_period = 0.0
+        dominant_period = None
 
     return {
-        'dirac': dirac_result,
-        'heaviside': heaviside_result,
+        'spikes': spike_result,
+        'steps': step_result,
+        # Backwards compat
+        'dirac': spike_result,
+        'heaviside': step_result,
         'total_count': total_count,
         'mean_interval': mean_interval,
         'interval_cv': interval_cv,

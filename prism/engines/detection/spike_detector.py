@@ -1,9 +1,11 @@
 """
-Dirac Impulse Detection
-=======================
+Spike Detection Engine
+======================
 
-Detects impulse (δ-like) discontinuities characterized by:
-    - Sharp spike above threshold
+Detects impulse events (spikes) in time series.
+
+Characteristics of detected spikes:
+    - Sharp deviation above threshold
     - Decay back toward baseline
     - Transient effect (not permanent)
 
@@ -11,22 +13,38 @@ Examples:
     - News shocks
     - Error spikes
     - Anomalies
+    - Equipment faults
+    - Outlier events
 
-The Dirac impulse is the derivative of the Heaviside step.
+HONEST NAMING:
+    This is NOT the Dirac delta function delta(x).
+    The Dirac delta is a distribution defined by:
+        delta(x) = 0 for x != 0
+        integral(delta(x) dx) = 1
+
+    This engine detects WHERE spike-like events occur in a time series.
+    It does not compute the Dirac delta function.
+
+    If you need the actual Dirac delta (for convolution, etc.), use:
+        scipy.signal.unit_impulse(n, idx)
 """
 
 import numpy as np
 from scipy.ndimage import uniform_filter1d
-from typing import Dict, List
+from typing import Dict, List, Any
 
 
 def compute(
     series: np.ndarray,
     threshold_sigma: float = 3.0,
     decay_window: int = 5
-) -> Dict[str, float]:
+) -> Dict[str, Any]:
     """
-    Detect impulse (Dirac-like) discontinuities.
+    Detect impulse events (spikes) in time series.
+
+    A spike is confirmed when:
+    1. A point exceeds threshold_sigma standard deviations from trend
+    2. The deviation decays back toward baseline
 
     Args:
         series: 1D numpy array of observations
@@ -37,12 +55,13 @@ def compute(
         dict with:
             - detected: Boolean - any impulses found?
             - count: Number of impulses
-            - max_magnitude: Largest impulse (σ units)
+            - max_magnitude: Largest impulse (sigma units)
             - mean_magnitude: Average impulse size
             - mean_half_life: Average decay rate
             - up_ratio: Fraction of positive impulses
             - locations: Indices of impulses (list)
     """
+    series = np.asarray(series).flatten()
     n = len(series)
 
     if n < 10:
@@ -74,7 +93,7 @@ def compute(
     if len(spike_indices) == 0:
         return _empty_result()
 
-    # Cluster nearby spikes
+    # Cluster nearby spikes (treat consecutive spikes as one event)
     impulses = []
     current_cluster = [spike_indices[0]]
 
@@ -82,6 +101,7 @@ def compute(
         if idx - current_cluster[-1] <= decay_window:
             current_cluster.append(idx)
         else:
+            # Find peak of current cluster
             peak_idx = current_cluster[np.argmax(np.abs(z_scores[current_cluster]))]
             impulses.append(peak_idx)
             current_cluster = [idx]
@@ -94,7 +114,7 @@ def compute(
     magnitudes = np.abs(z_scores[impulses])
     directions = np.sign(z_scores[impulses])
 
-    # Estimate half-lives
+    # Estimate half-lives (how quickly spike decays)
     half_lives = []
     for imp_idx in impulses:
         peak_val = np.abs(detrended[imp_idx])
@@ -112,20 +132,22 @@ def compute(
         'count': len(impulses),
         'max_magnitude': float(np.max(magnitudes)),
         'mean_magnitude': float(np.mean(magnitudes)),
-        'mean_half_life': float(np.mean(half_lives)) if half_lives else float(decay_window),
+        'mean_half_life': float(np.mean(half_lives)) if half_lives else None,
         'up_ratio': float(np.mean(directions > 0)),
-        'locations': impulses
+        'locations': impulses,
+        'threshold_used': float(threshold_sigma),
     }
 
 
-def _empty_result() -> Dict[str, float]:
+def _empty_result() -> Dict[str, Any]:
     """Return empty result for no detections."""
     return {
         'detected': False,
         'count': 0,
-        'max_magnitude': 0.0,
-        'mean_magnitude': 0.0,
-        'mean_half_life': 0.0,
-        'up_ratio': 0.5,
-        'locations': []
+        'max_magnitude': None,
+        'mean_magnitude': None,
+        'mean_half_life': None,
+        'up_ratio': None,
+        'locations': [],
+        'threshold_used': None,
     }
