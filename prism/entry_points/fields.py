@@ -185,7 +185,7 @@ def create_synthetic_data(nx: int, ny: int, nz: int, seed: int = 42) -> Dict[str
     Uses random Fourier modes with k^(-5/3) energy spectrum.
     This is for testing only - not real turbulence data.
     """
-    from prism.orchestrators.fields_orchestrator import create_synthetic_turbulence
+    from prism.utils.fields_orchestrator import create_synthetic_turbulence
 
     logger.info(f"Creating synthetic turbulence: {nx}x{ny}x{nz}")
     return create_synthetic_turbulence(nx, ny, nz, Re_target=1000.0, seed=seed)
@@ -248,7 +248,7 @@ def main():
         return 1
 
     # Run analysis
-    from prism.orchestrators.fields_orchestrator import FieldsOrchestrator
+    from prism.utils.fields_orchestrator import FieldsOrchestrator
 
     logger.info(f"Grid config: dx={config['dx']}, dy={config['dy']}, dz={config['dz']}")
     logger.info(f"Viscosity: nu={config['nu']} m^2/s")

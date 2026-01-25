@@ -1,274 +1,210 @@
 """
-PRISM Adaptive Clock Configuration Loader
-==========================================
-
-Load domain-specific configuration for adaptive windowing from domain.yaml.
-
-This supplements the existing domain.py config with adaptive clock parameters
-for auto-detecting window sizes based on data frequency.
+PRISM Config Loader — Load config.json from data directory
 
 Usage:
-    from prism.config.loader import load_clock_config, load_delta_thresholds
+    from prism.config.loader import load_config
 
-    config = load_clock_config('cmapss')  # Adaptive clock parameters
-    thresholds = load_delta_thresholds('cmapss')  # Layer transition thresholds
+    config = load_config("data/cmapss/")
+    # Looks for: data/cmapss/config.json
+    # Also loads: data/cmapss/observations.parquet
 """
 
-import yaml
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Union, Tuple, Optional, List
+import polars as pl
+
+from .schema import PrismConfig, SignalInfo, WindowConfig
 
 
-# Default config path (can be overridden)
-CONFIG_PATH = Path(__file__).parent.parent.parent / 'config'
-
-
-def get_config_path() -> Path:
-    """Get config directory path."""
-    # Try multiple locations
-    candidates = [
-        CONFIG_PATH,
-        Path('config'),
-        Path(__file__).parent / 'config',
-    ]
-    
-    for path in candidates:
-        if path.exists():
-            return path
-    
-    return Path('config')
-
-
-def load_clock_config(domain: str = None) -> Dict[str, Any]:
+def load_config(data_dir: Union[str, Path]) -> PrismConfig:
     """
-    Load domain configuration from domain.yaml.
-    
+    Load config.json from data directory.
+
     Args:
-        domain: Domain name (e.g., 'cmapss', 'femto')
-                If None, returns defaults only
-    
+        data_dir: Path to directory containing config.json
+
     Returns:
-        Configuration dict with keys:
-        - min_cycles
-        - min_samples
-        - max_samples
-        - stride_fraction
-        - convergence_threshold
-        - use_spectral, use_autocorrelation, etc.
+        PrismConfig object
+
+    Raises:
+        FileNotFoundError: If config.json not found
+        ValidationError: If config.json is invalid
     """
-    config_file = get_config_path() / 'domain.yaml'
-    
-    if not config_file.exists():
-        print(f"[Config] No domain.yaml found at {config_file}, using defaults")
-        return get_default_config()
-    
-    with open(config_file) as f:
-        all_config = yaml.safe_load(f)
-    
-    defaults = all_config.get('defaults', {})
-    
-    if domain and domain in all_config.get('domains', {}):
-        domain_config = all_config['domains'][domain]
-        # Merge: domain-specific overrides defaults
-        merged = {**defaults, **domain_config}
-        return merged
-    
-    return defaults
+    data_dir = Path(data_dir)
+    config_path = data_dir / "config.json"
+
+    if not config_path.exists():
+        raise FileNotFoundError(f"config.json not found in {data_dir}")
+
+    return PrismConfig.from_json(config_path)
 
 
-def load_delta_thresholds(domain: str = None) -> Dict[str, float]:
+def load_observations(data_dir: Union[str, Path]) -> pl.DataFrame:
     """
-    Load delta thresholds for convergence/transition detection.
-    
+    Load observations.parquet from data directory.
+
     Args:
-        domain: Domain name (currently unused, thresholds are global)
-    
+        data_dir: Path to directory containing observations.parquet
+
     Returns:
-        Dict with threshold values for each layer:
-        - vector_convergence
-        - geometry_divergence
-        - geometry_coupling
-        - mode_entropy
-        - mode_affinity
-        - state_velocity
-        - state_acceleration
+        Polars DataFrame with schema:
+        - entity_id: Utf8
+        - signal_id: Utf8
+        - index: Float64
+        - value: Float64
+        - unit: Utf8 (nullable)
+
+    Raises:
+        FileNotFoundError: If observations.parquet not found
     """
-    config_file = get_config_path() / 'domain.yaml'
-    
-    if not config_file.exists():
-        return get_default_thresholds()
-    
-    with open(config_file) as f:
-        all_config = yaml.safe_load(f)
-    
-    return all_config.get('delta_thresholds', get_default_thresholds())
+    data_dir = Path(data_dir)
+    obs_path = data_dir / "observations.parquet"
+
+    if not obs_path.exists():
+        raise FileNotFoundError(f"observations.parquet not found in {data_dir}")
+
+    return pl.read_parquet(obs_path)
 
 
-def load_rul_thresholds() -> Dict[str, float]:
+def load_dataset(data_dir: Union[str, Path]) -> Tuple[pl.DataFrame, PrismConfig]:
     """
-    Load RUL correlation thresholds for ML-free prognostics.
-    
+    Load both observations and config from data directory.
+
+    Args:
+        data_dir: Path to directory containing:
+            - observations.parquet
+            - config.json
+
     Returns:
-        Dict with correlation thresholds:
-        - divergence_correlation: threshold for direct divergence→RUL
-        - coupling_correlation: threshold for coupling→RUL
-        - entropy_correlation: threshold for entropy→RUL
+        Tuple of (observations DataFrame, config)
+
+    Example:
+        observations, config = load_dataset("data/cmapss/")
+
+        for entity in config.entities:
+            entity_data = observations.filter(pl.col("entity_id") == entity)
+            # Process...
     """
-    config_file = get_config_path() / 'domain.yaml'
-    
-    if not config_file.exists():
-        return {
-            'divergence_correlation': 0.70,
-            'coupling_correlation': 0.60,
-            'entropy_correlation': 0.50,
-        }
-    
-    with open(config_file) as f:
-        all_config = yaml.safe_load(f)
-    
-    return all_config.get('rul_direct_thresholds', {
-        'divergence_correlation': 0.70,
-        'coupling_correlation': 0.60,
-        'entropy_correlation': 0.50,
-    })
+    config = load_config(data_dir)
+    observations = load_observations(data_dir)
+
+    return observations, config
 
 
-def load_physics_thresholds() -> Dict[str, float]:
-    """Load physics validation thresholds."""
-    config_file = get_config_path() / 'domain.yaml'
-    
-    if not config_file.exists():
-        return get_default_physics_thresholds()
-    
-    with open(config_file) as f:
-        all_config = yaml.safe_load(f)
-    
-    return all_config.get('physics', get_default_physics_thresholds())
+def validate_observations(
+    observations: pl.DataFrame,
+    config: PrismConfig,
+) -> List[str]:
+    """
+    Validate observations against config.
 
+    Returns list of warnings (empty if valid).
+    """
+    warnings = []
 
-def get_default_config() -> Dict[str, Any]:
-    """Default domain configuration."""
-    return {
-        'min_cycles': 3,
-        'min_samples': 20,
-        'max_samples': 1000,
-        'stride_fraction': 0.33,
-        'convergence_threshold': 0.05,
-        'use_spectral': True,
-        'use_autocorrelation': True,
-        'use_zero_crossing': True,
-        'use_activity': True,
-        'laplace_n_values': 50,
-        'laplace_freq_margin': 10,
-    }
+    # Check required columns
+    required = ["entity_id", "signal_id", "index", "value"]
+    for col in required:
+        if col not in observations.columns:
+            warnings.append(f"Missing required column: {col}")
 
+    if warnings:
+        return warnings  # Can't continue validation
 
-def get_default_thresholds() -> Dict[str, float]:
-    """Default delta thresholds for all layers."""
-    return {
-        'vector_convergence': 0.05,
-        'geometry_divergence': 0.10,
-        'geometry_coupling': 0.15,
-        'mode_entropy': 0.20,
-        'mode_affinity': 0.10,
-        'state_velocity': 0.10,
-        'state_acceleration': 0.05,
-    }
+    # Check entities match
+    obs_entities = set(observations["entity_id"].unique().to_list())
+    config_entities = set(config.entities)
 
+    if obs_entities != config_entities:
+        missing = config_entities - obs_entities
+        extra = obs_entities - config_entities
+        if missing:
+            warnings.append(f"Entities in config but not in observations: {missing}")
+        if extra:
+            warnings.append(f"Entities in observations but not in config: {extra}")
 
-def get_default_physics_thresholds() -> Dict[str, float]:
-    """Default physics validation thresholds."""
-    return {
-        'energy_conservation_tolerance': 0.05,
-        'entropy_increase_tolerance': 0.01,
-        'causality_lag_max': 10,
-    }
+    # Check signals match
+    obs_signals = set(observations["signal_id"].unique().to_list())
+    config_signals = set(config.signal_ids())
 
+    if obs_signals != config_signals:
+        missing = config_signals - obs_signals
+        extra = obs_signals - config_signals
+        if missing:
+            warnings.append(f"Signals in config but not in observations: {missing}")
+        if extra:
+            warnings.append(f"Signals in observations but not in config: {extra}")
 
-def list_domains() -> list:
-    """List all configured domains."""
-    config_file = get_config_path() / 'domain.yaml'
-    
-    if not config_file.exists():
-        return []
-    
-    with open(config_file) as f:
-        all_config = yaml.safe_load(f)
-    
-    return list(all_config.get('domains', {}).keys())
+    # Check for nulls in value column
+    null_count = observations.filter(pl.col("value").is_null()).height
+    if null_count > 0:
+        pct = null_count / len(observations) * 100
+        warnings.append(f"Null values in observations: {null_count} ({pct:.1f}%)")
 
-
-def describe_domain(domain: str) -> str:
-    """Get description for a domain."""
-    config = load_clock_config(domain)
-    return config.get('description', f'Domain: {domain}')
+    return warnings
 
 
 # =============================================================================
-# Convenience functions for entry points
+# CONVENIENCE: Get data for specific entity/signal
 # =============================================================================
 
-def get_window_config(domain: str) -> Dict[str, Any]:
+def get_signal_data(
+    observations: pl.DataFrame,
+    entity_id: str,
+    signal_id: str,
+) -> pl.DataFrame:
     """
-    Get window configuration for a domain.
-    
-    This is the main interface for entry points to get windowing parameters.
-    
-    Returns:
-        Dict with:
-        - min_cycles
-        - min_samples
-        - max_samples
-        - stride_fraction
+    Get data for a specific entity and signal.
+
+    Returns DataFrame with columns: index, value, unit
+    Sorted by index.
     """
-    config = load_clock_config(domain)
-    
-    return {
-        'min_cycles': config.get('min_cycles', 3),
-        'min_samples': config.get('min_samples', 20),
-        'max_samples': config.get('max_samples', 1000),
-        'stride_fraction': config.get('stride_fraction', 0.33),
-    }
+    return (
+        observations
+        .filter(
+            (pl.col("entity_id") == entity_id) &
+            (pl.col("signal_id") == signal_id)
+        )
+        .select(["index", "value", "unit"])
+        .sort("index")
+    )
 
 
-def get_laplace_config(domain: str) -> Dict[str, Any]:
+def get_entity_data(
+    observations: pl.DataFrame,
+    entity_id: str,
+) -> pl.DataFrame:
     """
-    Get Laplace transform configuration for a domain.
-    
-    Returns:
-        Dict with:
-        - n_values: number of s-values
-        - freq_margin: margin around frequency range
+    Get all data for a specific entity.
+
+    Returns DataFrame with all signals for this entity.
     """
-    config = load_clock_config(domain)
-    
-    return {
-        'n_values': config.get('laplace_n_values', 50),
-        'freq_margin': config.get('laplace_freq_margin', 10),
-    }
+    return (
+        observations
+        .filter(pl.col("entity_id") == entity_id)
+        .sort(["signal_id", "index"])
+    )
 
 
-if __name__ == "__main__":
-    # Test configuration loading
-    print("Testing configuration loader...")
-    print()
-    
-    # List domains
-    domains = list_domains()
-    print(f"Configured domains: {domains}")
-    print()
-    
-    # Load config for each domain
-    for domain in ['cmapss', 'femto', 'tep', 'unknown']:
-        config = load_clock_config(domain)
-        print(f"{domain}:")
-        print(f"  min_cycles: {config.get('min_cycles')}")
-        print(f"  min_samples: {config.get('min_samples')}")
-        print(f"  max_samples: {config.get('max_samples')}")
-        print()
-    
-    # Load thresholds
-    thresholds = load_delta_thresholds()
-    print("Delta thresholds:")
-    for k, v in thresholds.items():
-        print(f"  {k}: {v}")
+def pivot_entity_wide(
+    observations: pl.DataFrame,
+    entity_id: str,
+) -> pl.DataFrame:
+    """
+    Get entity data in wide format (signals as columns).
+
+    Returns DataFrame with:
+    - index as rows
+    - signal_id values as columns
+    """
+    entity_data = get_entity_data(observations, entity_id)
+
+    return (
+        entity_data
+        .pivot(
+            values="value",
+            index="index",
+            on="signal_id",
+        )
+        .sort("index")
+    )

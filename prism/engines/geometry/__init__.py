@@ -38,6 +38,10 @@ from .coupling import compute_coupling_matrix
 from .divergence import compute_divergence
 from .modes import discover_modes, extract_laplace_fingerprint, extract_cohort_fingerprints
 from .snapshot import compute_geometry_at_t as compute_snapshot
+from .covariance import compute as compute_covariance, compute_matrix as compute_covariance_matrix
+from .effective_dim import compute as compute_effective_dim
+from .baseline_distance import compute as compute_baseline_distance
+from .correlation_structure import compute as compute_correlation_structure
 
 # All class-based geometry engines
 GEOMETRY_ENGINES = [
@@ -71,6 +75,11 @@ __all__ = [
     'extract_laplace_fingerprint',
     'extract_cohort_fingerprints',
     'compute_snapshot',
+    'compute_covariance',
+    'compute_covariance_matrix',
+    'compute_effective_dim',
+    'compute_baseline_distance',
+    'compute_correlation_structure',
 
     # Metadata
     'PCA_METADATA',

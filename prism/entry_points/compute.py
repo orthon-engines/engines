@@ -41,8 +41,8 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-# Entry point modules
-LAYERS = ['vector', 'geometry', 'dynamics', 'physics']
+# Entry point modules (in dependency order)
+LAYERS = ['vector', 'geometry', 'dynamics', 'state', 'physics', 'fields', 'systems']
 
 
 def run_entry_point(layer: str, force: bool = False) -> bool:

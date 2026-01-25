@@ -38,7 +38,11 @@ CANONICAL_SCHEMA = {
     'signal_id': pl.Utf8,
     'index': pl.Float64,      # Sequence-agnostic: time, depth, distance, cycle, etc.
     'value': pl.Float64,
+    'unit': pl.Utf8,          # Optional: unit string (e.g., "psi", "degC", "rpm")
 }
+
+# Required columns (unit is optional)
+REQUIRED_COLUMNS = ['entity_id', 'signal_id', 'index', 'value']
 
 # Backwards compatibility - accept 'timestamp' as alias for 'index'
 COLUMN_ALIASES = {
@@ -52,6 +56,7 @@ COLUMN_ALIASES = {
 }
 
 OPTIONAL_COLUMNS = {
+    'unit': pl.Utf8,          # Unit for the value (enables physics calculations)
     'target': pl.Float64,
     'op_setting_1': pl.Float64,
     'op_setting_2': pl.Float64,
@@ -70,6 +75,7 @@ def check_columns_exist(df: pl.DataFrame) -> List[Tuple[str, bool, str]]:
     for col in CANONICAL_SCHEMA.keys():
         exists = col in df.columns
         alias_used = None
+        is_optional = col in OPTIONAL_COLUMNS
 
         # Check for aliases (e.g., 'timestamp' -> 'index')
         if not exists and col == 'index':
@@ -81,9 +87,14 @@ def check_columns_exist(df: pl.DataFrame) -> List[Tuple[str, bool, str]]:
 
         if exists:
             msg = f"found as '{alias_used}'" if alias_used else "found"
+            passed = True
+        elif is_optional:
+            msg = "optional, not present"
+            passed = True  # Optional columns don't fail validation
         else:
             msg = "MISSING"
-        results.append((f"Column '{col}'", exists, msg))
+            passed = False
+        results.append((f"Column '{col}'", passed, msg))
 
     return results
 
@@ -117,11 +128,20 @@ def check_no_nulls(df: pl.DataFrame) -> List[Tuple[str, bool, str]]:
     """Check no null values in required columns."""
     results = []
 
-    for col in CANONICAL_SCHEMA.keys():
-        if col not in df.columns:
+    # Only check required columns for nulls (optional columns can have nulls)
+    for col in REQUIRED_COLUMNS:
+        # Handle aliases (e.g., 'timestamp' -> 'index')
+        actual_col = col
+        if col == 'index' and col not in df.columns:
+            for alias, target in COLUMN_ALIASES.items():
+                if target == 'index' and alias in df.columns:
+                    actual_col = alias
+                    break
+
+        if actual_col not in df.columns:
             continue
 
-        null_count = df.select(pl.col(col).is_null().sum()).item()
+        null_count = df.select(pl.col(actual_col).is_null().sum()).item()
         ok = null_count == 0
         msg = f"no nulls" if ok else f"{null_count:,} nulls"
         results.append((f"Nulls '{col}'", ok, msg))

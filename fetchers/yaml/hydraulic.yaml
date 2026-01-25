@@ -1,9 +1,0 @@
-# UCI Hydraulic Systems Condition Monitoring
-# 17 sensors, 4 components, 2205 cycles
-# Multi-component degradation with varying failure modes
-
-source: hydraulic
-domain: hydraulic
-
-aggregate: mean
-include_labels: true
