@@ -35,9 +35,9 @@ from .barycenter import BarycenterEngine, METADATA as BARYCENTER_METADATA
 
 # Function-based engines
 from .coupling import compute_coupling_matrix
-from .divergence import compute as compute_divergence
+from .divergence import compute_divergence
 from .modes import discover_modes, extract_laplace_fingerprint, extract_cohort_fingerprints
-from .snapshot import compute as compute_snapshot
+from .snapshot import compute_geometry_at_t as compute_snapshot
 
 # All class-based geometry engines
 GEOMETRY_ENGINES = [

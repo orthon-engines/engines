@@ -77,8 +77,12 @@ def import_engines(config: Dict[str, Any]):
             embedding: true
             phase_space: false
             ...
+
+    Note: Class-based pairwise engines (granger, cross_correlation, cointegration,
+    dtw, dmd, transfer_entropy) are stored separately for entity-level computation.
     """
-    engines = {}
+    signal_engines = {}  # Engines that work on single signals
+    pairwise_engines = {}  # Class-based engines for entity matrices
     engine_config = config.get('engines', {}).get('dynamics', {})
 
     # If no config, enable all engines by default
@@ -89,87 +93,81 @@ def import_engines(config: Dict[str, Any]):
             'dmd', 'transfer_entropy', 'trajectory',
         ]}
 
-    # Dynamics engines
+    # Dynamics engines (single signal)
     if engine_config.get('embedding', True):
         try:
             from prism.engines.dynamics import compute_embedding
-            engines['embedding'] = compute_embedding
+            signal_engines['embedding'] = compute_embedding
         except ImportError:
             pass
 
     if engine_config.get('phase_space', True):
         try:
             from prism.engines.dynamics import compute_phase_space
-            engines['phase_space'] = compute_phase_space
+            signal_engines['phase_space'] = compute_phase_space
         except ImportError:
             pass
 
     if engine_config.get('lyapunov', True):
         try:
             from prism.engines.dynamics import compute_lyapunov
-            engines['lyapunov'] = compute_lyapunov
+            signal_engines['lyapunov'] = compute_lyapunov
         except ImportError:
             pass
 
-    # State engines
+    # Break detector (single signal)
     if engine_config.get('break_detector', True):
         try:
-            from prism.engines.state import break_detector
-            engines['break_detector'] = break_detector.compute_breaks
+            from prism.engines.state.break_detector import compute_breaks
+            signal_engines['break_detector'] = compute_breaks
         except ImportError:
             pass
 
+    # Pairwise class-based engines (entity matrices)
     if engine_config.get('granger', True):
         try:
-            from prism.engines.state import granger
-            engines['granger'] = granger.compute
+            from prism.engines.state.granger import GrangerEngine
+            pairwise_engines['granger'] = GrangerEngine()
         except ImportError:
             pass
 
     if engine_config.get('cross_correlation', True):
         try:
-            from prism.engines.state import cross_correlation
-            engines['cross_correlation'] = cross_correlation.compute
+            from prism.engines.state.cross_correlation import CrossCorrelationEngine
+            pairwise_engines['cross_correlation'] = CrossCorrelationEngine()
         except ImportError:
             pass
 
     if engine_config.get('cointegration', True):
         try:
-            from prism.engines.state import cointegration
-            engines['cointegration'] = cointegration.compute
+            from prism.engines.state.cointegration import CointegrationEngine
+            pairwise_engines['cointegration'] = CointegrationEngine()
         except ImportError:
             pass
 
     if engine_config.get('dtw', True):
         try:
-            from prism.engines.state import dtw
-            engines['dtw'] = dtw.compute
+            from prism.engines.state.dtw import DTWEngine
+            pairwise_engines['dtw'] = DTWEngine()
         except ImportError:
             pass
 
     if engine_config.get('dmd', True):
         try:
-            from prism.engines.state import dmd
-            engines['dmd'] = dmd.compute
+            from prism.engines.state.dmd import DMDEngine
+            pairwise_engines['dmd'] = DMDEngine()
         except ImportError:
             pass
 
     if engine_config.get('transfer_entropy', True):
         try:
-            from prism.engines.state import transfer_entropy
-            engines['transfer_entropy'] = transfer_entropy.compute
+            from prism.engines.state.transfer_entropy import TransferEntropyEngine
+            pairwise_engines['transfer_entropy'] = TransferEntropyEngine()
         except ImportError:
             pass
 
-    if engine_config.get('trajectory', True):
-        try:
-            from prism.engines.state import trajectory
-            engines['trajectory'] = trajectory.compute
-        except ImportError:
-            pass
-
-    logger.info(f"  Loaded {len(engines)} dynamics engines from config")
-    return engines
+    logger.info(f"  Signal engines: {len(signal_engines)}, Pairwise engines: {len(pairwise_engines)}")
+    return signal_engines, pairwise_engines
 
 
 # =============================================================================
@@ -239,7 +237,8 @@ def flatten_result(result: Any, prefix: str) -> Dict[str, float]:
 def compute_dynamics(
     observations: pl.DataFrame,
     config: Dict[str, Any],
-    engines: Dict[str, Any],
+    signal_engines: Dict[str, Any],
+    pairwise_engines: Dict[str, Any],
     force: bool = False,
 ) -> pl.DataFrame:
     """
@@ -248,7 +247,8 @@ def compute_dynamics(
     Args:
         observations: Raw observations
         config: Domain config
-        engines: Dict of compute functions
+        signal_engines: Dict of compute functions for single signals
+        pairwise_engines: Dict of class-based engines for entity matrices
         force: Recompute all
 
     Returns:
@@ -263,7 +263,7 @@ def compute_dynamics(
     ])
 
     n_signals = len(signals)
-    n_engines = len(engines)
+    n_engines = len(signal_engines) + len(pairwise_engines)
     logger.info(f"Processing {n_signals} signals with {n_engines} engines")
 
     results = []
@@ -294,8 +294,8 @@ def compute_dynamics(
             'window_end': float(timestamps[-1]),
         }
 
-        # Run dynamics engines
-        for engine_name, compute_fn in engines.items():
+        # Run signal-level dynamics engines
+        for engine_name, compute_fn in signal_engines.items():
             try:
                 result = compute_fn(values)
                 flat = flatten_result(result, engine_name)
@@ -374,14 +374,14 @@ def main():
     config = load_config(data_path)
 
     logger.info("Loading engines from config...")
-    engines = import_engines(config)
-    logger.info(f"Total engines: {len(engines)}")
+    signal_engines, pairwise_engines = import_engines(config)
+    logger.info(f"Total engines: {len(signal_engines) + len(pairwise_engines)}")
 
     observations = read_parquet(obs_path)
     logger.info(f"Loaded {len(observations):,} observations")
 
     start = time.time()
-    df = compute_dynamics(observations, config, engines, args.force)
+    df = compute_dynamics(observations, config, signal_engines, pairwise_engines, args.force)
     elapsed = time.time() - start
 
     if len(df) > 0:
