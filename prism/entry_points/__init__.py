@@ -99,13 +99,6 @@ ENTRY_POINT_REGISTRY: Dict[str, Dict[str, Any]] = {
         'note': 'Use --v2 flag for Running Laplace transform',
     },
 
-    'laplace_pairwise': {
-        'module': 'prism.modules.laplace_pairwise',
-        'goal': 'Compute pairwise geometry in Laplace field space',
-        'inputs': ['vector/signal_field.parquet'],
-        'outputs': ['geometry/laplace_pair.parquet'],
-    },
-
     # ==========================================================================
     # TESTING UTILITIES (moved to prism.testing package)
     # ==========================================================================
@@ -234,25 +227,6 @@ def get_entry_point_info(name: str) -> Optional[Dict[str, Any]]:
 # =============================================================================
 # PUBLIC API - Core Pipeline
 # =============================================================================
-try:
-    from prism.entry_points.signal_vector import (
-        UnivariateVector,
-        UnivariateResult,
-        compute_univariate,
-        process_signal,
-        process_all_signals,
-        store_results,
-    )
-except ImportError:
-    pass
-
-try:
-    from prism.entry_points.geometry import (
-        load_cohort_members,
-    )
-except ImportError:
-    pass
-
 try:
     from prism.engines.laplace.transform import compute_laplace_field
 except ImportError:
