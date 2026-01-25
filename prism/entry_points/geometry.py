@@ -180,9 +180,13 @@ def build_behavioral_matrix(
 # GEOMETRY COMPUTATION
 # =============================================================================
 
-def compute_pca(feature_matrix: np.ndarray, n_components: int = 10) -> Dict[str, Any]:
+def compute_pca(feature_matrix: np.ndarray, n_components: int) -> Dict[str, Any]:
     """
     Compute PCA on feature matrix.
+
+    Args:
+        feature_matrix: (n_samples, n_features) matrix
+        n_components: Number of components (REQUIRED, no default)
 
     Returns components, variance explained, and projections.
     """
@@ -280,9 +284,13 @@ def compute_covariance_structure(feature_matrix: np.ndarray) -> Dict[str, Any]:
         return {'n_features': n_features}
 
 
-def compute_clustering(feature_matrix: np.ndarray, n_clusters: int = 3) -> Dict[str, Any]:
+def compute_clustering(feature_matrix: np.ndarray, n_clusters: int) -> Dict[str, Any]:
     """
     Compute clustering for regime detection.
+
+    Args:
+        feature_matrix: (n_samples, n_features) matrix
+        n_clusters: Number of clusters (REQUIRED, no default)
 
     Returns cluster centers and assignments.
     """
