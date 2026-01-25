@@ -82,6 +82,7 @@ def import_engines(config: Dict[str, Any]):
             'seasonality', 'stationarity', 'takens', 'trend',
             'derivatives', 'hilbert', 'statistical', 'runs_test',
             'dirac', 'heaviside', 'structural',
+            'laplace',  # Gradient, laplacian, divergence - key for geometry
         ]}
 
     # Memory engines
@@ -276,8 +277,50 @@ def import_engines(config: Dict[str, Any]):
         except ImportError:
             pass
 
+    # Laplace engines (gradient, laplacian, divergence)
+    if engine_config.get('laplace', True):
+        try:
+            from prism.engines.laplace import compute_gradient, compute_laplacian
+            engines['laplace'] = _compute_laplace_metrics
+        except ImportError:
+            pass
+
     logger.info(f"  Loaded {len(engines)} engines from config")
     return engines
+
+
+def _compute_laplace_metrics(values: np.ndarray) -> Dict[str, float]:
+    """
+    Compute Laplace field metrics for a signal.
+
+    Returns gradient (velocity), laplacian (acceleration), and divergence.
+    """
+    from prism.engines.laplace import compute_gradient, compute_laplacian
+
+    gradient = compute_gradient(values)
+    laplacian = compute_laplacian(values)
+
+    # Filter NaNs
+    grad_valid = gradient[~np.isnan(gradient)]
+    lap_valid = laplacian[~np.isnan(laplacian)]
+
+    result = {}
+
+    if len(grad_valid) > 0:
+        result['gradient_mean'] = float(np.mean(grad_valid))
+        result['gradient_std'] = float(np.std(grad_valid))
+        result['gradient_max'] = float(np.max(np.abs(grad_valid)))
+        result['gradient_sum'] = float(np.sum(grad_valid))
+
+    if len(lap_valid) > 0:
+        result['laplacian_mean'] = float(np.mean(lap_valid))
+        result['laplacian_std'] = float(np.std(lap_valid))
+        result['laplacian_max'] = float(np.max(np.abs(lap_valid)))
+        # Divergence = sum of laplacians (SOURCE > 0, SINK < 0)
+        result['divergence'] = float(np.sum(lap_valid))
+        result['divergence_sign'] = 1.0 if result['divergence'] > 0 else (-1.0 if result['divergence'] < 0 else 0.0)
+
+    return result
 
 
 # =============================================================================

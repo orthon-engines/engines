@@ -1,5 +1,18 @@
 """PRISM Configuration Module."""
 
+from prism.config.dataset import (
+    DatasetConfig,
+    normalize_columns,
+    denormalize_columns,
+    INTERNAL_ENTITY,
+    INTERNAL_AXIS,
+    INTERNAL_SIGNAL,
+    INTERNAL_VALUE,
+    CMAPSS_CONFIG,
+    ELECTROCHEM_CONFIG,
+    FEMTO_CONFIG,
+)
+
 from prism.config.windows import (
     WindowConfig,
     DEFAULT_WINDOW_CONFIG,
@@ -75,6 +88,17 @@ from prism.config.thresholds import (
 )
 
 __all__ = [
+    # Dataset configuration (axis-agnostic)
+    'DatasetConfig',
+    'normalize_columns',
+    'denormalize_columns',
+    'INTERNAL_ENTITY',
+    'INTERNAL_AXIS',
+    'INTERNAL_SIGNAL',
+    'INTERNAL_VALUE',
+    'CMAPSS_CONFIG',
+    'ELECTROCHEM_CONFIG',
+    'FEMTO_CONFIG',
     # Legacy window config
     'WindowConfig',
     'DEFAULT_WINDOW_CONFIG',
