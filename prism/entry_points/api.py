@@ -114,38 +114,48 @@ def _run_compute_sync(config: Dict, observations_path: str) -> ComputeResponse:
     start_time = time.time()
 
     discipline = config.get("discipline")
-    if not discipline:
-        return ComputeResponse(
-            status="error",
-            message="Missing 'discipline' in config",
-            hint="Add discipline: 'reaction', 'transport', 'electrochemistry', etc."
-        )
+    # Discipline is optional - core engines run regardless
 
     output_dir = _get_data_dir()
     output_dir.mkdir(parents=True, exist_ok=True)
 
     try:
-        # Write config to temp file
+        # Write config to YAML for PRISM to read
         import yaml
-        config_path = _get_inbox_dir() / f"config_{int(time.time())}.yaml"
-        _get_inbox_dir().mkdir(parents=True, exist_ok=True)
-        with open(config_path, 'w') as f:
-            yaml.dump(config, f)
+        config_path = output_dir / "config.yaml"
 
-        # Run PRISM compute
+        # Build config with required fields + user overrides
+        prism_config = {
+            "discipline": discipline,
+            "observations_path": observations_path,
+            # Required window config (use defaults if not provided)
+            "window": config.get("window", {"size": 100, "stride": 50}),
+            "min_samples": config.get("min_samples", 50),
+            # Pass through other config
+            **{k: v for k, v in config.items() if k not in ["discipline", "window", "min_samples"]},
+        }
+        with open(config_path, 'w') as f:
+            yaml.dump(prism_config, f)
+
+        # Copy observations to data dir if not already there
+        obs_path = Path(observations_path)
+        target_obs = output_dir / "observations.parquet"
+        if obs_path.exists() and obs_path != target_obs:
+            import shutil
+            shutil.copy(obs_path, target_obs)
+
+        # Run PRISM compute (runs all layers: vector, geometry, dynamics, physics)
         cmd = [
             sys.executable, "-m", "prism.entry_points.compute",
-            "--discipline", discipline,
-            "--config", str(config_path),
-            "--input", observations_path,
-            "--output", str(output_dir),
+            "--force",  # Always recompute for API calls
         ]
 
         result = subprocess.run(
             cmd,
             capture_output=True,
             text=True,
-            cwd=str(Path(__file__).parent.parent.parent)
+            cwd=str(Path(__file__).parent.parent.parent),
+            env={**os.environ, "PRISM_DATA_DIR": str(output_dir)},
         )
 
         duration = time.time() - start_time
