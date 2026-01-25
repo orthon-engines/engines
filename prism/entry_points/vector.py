@@ -83,6 +83,7 @@ def import_engines(config: Dict[str, Any]):
             'derivatives', 'hilbert', 'statistical', 'runs_test',
             'dirac', 'heaviside', 'structural',
             'laplace',  # Gradient, laplacian, divergence - key for geometry
+            'hd_slope',  # Degradation rate - most important for prognosis
         ]}
 
     # Memory engines
@@ -282,6 +283,14 @@ def import_engines(config: Dict[str, Any]):
         try:
             from prism.engines.laplace import compute_gradient, compute_laplacian
             engines['laplace'] = _compute_laplace_metrics
+        except ImportError:
+            pass
+
+    # HD Slope - degradation rate (most important for prognosis)
+    if engine_config.get('hd_slope', True):
+        try:
+            from prism.engines.dynamics.hd_slope import compute_hd_slope
+            engines['hd_slope'] = compute_hd_slope
         except ImportError:
             pass
 
