@@ -435,8 +435,8 @@ class Characterizer:
             try:
                 # Run break detection
                 break_metrics = get_break_metrics(values)
-                n_breaks = int(break_metrics.get('break_n', 0))
-                break_rate = break_metrics.get('break_rate', 0.0)
+                n_breaks = int(break_metrics.get('break_n') or 0)
+                break_rate = break_metrics.get('break_rate')
                 # Determine pattern from signal flags
                 if break_metrics.get('break_is_periodic', 0) > 0:
                     break_pattern = 'PERIODIC'
@@ -457,8 +457,8 @@ class Characterizer:
                     if HAS_HEAVISIDE:
                         try:
                             heaviside_metrics = get_heaviside_metrics(values)
-                            heaviside_n_steps = heaviside_metrics.get('heaviside_n_steps', 0)
-                            heaviside_mean_magnitude = heaviside_metrics.get('heaviside_mean_magnitude', 0.0)
+                            heaviside_n_steps = heaviside_metrics.get('heaviside_n_steps') or 0
+                            heaviside_mean_magnitude = heaviside_metrics.get('heaviside_mean_magnitude')
                             has_steps = heaviside_n_steps > 0
                             if has_steps and 'heaviside' not in valid_engines:
                                 valid_engines.append('heaviside')
@@ -469,8 +469,8 @@ class Characterizer:
                     if HAS_DIRAC:
                         try:
                             dirac_metrics = get_dirac_metrics(values)
-                            dirac_n_impulses = dirac_metrics.get('dirac_n_impulses', 0)
-                            dirac_mean_magnitude = dirac_metrics.get('dirac_mean_magnitude', 0.0)
+                            dirac_n_impulses = dirac_metrics.get('dirac_n_impulses') or 0
+                            dirac_mean_magnitude = dirac_metrics.get('dirac_mean_magnitude')
                             has_impulses = dirac_n_impulses > 0
                             if has_impulses and 'dirac' not in valid_engines:
                                 valid_engines.append('dirac')
@@ -745,7 +745,7 @@ class Characterizer:
         AR(1) and random walks have peaks that wander. True periodic signals don't.
         """
         if len(values) < 128:  # Need enough for 4 windows of 32
-            return 0.0
+            return None
 
         try:
             # For non-stationary series, analyze increments to avoid trend artifacts
@@ -755,7 +755,7 @@ class Characterizer:
                 work_values = signal.detrend(values)
 
             if len(work_values) < 128:
-                return 0.0
+                return None
 
             # Split into 4 windows and check peak consistency
             n_windows = 4
@@ -769,7 +769,7 @@ class Characterizer:
 
                 # Skip DC, find peak
                 if len(fft) < 2:
-                    return 0.0
+                    return None
                 peak_idx = np.argmax(fft[1:]) + 1
                 peak_freqs.append(peak_idx)
                 peak_powers.append(fft[peak_idx])
@@ -778,7 +778,7 @@ class Characterizer:
             # Random/AR(1) = peaks wander randomly
             mean_freq = np.mean(peak_freqs)
             if mean_freq == 0:
-                return 0.0
+                return None
             freq_cv = np.std(peak_freqs) / mean_freq  # Coefficient of variation
 
             # For truly periodic signals:
@@ -797,29 +797,29 @@ class Characterizer:
                 # Even for multi-freq, don't accept if all peaks are ultra-low frequency
                 min_peak = min(peak_freqs)
                 if min_peak < window_size // 20:  # < 5% of Nyquist
-                    return 0.0  # Low-freq peaks that wander = AR(1), not periodic
+                    return None  # Low-freq peaks that wander = AR(1), not periodic
 
                 # Multi-freq: range should be small relative to max
                 if freq_range > 0.3 * max_possible_range:
-                    return 0.0
+                    return None
 
             # Peaks are consistent - now check SNR on full series
             full_fft = np.abs(np.fft.rfft(work_values))
             if len(full_fft) < 2:
-                return 0.0
+                return None
 
             # Use actual max peak (consistency check already verified it's periodic)
             peak_power = np.max(full_fft[1:])  # Exclude DC
             noise_floor = np.median(full_fft[1:])
 
             if noise_floor == 0:
-                return 0.0
+                return None
 
             snr = peak_power / noise_floor
 
             # Require SNR > 5 for periodicity
             if snr < 5:
-                return 0.0
+                return None
 
             # Scale: SNR 5-25 maps to 0.3-1.0
             periodicity = np.clip((snr - 5) / 20, 0, 1) * 0.7 + 0.3
@@ -827,7 +827,7 @@ class Characterizer:
             return float(periodicity)
 
         except Exception:
-            return 0.0
+            return None
 
     def _compute_complexity(self, values: np.ndarray) -> float:
         """
@@ -955,7 +955,7 @@ class Characterizer:
             # Total recurrence points
             total_recurrent = R.sum()
             if total_recurrent == 0:
-                return 0.0
+                return None
 
             # Count recurrence points that are part of diagonal lines (length >= 2)
             # RQA DET = sum of diagonal line points / total recurrence points
@@ -1017,7 +1017,7 @@ class Characterizer:
         Uses squared return autocorrelation, filters for ARCH-like behavior.
         """
         if len(values) < 30:
-            return 0.0
+            return None
 
         try:
             # Compute returns (log differences for price series, simple diff for others)
@@ -1031,12 +1031,12 @@ class Characterizer:
             returns = returns[np.isfinite(returns)]
 
             if len(returns) < 20:
-                return 0.0
+                return None
 
             # If this looks periodic, squared-return autocorrelation
             # is likely from periodicity, not ARCH effects
             if self._compute_periodicity(values) > 0.5:
-                return 0.0
+                return None
 
             # Check for VERY strong deterministic trends
             # Only cap volatility for extreme trends (trend_strength > 3.0)
@@ -1066,7 +1066,7 @@ class Characterizer:
                         acf_vals.append(acf)
 
             if not acf_vals:
-                return 0.0
+                return None
 
             avg_acf = np.mean(acf_vals)
 
@@ -1083,7 +1083,7 @@ class Characterizer:
                 avg_acf = abs_avg_acf * 0.4
             elif avg_acf < 0:
                 # For stochastic systems, negative mean ACF means no clustering
-                return 0.0
+                return None
 
             # GARCH(1,1) samples typically show mean squared-return ACF ~ 0.1-0.15
             # Scale: ACF 0-0.12 maps to 0-1
@@ -1092,7 +1092,7 @@ class Characterizer:
             return float(volatility)
 
         except Exception:
-            return 0.0
+            return None
 
     def _determine_return_method(self, values: np.ndarray, signal_id: str = '') -> str:
         """
@@ -1707,17 +1707,19 @@ def _compute_periodicity_axis(signal: np.ndarray) -> float:
     """
     n = len(signal)
     if n < 64:
-        return 0.0
+        return None
 
     try:
         # Use existing periodicity computation
         char = Characterizer()
         periodicity = char._compute_periodicity(signal)
 
+        if periodicity is None:
+            return None
         return float(np.clip(periodicity, 0, 1))
 
     except Exception:
-        return 0.0
+        return None
 
 
 def _compute_volatility_axis(signal: np.ndarray) -> float:
@@ -1733,17 +1735,19 @@ def _compute_volatility_axis(signal: np.ndarray) -> float:
     """
     n = len(signal)
     if n < 30:
-        return 0.0
+        return None
 
     try:
         # Use existing volatility computation
         char = Characterizer()
         volatility = char._compute_volatility(signal)
 
+        if volatility is None:
+            return None
         return float(np.clip(volatility, 0, 1))
 
     except Exception:
-        return 0.0
+        return None
 
 
 def _compute_discontinuity_axis(signal: np.ndarray) -> Tuple[float, List[Dict]]:
@@ -1762,7 +1766,7 @@ def _compute_discontinuity_axis(signal: np.ndarray) -> Tuple[float, List[Dict]]:
     events = []
 
     if n < 50:
-        return 0.0, events
+        return None, events
 
     try:
         # Simple CUSUM-based detection
@@ -1770,7 +1774,7 @@ def _compute_discontinuity_axis(signal: np.ndarray) -> Tuple[float, List[Dict]]:
         std_val = np.std(signal)
 
         if std_val == 0:
-            return 0.0, events
+            return None, events
 
         # Standardize
         standardized = (signal - mean_val) / std_val
@@ -1829,7 +1833,7 @@ def _compute_discontinuity_axis(signal: np.ndarray) -> Tuple[float, List[Dict]]:
         return float(np.clip(discontinuity_score, 0, 1)), events
 
     except Exception:
-        return 0.0, events
+        return None, events
 
 
 def _compute_impulsivity_axis(signal: np.ndarray) -> Tuple[float, List[Dict]]:
@@ -1848,21 +1852,21 @@ def _compute_impulsivity_axis(signal: np.ndarray) -> Tuple[float, List[Dict]]:
     events = []
 
     if n < 30:
-        return 0.0, events
+        return None, events
 
     try:
         # First derivative (velocity)
         d1 = np.diff(signal)
 
         if len(d1) == 0:
-            return 0.0, events
+            return None, events
 
         # Detect spikes in derivative
         d1_mean = np.mean(np.abs(d1))
         d1_std = np.std(d1)
 
         if d1_std == 0:
-            return 0.0, events
+            return None, events
 
         # Z-scores of derivative
         d1_z = np.abs(d1 - np.mean(d1)) / d1_std
@@ -1904,7 +1908,7 @@ def _compute_impulsivity_axis(signal: np.ndarray) -> Tuple[float, List[Dict]]:
         return float(np.clip(impulsivity_score, 0, 1)), events
 
     except Exception:
-        return 0.0, events
+        return None, events
 
 
 def _compute_complexity_axis(signal: np.ndarray) -> float:

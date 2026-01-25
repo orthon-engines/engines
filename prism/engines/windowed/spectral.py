@@ -123,7 +123,7 @@ def _compute_spectral_slope(freqs: np.ndarray, psd: np.ndarray) -> Tuple[float, 
     # Avoid log(0)
     mask = (freqs > 0) & (psd > 0)
     if mask.sum() < 3:
-        return 0.0, 0.0
+        return None, None
 
     log_f = np.log10(freqs[mask])
     log_p = np.log10(psd[mask])

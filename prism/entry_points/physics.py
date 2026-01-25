@@ -185,18 +185,18 @@ def get_geometry_values(geometry_df: pl.DataFrame, entity_id: str) -> Dict[str, 
     return result
 
 
-def get_vector_entropy(vector_df: pl.DataFrame, entity_id: str) -> float:
-    """Get entropy-related metric from vector layer."""
+def get_vector_entropy(vector_df: pl.DataFrame, entity_id: str) -> Optional[float]:
+    """Get entropy-related metric from vector layer. Returns None if not available."""
     entity_vec = vector_df.filter(pl.col('entity_id') == entity_id)
 
     if len(entity_vec) == 0:
-        return 0.0
+        return None
 
     # Look for entropy columns
     entropy_cols = [c for c in entity_vec.columns if 'entropy' in c.lower()]
 
     if not entropy_cols:
-        return 0.0
+        return None
 
     # Average entropy across signals
     entropies = []
@@ -206,21 +206,21 @@ def get_vector_entropy(vector_df: pl.DataFrame, entity_id: str) -> float:
         if len(vals) > 0:
             entropies.append(np.mean(vals))
 
-    return float(np.mean(entropies)) if entropies else 0.0
+    return float(np.mean(entropies)) if entropies else None
 
 
-def get_vector_volatility(vector_df: pl.DataFrame, entity_id: str) -> float:
-    """Get volatility (temperature proxy) from vector layer."""
+def get_vector_volatility(vector_df: pl.DataFrame, entity_id: str) -> Optional[float]:
+    """Get volatility (temperature proxy) from vector layer. Returns None if not available."""
     entity_vec = vector_df.filter(pl.col('entity_id') == entity_id)
 
     if len(entity_vec) == 0:
-        return 0.0
+        return None
 
     # Look for volatility/variance columns
     vol_cols = [c for c in entity_vec.columns if 'vol' in c.lower() or 'std' in c.lower()]
 
     if not vol_cols:
-        return 0.0
+        return None
 
     # Average volatility across signals
     vols = []
@@ -230,7 +230,7 @@ def get_vector_volatility(vector_df: pl.DataFrame, entity_id: str) -> float:
         if len(vals) > 0:
             vols.append(np.mean(vals))
 
-    return float(np.mean(vols)) if vols else 0.0
+    return float(np.mean(vols)) if vols else None
 
 
 # =============================================================================
@@ -482,7 +482,7 @@ def compute_entity_physics(
     if not dynamics_vals:
         return {}
 
-    # Get entropy and temperature from vector
+    # Get entropy and temperature from vector (may be None)
     entropy = get_vector_entropy(vector_df, entity_id)
     temperature = get_vector_volatility(vector_df, entity_id)
 
@@ -492,10 +492,13 @@ def compute_entity_physics(
     # Lagrangian
     lagrangian = compute_lagrangian(entity_id, dynamics_vals, geometry_vals)
 
-    # Gibbs free energy
-    gibbs = compute_gibbs_free_energy(
-        entity_id, dynamics_vals, entropy, temperature, hamiltonian['hamiltonian_H']
-    )
+    # Gibbs free energy (only if entropy and temperature available)
+    if entropy is not None and temperature is not None:
+        gibbs = compute_gibbs_free_energy(
+            entity_id, dynamics_vals, entropy, temperature, hamiltonian['hamiltonian_H']
+        )
+    else:
+        gibbs = {}  # Skip Gibbs - missing vector entropy/volatility data
 
     # Momentum
     momentum = compute_momentum_analysis(entity_id, dynamics_vals)

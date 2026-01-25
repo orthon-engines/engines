@@ -329,13 +329,17 @@ def get_metric_weights(axes: dict, valid_engines: list) -> dict:
             continue
         
         weight_axis = config.get('weight_axis')
-        weight_scale = config.get('weight_scale', 1.0)
-        
+        weight_scale = config.get('weight_scale')
+
         if weight_axis is None:
             # No dynamic weighting
             weight = 1.0
         else:
-            axis_value = axes.get(weight_axis, 0.5)
+            if weight_scale is None:
+                raise ValueError(f"Engine {engine_name} has weight_axis but no weight_scale in config")
+            axis_value = axes.get(weight_axis)
+            if axis_value is None:
+                raise ValueError(f"Engine {engine_name} requires axis '{weight_axis}' but it's not in axes dict")
             # Weight = 1.0 + axis_value * (scale - 1.0)
             # If axis is 0, weight = 1.0
             # If axis is 1, weight = scale

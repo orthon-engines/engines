@@ -167,7 +167,7 @@ class TransferDetectorEngine:
         valid_lags = lags[valid_mask]
 
         if len(valid_xcorr) == 0:
-            return 0.0, 0
+            return None, None
 
         max_idx = np.argmax(np.abs(valid_xcorr))
         max_corr = valid_xcorr[max_idx]

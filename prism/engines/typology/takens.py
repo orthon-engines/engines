@@ -415,7 +415,7 @@ def _recurrence_rate(embedding: np.ndarray, threshold: float = 0.1) -> float:
     """
     n_points = len(embedding)
     if n_points < 10:
-        return 0.0
+        return None
 
     # Sample for efficiency
     n_sample = min(500, n_points)
@@ -425,7 +425,7 @@ def _recurrence_rate(embedding: np.ndarray, threshold: float = 0.1) -> float:
     # Normalize threshold by typical distance
     dists = distance.pdist(sample)
     if len(dists) == 0:
-        return 0.0
+        return None
 
     eps = threshold * np.std(dists)
 
@@ -433,7 +433,7 @@ def _recurrence_rate(embedding: np.ndarray, threshold: float = 0.1) -> float:
     n_recur = np.sum(dists < eps)
     n_total = len(dists)
 
-    return n_recur / n_total if n_total > 0 else 0.0
+    return n_recur / n_total if n_total > 0 else None
 
 
 def _classify_attractor(correlation_dim: float, lyapunov: float) -> str:
@@ -535,7 +535,7 @@ def _determinism(embedding: np.ndarray, threshold: float = 0.1) -> float:
     # Simplified: ratio of points on diagonals to total recurrences
     n = len(embedding)
     if n < 20:
-        return 0.0
+        return None
 
     n_sample = min(200, n)
     indices = np.random.choice(n, n_sample, replace=False)
@@ -554,7 +554,7 @@ def _determinism(embedding: np.ndarray, threshold: float = 0.1) -> float:
         diag = np.diag(R, k)
         diag_points += np.sum(diag)
 
-    return diag_points / total_recur if total_recur > 0 else 0.0
+    return diag_points / total_recur if total_recur > 0 else None
 
 
 def _laminarity(embedding: np.ndarray, threshold: float = 0.1) -> float:
@@ -563,7 +563,7 @@ def _laminarity(embedding: np.ndarray, threshold: float = 0.1) -> float:
     """
     n = len(embedding)
     if n < 20:
-        return 0.0
+        return None
 
     n_sample = min(200, n)
     indices = np.random.choice(n, n_sample, replace=False)
@@ -591,4 +591,4 @@ def _laminarity(embedding: np.ndarray, threshold: float = 0.1) -> float:
         if line_len >= 2:
             vert_points += line_len
 
-    return vert_points / total_recur if total_recur > 0 else 0.0
+    return vert_points / total_recur if total_recur > 0 else None

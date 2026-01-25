@@ -165,7 +165,7 @@ def _sen_slope(values: np.ndarray) -> tuple:
                 slopes.append(dy / dx)
 
     if len(slopes) == 0:
-        return 0.0, np.median(values)
+        return None, np.median(values)
 
     # Sen's slope is the median
     slope = np.median(slopes)

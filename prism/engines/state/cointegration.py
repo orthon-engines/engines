@@ -112,7 +112,7 @@ def _adf_test(x: np.ndarray, max_lag: int = None) -> Tuple[float, float, int]:
             continue
 
     if best_result is None:
-        return 0.0, 1.0, 0
+        return None, None, None
 
     adf_stat, lags = best_result
 

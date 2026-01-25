@@ -322,7 +322,7 @@ def _rs_for_window_size(series: np.ndarray, window_size: int) -> float:
             rs_count += 1
 
     if rs_count == 0:
-        return 0.0
+        return None
     return rs_sum / rs_count
 
 

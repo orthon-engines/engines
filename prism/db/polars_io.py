@@ -52,11 +52,11 @@ def read_parquet(
 LAZY_THRESHOLD_MB = 500
 
 
-def get_file_size_mb(path: Union[str, Path]) -> float:
-    """Get file size in MB, 0 if doesn't exist."""
+def get_file_size_mb(path: Union[str, Path]) -> Optional[float]:
+    """Get file size in MB, None if doesn't exist."""
     path = Path(path)
     if not path.exists():
-        return 0.0
+        return None
     return path.stat().st_size / 1e6
 
 

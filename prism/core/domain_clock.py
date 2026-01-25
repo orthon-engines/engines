@@ -216,7 +216,7 @@ class DomainClock:
             (characteristic_frequency, sampling_rate)
         """
         if len(values) < self.min_samples or len(timestamps) < 2:
-            return 0.0, 0.0
+            return None, None
         
         # Clean data
         mask = np.isfinite(values) & np.isfinite(timestamps)
@@ -224,7 +224,7 @@ class DomainClock:
         timestamps = timestamps[mask]
         
         if len(values) < self.min_samples:
-            return 0.0, 0.0
+            return None, None
         
         # Estimate sampling rate
         dt = np.median(np.diff(timestamps))

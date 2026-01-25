@@ -75,10 +75,10 @@ class EngineResult:
     error: Optional[str] = None
 
     @property
-    def runtime_seconds(self) -> float:
+    def runtime_seconds(self) -> Optional[float]:
         if self.completed_at and self.started_at:
             return (self.completed_at - self.started_at).total_seconds()
-        return 0.0
+        return None
 
     def summary(self) -> str:
         """Human-readable summary."""

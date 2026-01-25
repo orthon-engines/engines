@@ -252,7 +252,7 @@ def _acf_seasonality(values: np.ndarray, period: int) -> Tuple[float, list]:
     var = np.var(values)
 
     if var == 0:
-        return 0.0, []
+        return None, []
 
     acf = []
     for lag in range(max_lag + 1):

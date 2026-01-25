@@ -88,7 +88,7 @@ def get_memory_usage_mb() -> float:
         process = psutil.Process()
         return process.memory_info().rss / 1e6
     except ImportError:
-        return 0.0
+        return None  # Cannot measure memory without resource or psutil
 
 
 def memory_report(prefix: str = "") -> float:

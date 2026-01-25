@@ -201,10 +201,10 @@ def add_divergence_to_field_rows(
         window_end = row['window_end']
         div_info = divergence_by_window.get(window_end, {})
 
-        row['divergence'] = div_info.get('divergence', 0.0)
-        row['total_gradient_mag'] = div_info.get('total_gradient_mag', 0.0)
-        row['mean_gradient_mag'] = div_info.get('mean_gradient_mag', 0.0)
-        row['n_metrics'] = div_info.get('n_metrics', 0)
+        row['divergence'] = div_info.get('divergence')
+        row['total_gradient_mag'] = div_info.get('total_gradient_mag')
+        row['mean_gradient_mag'] = div_info.get('mean_gradient_mag')
+        row['n_metrics'] = div_info.get('n_metrics')
         row['is_source'] = row['divergence'] > source_threshold
         row['is_sink'] = row['divergence'] < sink_threshold
 

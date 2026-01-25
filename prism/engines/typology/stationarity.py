@@ -151,7 +151,7 @@ def _simple_adf(values: np.ndarray) -> tuple:
 
         return float(t_stat), float(pvalue)
     except Exception:
-        return 0.0, 1.0
+        return None, None
 
 
 def _kpss_test(values: np.ndarray, regression: str = "c") -> tuple:

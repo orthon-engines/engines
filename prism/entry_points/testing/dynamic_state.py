@@ -220,8 +220,16 @@ def compute_system_energy(
     Returns:
         Dict with system energy metrics
     """
-    ind_sum = signal_energy.get('signal_energy_sum', 0.0)
-    coup_sum = coupling_energy.get('coupling_energy_sum', 0.0)
+    ind_sum = signal_energy.get('signal_energy_sum')
+    coup_sum = coupling_energy.get('coupling_energy_sum')
+
+    # ZERO DEFAULTS: Return None if required values missing
+    if ind_sum is None or coup_sum is None:
+        return {
+            'system_energy': None,
+            'signal_fraction': None,
+            'coupling_fraction': None,
+        }
 
     system_total = ind_sum + coup_sum
 
@@ -230,8 +238,8 @@ def compute_system_energy(
         signal_fraction = ind_sum / system_total
         coupling_fraction = coup_sum / system_total
     else:
-        signal_fraction = 0.5
-        coupling_fraction = 0.5
+        signal_fraction = None
+        coupling_fraction = None
 
     return {
         'system_energy': system_total,
