@@ -6,13 +6,13 @@ PRISM Database Layer
 
 Files:
     observations.parquet  - Raw sensor data
-    signals.parquet       - Behavioral signals (dense + sparse)
+    vector.parquet        - Behavioral metrics per signal
     geometry.parquet      - System structure at each timestamp
-    state.parquet         - Dynamics at each timestamp
+    dynamics.parquet      - Temporal dynamics at each timestamp
     cohorts.parquet       - Discovered entity groupings
 
 Usage:
-    from prism.db import get_path, OBSERVATIONS, SIGNALS, GEOMETRY, STATE, COHORTS
+    from prism.db import get_path, OBSERVATIONS, VECTOR, GEOMETRY, DYNAMICS, COHORTS
 
     # Get path to a file
     obs_path = get_path(OBSERVATIONS)
@@ -36,9 +36,8 @@ from prism.db.parquet_store import (
     # File constants
     OBSERVATIONS,
     VECTOR,
-    SIGNALS,  # Alias for VECTOR
     GEOMETRY,
-    STATE,
+    DYNAMICS,
     COHORTS,
     FILES,
 )
@@ -82,9 +81,8 @@ __all__ = [
     # File constants
     "OBSERVATIONS",
     "VECTOR",
-    "SIGNALS",
     "GEOMETRY",
-    "STATE",
+    "DYNAMICS",
     "COHORTS",
     "FILES",
     # polars_io
