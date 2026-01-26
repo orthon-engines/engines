@@ -1,50 +1,21 @@
-# PRISM Core Dependencies
-# =======================
+# PRISM Stream Compute - Minimal Dependencies
 
-# Data processing (Polars + Parquet architecture)
-polars>=1.0.0           # Primary DataFrame library (all I/O)
-pyarrow>=14.0.0         # Parquet file support
+# Core scientific
 numpy>=1.24.0
-pandas>=2.0.0           # Required for scipy/sklearn engine interfaces
 scipy>=1.10.0
-scikit-learn>=1.3.0
-pydantic>=2.0.0         # Config schema validation
 
-# Performance acceleration
-numba>=0.58.0           # JIT for pure Python loops (RQA, Hurst, entropy)
+# Machine learning (for PCA, clustering)
+scikit-learn>=1.2.0
 
-# Math/Scientific Engines (Academic-Grade)
-antropy>=0.1.6          # Entropy calculations (Shannon, spectral, etc.)
-nolds>=0.5.2            # Nonlinear dynamics (Lyapunov exponents, etc.)
-pyrqa>=8.0.0            # Recurrence Quantification Analysis
-arch>=6.0.0             # GARCH volatility modeling
-PyWavelets>=1.4.0       # Wavelet analysis
-networkx>=3.0           # Graph/network analysis (MST, etc.)
+# Dimensionality reduction
+umap-learn>=0.5.0
 
-# Statistics
-statsmodels>=0.14.0     # Granger causality, cointegration, etc.
+# Parquet I/O
+pyarrow>=12.0.0
 
-# Data fetching
-requests>=2.28.0
-pyyaml>=6.0
+# GARCH volatility modeling
+arch>=6.0.0
 
-# Optional: Streaming I/O (falls back to polars if not available)
-# duckdb>=0.9.0         # DuckDB for streaming parquet queries
-
-# Optional: ML Accelerator (RUL prediction)
-# xgboost>=2.0.0        # Gradient boosting
-# lightgbm>=4.0.0       # Light gradient boosting
-# catboost>=1.2.0       # Categorical boosting
-
-# Optional: Visualization
-# matplotlib>=3.8.0     # Plotting and visualization
-# streamlit>=1.30.0     # Interactive web applications
-
-# Optional: Notebooks and Documentation
-# jupyterlab>=4.0.0     # Interactive notebooks for derivations
-# nbconvert>=7.0.0      # Export notebooks to HTML/PDF/Markdown
-
-# Optional: Development
-# black>=23.0.0
-# ruff>=0.1.0
-# pytest>=7.0.0
+# Server
+fastapi>=0.100.0
+uvicorn>=0.23.0

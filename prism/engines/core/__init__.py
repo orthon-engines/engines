@@ -1,61 +1,56 @@
 """
-PRISM Core Engines
-==================
+PRISM Core Engines - Irreducible Algorithms
+============================================
 
-Universal, domain-agnostic mathematical engines.
-These compute properties valid for ANY time series.
-
-Categories:
-    - memory: Long-range dependence (Hurst, ACF, DFA)
-    - information: Complexity measures (entropy)
-    - frequency: Spectral analysis (FFT, wavelet)
-    - dynamics: Nonlinear dynamics (Lyapunov, attractors)
-    - state: Pairwise relationships (Granger, DTW, cointegration)
-    - geometry: Structural analysis (PCA, MST, clustering)
-    - laplace: Laplace transforms and operators
-    - volatility: Variance modeling (GARCH, realized vol)
-    - recurrence: Recurrence quantification
-    - typology: Signal classification (trend, seasonality)
-    - pointwise: Point-by-point transforms
-    - momentum: Randomness tests
-    - detection: Spike and step detection
-    - discontinuity: Structural breaks
-    - events: Heaviside and Dirac functions
-    - windowed: Windowed versions of above
-    - physics: Classical mechanics (Hamiltonian, Lagrangian)
-    - electrochemistry: Universal electrochemical laws
-    - phase_equilibria: Thermodynamic equilibrium
-    - balances: Energy and mass balances
-    - fields: Navier-Stokes
-    - utils: Parallel processing utilities
+These engines cannot be expressed in SQL. They require:
+- Iterative algorithms (hurst, lyapunov, garch)
+- Matrix decomposition (pca, dmd)
+- Optimization (cointegration, granger)
+- Complex number arithmetic (fft)
+- Pattern matching (entropy, rqa)
+- Graph algorithms (mst, clustering)
 """
 
-# Subdirectories are imported lazily when needed
-# This avoids circular imports and speeds up startup
+from . import hurst
+from . import lyapunov
+from . import fft
+from . import pca
+from . import umap
+from . import garch
+from . import entropy
+from . import wavelet
+from . import rqa
+from . import granger
+from . import transfer_entropy
+from . import cointegration
+from . import dtw
+from . import dmd
+from . import embedding
+from . import mutual_info
+from . import clustering
+from . import mst
+from . import copula
+from . import divergence
 
-CORE_ENGINE_CATEGORIES = [
-    'memory',
-    'information',
-    'frequency',
-    'dynamics',
-    'state',
-    'geometry',
-    'laplace',
-    'volatility',
-    'recurrence',
-    'typology',
-    'pointwise',
-    'momentum',
-    'detection',
-    'discontinuity',
-    'events',
-    'windowed',
-    'physics',
-    'electrochemistry',
-    'phase_equilibria',
-    'balances',
-    'fields',
-    'utils',
+__all__ = [
+    'hurst',
+    'lyapunov',
+    'fft',
+    'pca',
+    'umap',
+    'garch',
+    'entropy',
+    'wavelet',
+    'rqa',
+    'granger',
+    'transfer_entropy',
+    'cointegration',
+    'dtw',
+    'dmd',
+    'embedding',
+    'mutual_info',
+    'clustering',
+    'mst',
+    'copula',
+    'divergence',
 ]
-
-__all__ = ['CORE_ENGINE_CATEGORIES']

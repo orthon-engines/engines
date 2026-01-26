@@ -1,0 +1,31 @@
+service: prism-compute
+
+provider:
+  name: aws
+  runtime: python3.11
+  memorySize: 512
+  timeout: 300
+  region: us-east-1
+
+functions:
+  compute:
+    handler: prism.server.handler.lambda_handler
+    url: true  # Function URL for streaming
+    events:
+      - http:
+          path: compute
+          method: post
+
+package:
+  patterns:
+    - '!**'
+    - 'prism/**'
+    - 'requirements.txt'
+
+plugins:
+  - serverless-python-requirements
+
+custom:
+  pythonRequirements:
+    dockerizePip: non-linux
+    slim: true
