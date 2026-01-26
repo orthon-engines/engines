@@ -52,7 +52,7 @@ from prism.db.parquet_store import (
     OBSERVATIONS,
     VECTOR,
     GEOMETRY,
-    STATE,
+    DYNAMICS,
     COHORTS,
 )
 from prism.db.polars_io import upsert_parquet, write_parquet_atomic
@@ -424,7 +424,7 @@ def run_cohort_state(
                 print(f"  Classification failed: {e}")
 
     # Write output
-    output_path = get_path(STATE)
+    output_path = get_path(DYNAMICS)
     write_parquet_atomic(result_df, output_path)
 
     total_transitions = len(transitions_df)

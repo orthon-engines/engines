@@ -136,11 +136,11 @@ TEMPORAL_DYNAMICS_ENGINES: Dict[str, Type] = {
 # Observation-level engines: name -> compute function
 # These run BEFORE windowing at point precision
 # Discontinuity engines:
-#   heaviside -> measures PERSISTENT level shifts (steps)
-#   dirac -> measures TRANSIENT shocks (impulses)
+#   step -> measures PERSISTENT level shifts (steps/heaviside)
+#   spike -> measures TRANSIENT shocks (impulses/dirac)
 OBSERVATION_ENGINES: Dict[str, Callable] = {
-    "heaviside": get_heaviside_metrics,
-    "dirac": get_dirac_metrics,
+    "step": compute_step,
+    "spike": compute_spike,
 }
 
 # Unified registry: all engines
