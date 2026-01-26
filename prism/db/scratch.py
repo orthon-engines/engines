@@ -36,7 +36,7 @@ from typing import List, Optional, Union
 
 import polars as pl
 
-from prism.db.parquet_store import get_path, OBSERVATIONS, SIGNALS, GEOMETRY, STATE, COHORTS
+from prism.db.parquet_store import get_path, OBSERVATIONS, VECTOR, GEOMETRY, DYNAMICS, COHORTS
 from prism.db.polars_io import read_parquet, upsert_parquet, write_parquet_atomic
 
 logger = logging.getLogger(__name__)
@@ -410,26 +410,3 @@ class ParquetBatchWriter:
         self._row_count = 0
 
 
-# Legacy compatibility - ScratchDB is deprecated
-class ScratchDB:
-    """
-    DEPRECATED: Use TempParquet instead.
-
-    This class exists for backward compatibility only.
-    """
-
-    def __init__(self, *args, **kwargs):
-        import warnings
-
-        warnings.warn(
-            "ScratchDB is deprecated. Use TempParquet for temp storage, "
-            "or use polars_io functions directly for reading/writing.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        raise NotImplementedError(
-            "ScratchDB has been removed. Use TempParquet instead:\n\n"
-            "  from prism.db.scratch import TempParquet\n\n"
-            "  with TempParquet(prefix='worker') as temp:\n"
-            "      temp.write(results_df)\n"
-        )

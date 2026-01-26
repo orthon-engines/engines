@@ -230,32 +230,6 @@ def compute_realized_vol(values: np.ndarray, min_obs: int = 15, scale_factor: in
 
 
 # =============================================================================
-# Legacy Class Interface (for backwards compatibility)
-# =============================================================================
-
-class RealizedVolEngine(BaseEngine):
-    """Realized volatility engine class interface."""
-
-    name = "realized_vol"
-    phase = "derived"
-    default_normalization = None
-
-    @property
-    def metadata(self) -> EngineMetadata:
-        return METADATA
-
-    def run(self, df, run_id: str, **params) -> Dict:
-        """Run realized vol on dataframe columns."""
-        results = {}
-        for col in df.columns:
-            values = df[col].dropna().values
-            metrics = compute_realized_vol(values)
-            if metrics:
-                results[col] = metrics
-        return results
-
-
-# =============================================================================
 # Standalone function with derivation
 # =============================================================================
 

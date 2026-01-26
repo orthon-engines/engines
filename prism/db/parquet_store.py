@@ -59,12 +59,6 @@ FIELDS = "fields"       # Navier-Stokes field analysis (vorticity, TKE, dissipat
 # PRISM deliverables - the seven parquet files users receive
 PRISM_FILES = [DATA, VECTOR, GEOMETRY, DYNAMICS, PHYSICS, SYSTEMS, FIELDS]
 
-# =============================================================================
-# LEGACY ALIASES (for backwards compatibility)
-# =============================================================================
-
-SIGNALS = VECTOR                # Legacy alias
-STATE = DYNAMICS                # Legacy alias
 COHORTS = "cohorts"             # User-defined entity groupings
 
 # =============================================================================

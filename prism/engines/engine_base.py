@@ -144,63 +144,6 @@ class BaseEngine(ABC):
         pass
 
     # -------------------------------------------------------------------------
-    # Data Loading
-    # -------------------------------------------------------------------------
-
-    def load_signals(
-        self,
-        names: List[str],
-        start_date: Optional[date] = None,
-        end_date: Optional[date] = None,
-    ) -> pd.DataFrame:
-        """
-        Load signal data. DEPRECATED - use prism.db.read_table() instead.
-
-        With Parquet architecture, data loading is done via:
-            from prism.db import read_table
-            observations = read_table('raw', 'observations')
-
-        This method is retained for API compatibility but returns empty DataFrame.
-        """
-        logger.warning("load_signals() is deprecated. Use prism.db.read_table() instead.")
-        return pd.DataFrame()
-
-    def load_all_signals(
-        self,
-        start_date: Optional[date] = None,
-        end_date: Optional[date] = None,
-    ) -> pd.DataFrame:
-        """
-        Load all signals. DEPRECATED - use prism.db.read_table() instead.
-
-        With Parquet architecture, data loading is done via:
-            from prism.db import read_table
-            observations = read_table('raw', 'observations')
-
-        This method is retained for API compatibility but returns empty DataFrame.
-        """
-        logger.warning("load_all_signals() is deprecated. Use prism.db.read_table() instead.")
-        return pd.DataFrame()
-
-    # Backwards compatibility aliases
-    def load_signals(
-        self,
-        signal_ids: List[str],
-        start_date: Optional[date] = None,
-        end_date: Optional[date] = None,
-    ) -> pd.DataFrame:
-        """Alias for load_signals (backwards compatibility)."""
-        return self.load_signals(signal_ids, start_date, end_date)
-
-    def load_all_signals(
-        self,
-        start_date: Optional[date] = None,
-        end_date: Optional[date] = None,
-    ) -> pd.DataFrame:
-        """Alias for load_all_signals (backwards compatibility)."""
-        return self.load_all_signals(start_date, end_date)
-
-    # -------------------------------------------------------------------------
     # Normalization (engine calls what it needs)
     # -------------------------------------------------------------------------
 
@@ -366,27 +309,6 @@ class BaseEngine(ABC):
     # Result Storage
     # -------------------------------------------------------------------------
 
-    def store_results(
-        self,
-        table_name: str,
-        df: pd.DataFrame,
-        run_id: str,
-    ):
-        """
-        Store results. DEPRECATED - use prism.db.write_table() instead.
-
-        With Parquet architecture, storage is done via:
-            from prism.db import write_table
-            write_table(df, 'vector', 'signals', mode='upsert', key_cols=[...])
-
-        This method is retained for API compatibility but does nothing.
-
-        Args:
-            table_name: Table name (without schema prefix)
-            df: Results DataFrame
-            run_id: Run identifier
-        """
-        logger.warning("store_results() is deprecated. Use prism.db.write_table() instead.")
 
     # -------------------------------------------------------------------------
     # Meta Logging

@@ -29,11 +29,10 @@ Usage:
 """
 
 import argparse
+import json
 import logging
 import sys
 import time
-import yaml
-import json
 from pathlib import Path
 from typing import Dict, Any, List
 
@@ -41,9 +40,15 @@ import numpy as np
 import pandas as pd
 import polars as pl
 
+try:
+    import duckdb
+    HAS_DUCKDB = True
+except ImportError:
+    HAS_DUCKDB = False
+
 from prism.core.dependencies import check_dependencies
 from prism.db.parquet_store import get_path, ensure_directory, VECTOR, GEOMETRY
-from prism.db.polars_io import read_parquet, write_parquet_atomic
+from prism.db.polars_io import write_parquet_atomic
 
 logging.basicConfig(
     level=logging.INFO,
@@ -116,22 +121,22 @@ from prism.config.validator import ConfigurationError
 
 
 def load_config(data_path: Path) -> Dict[str, Any]:
-    """Load config from data directory."""
-    config_path = data_path / 'config.yaml'
+    """Load config from data directory. JSON only - no legacy YAML."""
+    config_path = data_path / 'config.json'
 
     if not config_path.exists():
         raise ConfigurationError(
             f"\n{'='*60}\n"
-            f"CONFIGURATION ERROR: config.yaml not found\n"
+            f"CONFIGURATION ERROR: config.json not found\n"
             f"{'='*60}\n"
             f"Location: {config_path}\n\n"
             f"PRISM requires explicit configuration.\n"
-            f"Create config.yaml with geometry settings.\n"
+            f"Create config.json with geometry settings.\n"
             f"{'='*60}"
         )
 
     with open(config_path) as f:
-        user_config = yaml.safe_load(f) or {}
+        user_config = json.load(f)
 
     return user_config.get('geometry', {})
 
@@ -270,19 +275,37 @@ def run_geometry_engines(
 
 
 # =============================================================================
-# MAIN COMPUTATION
+# MAIN COMPUTATION (STREAMING)
 # =============================================================================
 
-def compute_geometry(
-    vector_df: pl.DataFrame,
+def compute_geometry_streaming(
+    vector_path: Path,
+    output_path: Path,
     config: Dict[str, Any],
-) -> pl.DataFrame:
+) -> int:
     """
-    Compute geometry for all entities.
+    Compute geometry for all entities using streaming I/O.
+
+    MEMORY TARGET: < 1GB RAM regardless of input size.
+
+    Uses DuckDB to read vector data per entity without loading full file.
 
     Output: ONE ROW PER ENTITY
     """
-    entities = vector_df.select('entity_id').unique()['entity_id'].to_list()
+    if not HAS_DUCKDB:
+        logger.warning("DuckDB not available, falling back to polars")
+        vector_df = pl.read_parquet(vector_path)
+        return _compute_geometry_polars(vector_df, output_path, config)
+
+    con = duckdb.connect()
+
+    # Get entity list via DuckDB (no full load)
+    entities = con.execute(f"""
+        SELECT DISTINCT entity_id
+        FROM '{vector_path}'
+        ORDER BY entity_id
+    """).fetchall()
+    entities = [e[0] for e in entities]
     n_entities = len(entities)
 
     logger.info(f"Computing geometry for {n_entities} entities")
@@ -292,8 +315,18 @@ def compute_geometry(
     results = []
 
     for i, entity_id in enumerate(entities):
+        # Stream entity data via DuckDB
+        entity_df = con.execute(f"""
+            SELECT *
+            FROM '{vector_path}'
+            WHERE entity_id = ?
+        """, [entity_id]).pl()
+
+        if len(entity_df) < 3:
+            continue
+
         # Build feature matrix
-        feature_df, metric_cols = build_feature_matrix(vector_df, entity_id)
+        feature_df, metric_cols = build_feature_matrix(entity_df, entity_id)
 
         if feature_df is None or len(feature_df) < 3:
             continue
@@ -308,14 +341,58 @@ def compute_geometry(
         if (i + 1) % 50 == 0:
             logger.info(f"  Processed {i + 1}/{n_entities} entities")
 
+    con.close()
+
     if not results:
         logger.warning("No entities with sufficient data for geometry")
-        return pl.DataFrame()
+        return 0
 
     df = pl.DataFrame(results)
     logger.info(f"Geometry: {len(df)} rows (one per entity), {len(df.columns)} columns")
 
-    return df
+    write_parquet_atomic(df, output_path)
+    return len(df)
+
+
+def _compute_geometry_polars(
+    vector_df: pl.DataFrame,
+    output_path: Path,
+    config: Dict[str, Any],
+) -> int:
+    """Fallback: compute geometry using polars (loads full file)."""
+    entities = vector_df.select('entity_id').unique()['entity_id'].to_list()
+    n_entities = len(entities)
+
+    logger.info(f"Computing geometry for {n_entities} entities (polars fallback)")
+    logger.info(f"Class engines: {list(CLASS_ENGINES.keys())}")
+    logger.info(f"Function engines: {list(FUNCTION_ENGINES.keys())}")
+
+    results = []
+
+    for i, entity_id in enumerate(entities):
+        feature_df, metric_cols = build_feature_matrix(vector_df, entity_id)
+
+        if feature_df is None or len(feature_df) < 3:
+            continue
+
+        row = run_geometry_engines(feature_df, entity_id, config)
+        row['n_observations'] = len(feature_df)
+        row['n_features'] = len(metric_cols)
+
+        results.append(row)
+
+        if (i + 1) % 50 == 0:
+            logger.info(f"  Processed {i + 1}/{n_entities} entities")
+
+    if not results:
+        logger.warning("No entities with sufficient data for geometry")
+        return 0
+
+    df = pl.DataFrame(results)
+    logger.info(f"Geometry: {len(df)} rows (one per entity), {len(df.columns)} columns")
+
+    write_parquet_atomic(df, output_path)
+    return len(df)
 
 
 # =============================================================================
@@ -349,20 +426,16 @@ def main():
         return 0
 
     config = load_config(data_path)
-
-    # Load input
     vector_path = get_path(VECTOR)
-    vector_df = read_parquet(vector_path)
-    logger.info(f"Loaded vector.parquet: {len(vector_df):,} rows, {len(vector_df.columns)} columns")
 
+    # Compute using STREAMING (memory-efficient)
     start = time.time()
-    df = compute_geometry(vector_df, config)
+    rows_written = compute_geometry_streaming(vector_path, output_path, config)
     elapsed = time.time() - start
 
-    if len(df) > 0:
-        write_parquet_atomic(df, output_path)
+    if rows_written > 0:
         logger.info(f"Wrote {output_path}")
-        logger.info(f"  {len(df):,} rows, {len(df.columns)} columns in {elapsed:.1f}s")
+        logger.info(f"  {rows_written:,} rows in {elapsed:.1f}s")
 
     return 0
 

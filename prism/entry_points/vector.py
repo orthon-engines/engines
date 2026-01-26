@@ -34,21 +34,22 @@ Output:
 """
 
 import argparse
+import json
 import logging
 import sys
 import time
-import yaml
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 import warnings
+
 
 import numpy as np
 import pandas as pd
 import polars as pl
 
 from prism.db.parquet_store import get_path, ensure_directory, OBSERVATIONS
-from prism.db.polars_io import read_parquet, write_parquet_atomic
+from prism.db.streaming import StreamingReader, IncrementalWriter, check_memory
 from prism.config.validator import ConfigurationError
 
 warnings.filterwarnings('ignore')
@@ -66,49 +67,52 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 
 # Available engines - must be explicitly enabled in config
+# Updated for core/ directory structure
 AVAILABLE_ENGINES = {
     # Memory engines
-    'hurst_dfa': 'prism.engines.memory:compute_hurst_dfa',
-    'hurst_rs': 'prism.engines.memory:compute_hurst_rs',
-    'acf_decay': 'prism.engines.memory:compute_acf_decay',
-    'spectral_slope': 'prism.engines.memory:compute_spectral_slope',
+    'hurst_dfa': 'prism.engines.core.memory.hurst_dfa:compute',
+    'hurst_rs': 'prism.engines.core.memory.hurst_rs:compute',
+    'acf_decay': 'prism.engines.core.memory.acf_decay:compute',
+    'spectral_slope': 'prism.engines.core.memory.spectral_slope:compute',
     # Information engines
-    'permutation_entropy': 'prism.engines.information:compute_permutation_entropy',
-    'sample_entropy': 'prism.engines.information:compute_sample_entropy',
-    'entropy_rate': 'prism.engines.information:compute_entropy_rate',
+    'permutation_entropy': 'prism.engines.core.information.permutation_entropy:compute',
+    'sample_entropy': 'prism.engines.core.information.sample_entropy:compute',
+    'entropy_rate': 'prism.engines.core.information.entropy_rate:compute',
     # Frequency engines
-    'spectral': 'prism.engines.frequency:compute_spectral',
-    'wavelet': 'prism.engines.frequency:compute_wavelet',
+    'spectral': 'prism.engines.core.frequency.spectral:compute',
+    'wavelet': 'prism.engines.core.frequency.wavelet:compute',
     # Volatility engines
-    'garch': 'prism.engines.volatility:compute_garch',
-    'realized_vol': 'prism.engines.volatility:compute_realized_vol',
-    'bipower_variation': 'prism.engines.volatility:compute_bipower_variation',
-    'hilbert_amplitude': 'prism.engines.volatility:compute_hilbert_amplitude',
+    'garch': 'prism.engines.core.volatility.garch:compute',
+    'realized_vol': 'prism.engines.core.volatility.realized_vol:compute',
+    'bipower_variation': 'prism.engines.core.volatility.bipower_variation:compute',
+    'hilbert_amplitude': 'prism.engines.core.volatility.hilbert_amplitude:compute',
     # Recurrence engines
-    'rqa': 'prism.engines.recurrence:compute_rqa',
+    'rqa': 'prism.engines.core.recurrence.rqa:compute',
     # Typology engines
-    'cusum': 'prism.engines.typology:compute_cusum',
-    'derivative_stats': 'prism.engines.typology:compute_derivative_stats',
-    'distribution': 'prism.engines.typology:compute_distribution',
-    'rolling_volatility': 'prism.engines.typology:compute_rolling_volatility',
-    'seasonality': 'prism.engines.typology:compute_seasonality',
-    'stationarity': 'prism.engines.typology:compute_stationarity',
-    'takens': 'prism.engines.typology:compute_takens',
-    'trend': 'prism.engines.typology:compute_trend',
+    'cusum': 'prism.engines.core.typology.cusum:compute',
+    'derivative_stats': 'prism.engines.core.typology.derivative_stats:compute',
+    'distribution': 'prism.engines.core.typology.distribution:compute',
+    'rolling_volatility': 'prism.engines.core.typology.rolling_volatility:compute',
+    'seasonality': 'prism.engines.core.typology.seasonality:compute',
+    'stationarity': 'prism.engines.core.typology.stationarity:compute',
+    'takens': 'prism.engines.core.typology.takens:compute',
+    'trend': 'prism.engines.core.typology.trend:compute',
     # Pointwise engines
-    'derivatives': 'prism.engines.pointwise:compute_derivatives',
-    'hilbert': 'prism.engines.pointwise:compute_hilbert',
-    'statistical': 'prism.engines.pointwise:compute_statistical',
+    'derivatives': 'prism.engines.core.pointwise.derivatives:compute',
+    'hilbert': 'prism.engines.core.pointwise.hilbert:compute',
+    'statistical': 'prism.engines.core.pointwise.statistical:compute',
     # Momentum engines
-    'runs_test': 'prism.engines.momentum:compute_runs_test',
+    'runs_test': 'prism.engines.core.momentum.runs_test:compute',
     # Discontinuity engines
-    'dirac': 'prism.engines.discontinuity:compute_dirac',
-    'heaviside': 'prism.engines.discontinuity:compute_heaviside',
-    'structural': 'prism.engines.discontinuity:compute_structural',
+    'dirac': 'prism.engines.core.detection.spike_detector:compute',
+    'heaviside': 'prism.engines.core.detection.step_detector:compute',
+    'structural': 'prism.engines.core.discontinuity.structural:compute',
     # Laplace engines
     'laplace': None,  # Special handling
     # Dynamics engines
-    'hd_slope': 'prism.engines.dynamics.hd_slope:compute_hd_slope',
+    'hd_slope': 'prism.engines.core.dynamics.hd_slope:compute_hd_slope',
+    # Jacobian (Wolf algorithm)
+    'jacobian': 'prism.engines.core.dynamics.jacobian:compute',
 }
 
 
@@ -224,27 +228,25 @@ def load_config(data_path: Path) -> Dict[str, Any]:
     Raises:
         ConfigurationError: If window.size or window.stride not set
     """
-    config_path = data_path / 'config.yaml'
+    # JSON only - no legacy YAML
+    config_path = data_path / 'config.json'
 
     if not config_path.exists():
         raise ConfigurationError(
             f"\n{'='*60}\n"
-            f"CONFIGURATION ERROR: config.yaml not found\n"
+            f"CONFIGURATION ERROR: config.json not found\n"
             f"{'='*60}\n"
-            f"Location: {config_path}\n\n"
+            f"Location: {data_path / 'config.json'}\n\n"
             f"PRISM requires explicit windowing configuration.\n"
-            f"Create config.yaml with:\n\n"
-            f"  window:\n"
-            f"    size: 50.0      # Window width in INDEX UNITS (not row count)\n"
-            f"    stride: 25.0    # Step between windows in INDEX UNITS\n"
-            f"    min_observations: 10  # Minimum rows per window\n\n"
+            f"Create config.json with:\n\n"
+            f'  {{"window": {{"size": 50.0, "stride": 25.0, "min_observations": 10}}}}\n\n'
             f"CRITICAL: size/stride are in INDEX UNITS (seconds, meters, cycles)\n"
             f"NO DEFAULTS. NO FALLBACKS. Configure your domain.\n"
             f"{'='*60}"
         )
 
     with open(config_path) as f:
-        user_config = yaml.safe_load(f) or {}
+        user_config = json.load(f)
 
     config = {
         'engines': user_config.get('engines', {}),
@@ -418,17 +420,22 @@ def flatten_result(result: Any, prefix: str) -> Dict[str, float]:
 
 
 # =============================================================================
-# MAIN COMPUTATION
+# MAIN COMPUTATION (STREAMING)
 # =============================================================================
 
-def compute_vector(
-    observations: pl.DataFrame,
+def compute_vector_streaming(
+    obs_path: Path,
+    output_path: Path,
     config: Dict[str, Any],
     engines: Dict[str, Any],
-    force: bool = False,
-) -> pl.DataFrame:
+) -> int:
     """
-    Compute vector metrics for all signals.
+    Compute vector metrics for all signals using streaming I/O.
+
+    MEMORY TARGET: < 1GB RAM regardless of input size.
+
+    Uses DuckDB streaming to read signals one at a time, processes windows,
+    and writes results incrementally to parquet.
 
     ORTHON Canonical Spec v1.0.0:
         Windows are defined in INDEX UNITS (not row counts).
@@ -436,96 +443,82 @@ def compute_vector(
             x₀ + k*stride ≤ index < x₀ + k*stride + window_size
 
     Args:
-        observations: Raw observations DataFrame
+        obs_path: Path to observations.parquet
+        output_path: Path for output vector.parquet
         config: Domain configuration (window_size, stride in INDEX UNITS)
         engines: Dict of engine_name -> compute function
-        force: Recompute all
 
     Returns:
-        DataFrame with one row per (entity, signal, window)
+        Total rows written
     """
-    # All values validated in load_config
+    check_memory("start")
+
     min_observations = config['min_observations']
     window_size = config['window_size']  # INDEX UNITS
     stride = config['stride']            # INDEX UNITS
 
-    # Determine index column (accept both 'index' and 'timestamp')
-    if 'index' in observations.columns:
-        index_col = 'index'
-    elif 'timestamp' in observations.columns:
-        index_col = 'timestamp'
-    else:
-        raise ValueError(f"Observations must have 'index' or 'timestamp' column. Found: {observations.columns}")
-
-    # Group observations by entity+signal
-    signals = observations.group_by(['entity_id', 'signal_id']).agg([
-        pl.col('value').alias('values'),
-        pl.col(index_col).alias('indices'),
-    ])
-
-    n_signals = len(signals)
     n_engines = len(engines)
-    logger.info(f"Processing {n_signals} signals with {n_engines} engines")
 
-    results = []
-    total_windows = 0
+    with StreamingReader(obs_path) as reader:
+        n_signals = len(reader.signal_keys)
+        logger.info(f"Processing {n_signals} signals with {n_engines} engines")
 
-    for i, row in enumerate(signals.iter_rows(named=True)):
-        entity_id = row['entity_id']
-        signal_id = row['signal_id']
-        values = np.array(row['values'], dtype=float)
-        indices = np.array(row['indices'], dtype=float)
+        with IncrementalWriter(output_path, batch_size=1000) as writer:
+            total_windows = 0
 
-        # Sort by index
-        sort_idx = np.argsort(indices)
-        values = values[sort_idx]
-        indices = indices[sort_idx]
+            for i, (entity_id, signal_id, values, indices) in enumerate(reader.iter_signals()):
+                # Sort by index
+                sort_idx = np.argsort(indices)
+                values = values[sort_idx]
+                indices = indices[sort_idx]
 
-        # Remove NaN
-        valid = ~np.isnan(values)
-        values = values[valid]
-        indices = indices[valid]
+                # Remove NaN
+                valid = ~np.isnan(values)
+                values = values[valid]
+                indices = indices[valid]
 
-        if len(values) < min_observations:
-            continue
+                if len(values) < min_observations:
+                    continue
 
-        # Generate windows (ORTHON Canonical Spec - index-based)
-        for window in generate_windows(values, indices, window_size, stride, min_observations):
-            window_values = window['values']
+                # Generate windows (ORTHON Canonical Spec - index-based)
+                for window in generate_windows(values, indices, window_size, stride, min_observations):
+                    window_values = window['values']
 
-            row_data = {
-                'entity_id': entity_id,
-                'signal_id': signal_id,
-                'window_idx': window['window_idx'],
-                'window_start': window['window_start'],
-                'window_end': window['window_end'],
-                'n_samples': len(window_values),
-            }
+                    row_data = {
+                        'entity_id': entity_id,
+                        'signal_id': signal_id,
+                        'window_idx': window['window_idx'],
+                        'window_start': window['window_start'],
+                        'window_end': window['window_end'],
+                        'n_samples': len(window_values),
+                    }
 
-            # Run all engines
-            for engine_name, compute_fn in engines.items():
-                try:
-                    result = compute_fn(window_values)
-                    flat = flatten_result(result, engine_name)
-                    row_data.update(flat)
-                except Exception as e:
-                    # Engine failed for this window, skip silently
-                    pass
+                    # Run all engines
+                    for engine_name, compute_fn in engines.items():
+                        try:
+                            result = compute_fn(window_values)
+                            flat = flatten_result(result, engine_name)
+                            row_data.update(flat)
+                        except Exception:
+                            # Engine failed for this window, skip silently
+                            pass
 
-            results.append(row_data)
-            total_windows += 1
+                    # Write immediately - no accumulation
+                    writer.write_row(row_data)
+                    total_windows += 1
 
-        if (i + 1) % 10 == 0:
-            logger.info(f"  Processed {i + 1}/{n_signals} signals ({total_windows} windows)")
+                if (i + 1) % 10 == 0:
+                    logger.info(f"  Processed {i + 1}/{n_signals} signals ({total_windows} windows)")
 
-    if not results:
-        logger.warning("No signals with sufficient data")
-        return pl.DataFrame()
+                # Memory check every 100 signals
+                if (i + 1) % 100 == 0:
+                    check_memory(f"signal_{i + 1}/{n_signals}")
 
-    df = pl.DataFrame(results)
-    logger.info(f"Vector: {len(df)} rows, {len(df.columns)} columns")
+            check_memory("end")
+            rows_written = writer.rows_written
 
-    return df
+    logger.info(f"Vector: {rows_written} rows written")
+    return rows_written
 
 
 # =============================================================================
@@ -585,19 +578,18 @@ def main():
     engines = import_engines(config)
     logger.info(f"Total engines: {len(engines)}")
 
-    # Load data
-    observations = read_parquet(obs_path)
-    logger.info(f"Loaded {len(observations):,} observations")
-
-    # Compute
+    # Compute using STREAMING (memory-efficient)
+    check_memory("before_compute")
     start = time.time()
-    df = compute_vector(observations, config, engines, args.force)
+    rows_written = compute_vector_streaming(obs_path, output_path, config, engines)
     elapsed = time.time() - start
+    check_memory("after_compute")
 
-    if len(df) > 0:
-        write_parquet_atomic(df, output_path)
+    if rows_written > 0:
         logger.info(f"Wrote {output_path}")
-        logger.info(f"  {len(df):,} rows, {len(df.columns)} columns in {elapsed:.1f}s")
+        logger.info(f"  {rows_written:,} rows in {elapsed:.1f}s")
+    else:
+        logger.warning("No data written - check if signals have sufficient observations")
 
     return 0
 

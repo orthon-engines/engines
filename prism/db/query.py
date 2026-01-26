@@ -12,7 +12,7 @@ Note:
     directly instead:
 
     >>> import polars as pl
-    >>> from prism.db import read_file, get_path, OBSERVATIONS, SIGNALS
+    >>> from prism.db import read_file, get_path, OBSERVATIONS, VECTOR
     >>>
     >>> # Read and filter
     >>> observations = read_file(OBSERVATIONS)
@@ -31,7 +31,7 @@ Note:
 
 import polars as pl
 
-from prism.db.parquet_store import get_path, OBSERVATIONS, SIGNALS, GEOMETRY, STATE, COHORTS
+from prism.db.parquet_store import get_path, OBSERVATIONS, VECTOR, GEOMETRY, DYNAMICS, COHORTS
 
 
 def describe_file(file: str) -> pl.DataFrame:
@@ -39,7 +39,7 @@ def describe_file(file: str) -> pl.DataFrame:
     Get column information for a parquet file.
 
     Args:
-        file: File constant (OBSERVATIONS, SIGNALS, GEOMETRY, STATE, COHORTS)
+        file: File constant (OBSERVATIONS, VECTOR, GEOMETRY, DYNAMICS, COHORTS)
 
     Returns:
         DataFrame with column_name, column_type columns
@@ -78,7 +78,7 @@ def file_stats(file: str) -> dict:
     Get basic statistics for a parquet file.
 
     Args:
-        file: File constant (OBSERVATIONS, SIGNALS, GEOMETRY, STATE, COHORTS)
+        file: File constant (OBSERVATIONS, VECTOR, GEOMETRY, DYNAMICS, COHORTS)
 
     Returns:
         Dict with row_count, column_count, file_size_bytes
@@ -128,16 +128,16 @@ if __name__ == "__main__":
 
     FILE_MAP = {
         "observations": OBSERVATIONS,
-        "signals": SIGNALS,
+        "vector": VECTOR,
         "geometry": GEOMETRY,
-        "state": STATE,
+        "dynamics": DYNAMICS,
         "cohorts": COHORTS,
     }
 
     if args.describe:
         file = FILE_MAP.get(args.describe.lower())
         if not file:
-            print(f"Error: Unknown file '{args.describe}'. Use: observations, signals, geometry, state, cohorts")
+            print(f"Error: Unknown file '{args.describe}'. Use: observations, vector, geometry, dynamics, cohorts")
             sys.exit(1)
         result = describe_file(file)
         print(result)

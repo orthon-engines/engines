@@ -31,16 +31,15 @@ from prism.engines.metadata import EngineMetadata
 # =============================================================================
 # Vector Engines (functional interface) - Core engines
 # =============================================================================
-from prism.engines.core.windowed.hurst import compute_hurst, HurstEngine
+from prism.engines.core.windowed.hurst import compute_hurst
 from prism.engines.core.windowed.entropy import compute_entropy
-from prism.engines.core.windowed.wavelet import compute_wavelets, WaveletEngine
-from prism.engines.core.windowed.spectral import compute_spectral, SpectralEngine
-from prism.engines.core.windowed.garch import compute_garch, GARCHEngine
-from prism.engines.core.windowed.rqa import compute_rqa, RQAEngine
-from prism.engines.core.windowed.lyapunov import compute_lyapunov, LyapunovEngine
-from prism.engines.core.windowed.realized_vol import compute_realized_vol, RealizedVolEngine
+from prism.engines.core.windowed.wavelet import compute_wavelets
+from prism.engines.core.windowed.spectral import compute_spectral
+from prism.engines.core.windowed.garch import compute_garch
+from prism.engines.core.windowed.rqa import compute_rqa
+from prism.engines.core.windowed.lyapunov import compute_lyapunov
+from prism.engines.core.windowed.realized_vol import compute_realized_vol
 from prism.engines.core.pointwise.hilbert import (
-    HilbertEngine,
     compute_hilbert_amplitude,
     compute_hilbert_phase,
     compute_hilbert_frequency,
@@ -82,30 +81,6 @@ from prism.engines.domains.prism.tension_dynamics import TensionDynamicsEngine, 
 from prism.engines.core.detection.step_detector import compute as compute_step
 from prism.engines.core.detection.spike_detector import compute as compute_spike
 
-# Backwards compatibility aliases (deprecated)
-compute_heaviside = compute_step
-compute_dirac = compute_spike
-
-
-# Adapter functions for backwards compatibility
-def get_heaviside_metrics(series):
-    """DEPRECATED: Use compute_step. Get step metrics."""
-    return compute_step(series)
-
-
-def get_dirac_metrics(series):
-    """DEPRECATED: Use compute_spike. Get spike metrics."""
-    return compute_spike(series)
-
-
-def get_step_metrics(series):
-    """Get step detection metrics."""
-    return compute_step(series)
-
-
-def get_spike_metrics(series):
-    """Get spike detection metrics."""
-    return compute_spike(series)
 
 
 # =============================================================================
@@ -347,33 +322,6 @@ def load_engines_for_config(config: Dict[str, Any]) -> Dict[str, Any]:
 
 
 # =============================================================================
-# Backwards Compatibility (deprecated - use new API)
-# =============================================================================
-
-# These match the old prism.vector_engines API
-def get_vector_engines() -> Dict[str, Callable[[np.ndarray], dict]]:
-    """Deprecated: use get_all_vector_engines()"""
-    return get_all_vector_engines()
-
-
-# These match the old prism.geometry_engines API
-def get_geometry_engines() -> Dict[str, Type[BaseEngine]]:
-    """Deprecated: use get_all_geometry_engines()"""
-    return get_all_geometry_engines()
-
-
-def get_behavioral_engines() -> Dict[str, Type[BaseEngine]]:
-    """Deprecated: use get_all_geometry_engines()"""
-    return get_all_geometry_engines()
-
-
-# These match the old prism.state_engines API
-def get_state_engines() -> Dict[str, Type[BaseEngine]]:
-    """Deprecated: use get_all_state_engines()"""
-    return get_all_state_engines()
-
-
-# =============================================================================
 # Exports
 # =============================================================================
 
@@ -405,12 +353,6 @@ __all__ = [
     "get_all_geometry_engines",
     "get_all_state_engines",
 
-    # Backwards compatibility
-    "get_vector_engines",
-    "get_geometry_engines",
-    "get_behavioral_engines",
-    "get_state_engines",
-
     # Domain engine API
     "CORE_ENGINE_CATEGORIES",
     "AVAILABLE_DOMAINS",
@@ -433,14 +375,6 @@ __all__ = [
     "compute_hilbert_frequency",
     "HilbertEngine",
 
-    # Vector engine classes (legacy)
-    "HurstEngine",
-    "WaveletEngine",
-    "SpectralEngine",
-    "GARCHEngine",
-    "RQAEngine",
-    "LyapunovEngine",
-    "RealizedVolEngine",
 
     # Geometry engine classes (9 canonical)
     "PCAEngine",

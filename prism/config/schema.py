@@ -20,8 +20,7 @@ Usage (PRISM - reading):
         # Route to discipline-specific engines
     print(config.global_constants)
 
-Note: 'domain' is deprecated but still supported for backwards compatibility.
-      Use 'discipline' for new code.
+Note: Use 'discipline' field for discipline-specific engines.
 """
 
 from pydantic import BaseModel, Field
@@ -31,7 +30,7 @@ import json
 
 
 # =============================================================================
-# DISCIPLINES (primary) and DOMAINS (deprecated alias)
+# DISCIPLINES
 # =============================================================================
 
 # Import the authoritative discipline registry
@@ -39,19 +38,6 @@ from prism.disciplines.registry import DISCIPLINES, list_disciplines
 
 # Discipline type - all valid discipline names
 DisciplineType = Optional[str]  # Validated against DISCIPLINES keys at runtime
-
-# Legacy domain mapping → discipline (for backwards compatibility)
-DOMAIN_TO_DISCIPLINE = {
-    "turbomachinery": "mechanics",      # Map to mechanics discipline
-    "fluid": "fluid_dynamics",          # Direct match
-    "battery": "electrochemistry",      # Map to electrochemistry discipline
-    "bearing": "mechanics",             # Map to mechanics discipline
-    "chemical": "reaction",             # Map to reaction discipline
-}
-
-# DEPRECATED: Legacy domains - use DISCIPLINES instead
-DOMAINS = DOMAIN_TO_DISCIPLINE  # Alias for backwards compatibility
-DomainType = DisciplineType     # Alias for backwards compatibility
 
 
 # =============================================================================
@@ -106,12 +92,6 @@ class WindowConfig(BaseModel):
     min_observations: int = Field(default=10, description="Minimum rows required per window")
     boundary: BoundaryType = Field(default="truncate", description="How to handle incomplete windows")
 
-    # Backwards compatibility alias
-    @property
-    def min_samples(self) -> int:
-        """Alias for min_observations (backwards compatibility)"""
-        return self.min_observations
-
     # Optional metadata from ORTHON auto-detection
     auto_detected: Optional[bool] = Field(
         default=None,
@@ -162,12 +142,6 @@ class PrismConfig(BaseModel):
     discipline: DisciplineType = Field(
         default=None,
         description="Discipline for specialized engines. None = general/core engines only."
-    )
-
-    # DEPRECATED: Use 'discipline' instead. Kept for backwards compatibility.
-    domain: DomainType = Field(
-        default=None,
-        description="DEPRECATED: Use 'discipline' instead. Maps to discipline if set."
     )
 
     # ==========================================================================
@@ -293,19 +267,8 @@ class PrismConfig(BaseModel):
         return [s.signal_id for s in self.signals]
 
     def get_effective_discipline(self) -> Optional[str]:
-        """Get the effective discipline, resolving domain→discipline if needed.
-
-        Priority:
-        1. discipline (if set)
-        2. domain mapped to discipline (backwards compatibility)
-        3. None
-        """
-        if self.discipline:
-            return self.discipline
-        if self.domain:
-            # Map legacy domain to discipline
-            return DOMAIN_TO_DISCIPLINE.get(self.domain, self.domain)
-        return None
+        """Get the effective discipline for specialized engine routing."""
+        return self.discipline
 
     def get_discipline_info(self) -> Optional[Dict[str, Any]]:
         """Get discipline metadata if discipline is specified"""
@@ -325,16 +288,6 @@ class PrismConfig(BaseModel):
             engines.extend(sub.get("engines", []))
         return engines
 
-    # DEPRECATED: Use get_discipline_info instead
-    def get_domain_info(self) -> Optional[Dict[str, Any]]:
-        """DEPRECATED: Use get_discipline_info instead"""
-        return self.get_discipline_info()
-
-    # DEPRECATED: Use get_discipline_engines instead
-    def get_domain_engines(self) -> List[str]:
-        """DEPRECATED: Use get_discipline_engines instead"""
-        return self.get_discipline_engines()
-
     def summary(self) -> str:
         """Human-readable summary"""
         disc = self.get_effective_discipline()
@@ -344,7 +297,7 @@ class PrismConfig(BaseModel):
             f"Source: {self.source_file}",
             f"Discipline: {disc or '(general/core only)'}",
             f"Sequence: {self.sequence_column or '(row index)'} [{self.sequence_unit or 'none'}]",
-            f"Window: size={self.window.size}, stride={self.window.stride}, min_samples={self.window.min_samples}"
+            f"Window: size={self.window.size}, stride={self.window.stride}, min_obs={self.window.min_observations}"
             + (f" (auto-detected via {self.window.detection_method})" if self.window.auto_detected else ""),
             f"Entities: {len(self.entities)} ({', '.join(self.entities[:3])}{'...' if len(self.entities) > 3 else ''})",
             f"Signals: {len(self.signals)}",

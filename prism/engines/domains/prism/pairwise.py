@@ -11,7 +11,7 @@ from pathlib import Path
 from datetime import datetime
 import logging
 
-from prism.db.parquet_store import ensure_directory, get_path, get_data_root, SIGNALS, GEOMETRY
+from prism.db.parquet_store import ensure_directory, get_path, get_data_root, VECTOR, GEOMETRY
 from prism.db.polars_io import write_parquet_atomic, get_file_size_mb
 from prism.utils.stride import load_stride_config, get_default_tiers, get_drilldown_tiers
 
@@ -78,7 +78,7 @@ def run_laplace_pairwise_vectorized(
     ensure_directory()
 
     # Load Laplace field data with lazy scan and filter pushdown
-    path = get_path(SIGNALS)
+    path = get_path(VECTOR)
     if not Path(path).exists():
         raise FileNotFoundError(f"Run laplace.py first: {path}")
 
@@ -231,7 +231,7 @@ def run_laplace_pairwise_windowed(
 
     ensure_directory()
 
-    path = get_path(SIGNALS)
+    path = get_path(VECTOR)
 
     file_size_mb = get_file_size_mb(path)
     logger.info(f"Loading {path} ({file_size_mb:.0f} MB)")

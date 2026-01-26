@@ -45,7 +45,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import polars as pl
 
-from prism.db.parquet_store import ensure_directory, get_path, OBSERVATIONS, SIGNALS, GEOMETRY, STATE, COHORTS
+from prism.db.parquet_store import ensure_directory, get_path, OBSERVATIONS, VECTOR, GEOMETRY, DYNAMICS, COHORTS
 from prism.db.polars_io import read_parquet, upsert_parquet, write_parquet_atomic
 from prism.db.scratch import TempParquet, merge_temp_results
 
@@ -270,7 +270,7 @@ class ParquetOrchestrator(ABC):
     Base class for all PRISM orchestrators using Parquet storage.
 
     Subclasses must define:
-        - file: str (OBSERVATIONS, SIGNALS, GEOMETRY, STATE, or COHORTS)
+        - file: str (OBSERVATIONS, VECTOR, GEOMETRY, DYNAMICS, or COHORTS)
         - key_cols: List[str] (columns for upsert deduplication)
         - get_work_items(): Get items to process
         - worker_task(): Process a single assignment
@@ -279,7 +279,7 @@ class ParquetOrchestrator(ABC):
     merged to the main parquet file using upsert semantics.
     """
 
-    file: str = None  # File constant (SIGNALS, GEOMETRY, etc.)
+    file: str = None  # File constant (VECTOR, GEOMETRY, etc.)
     key_cols: List[str] = []
 
     def __init__(
@@ -504,7 +504,7 @@ def parse_date(s: str) -> date:
 
 
 def get_available_snapshots(
-    file: str = SIGNALS,
+    file: str = VECTOR,
     start: Optional[date] = None,
     end: Optional[date] = None,
     date_col: str = "timestamp",
@@ -530,59 +530,3 @@ def get_available_snapshots(
     return result[date_col].to_list()
 
 
-# =============================================================================
-# LEGACY COMPATIBILITY
-# =============================================================================
-
-# Keep old names for backward compatibility but mark as deprecated
-
-
-class Orchestrator(ParquetOrchestrator):
-    """DEPRECATED: Use ParquetOrchestrator instead."""
-
-    def __init__(self, db_path: str = None, **kwargs):
-        import warnings
-
-        warnings.warn(
-            "Orchestrator is deprecated. Use ParquetOrchestrator instead. "
-            "The db_path argument is ignored (data is stored in Parquet files).",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        super().__init__(**kwargs)
-
-
-# Legacy function compatibility
-def provision_scratch_db(*args, **kwargs):
-    """DEPRECATED: Scratch DBs no longer used."""
-    import warnings
-
-    warnings.warn(
-        "provision_scratch_db is deprecated. Workers write directly to temp parquet files.",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-
-
-def merge_scratch_to_main(*args, **kwargs):
-    """DEPRECATED: Use merge_temp_results instead."""
-    import warnings
-
-    warnings.warn(
-        "merge_scratch_to_main is deprecated. Use merge_temp_results from prism.db.scratch.",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    return 0
-
-
-def generate_scratch_path(worker_id: int, prefix: str = "scratch") -> str:
-    """DEPRECATED: Use generate_temp_path instead."""
-    import warnings
-
-    warnings.warn(
-        "generate_scratch_path is deprecated. Use generate_temp_path instead.",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    return str(generate_temp_path(worker_id, prefix))
