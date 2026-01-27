@@ -30,8 +30,8 @@ SELECT
     signal_id,
     I,
     y,
-    -- Canonical schema: unit column required (may be NULL values)
-    unit AS value_unit,
+    -- Unit column is optional - use NULL if not present
+    NULL AS value_unit,
     NULL AS index_dimension,
     NULL AS signal_class
 FROM observations;

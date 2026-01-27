@@ -213,14 +213,15 @@ class SQLOrchestrator:
 
     def export_all(self) -> Dict[str, Path]:
         """
-        Export all standard outputs.
+        Export all standard outputs including engine tables.
 
         PURE: Just sequences exports. No logic.
 
         Returns:
             Dict mapping output name to path
         """
-        exports = {
+        # SQL view exports
+        view_exports = {
             'signal_class': ('v_export_signal_class', 'signal_class.parquet'),
             'signal_typology': ('v_export_signal_typology', 'signal_typology.parquet'),
             'behavioral_geometry': ('v_export_behavioral_geometry', 'behavioral_geometry.parquet'),
@@ -228,12 +229,48 @@ class SQLOrchestrator:
             'causal_mechanics': ('v_export_causal_mechanics', 'causal_mechanics.parquet'),
         }
 
+        # Engine table exports (created by Python engines)
+        table_exports = {
+            # Typology engines
+            'hurst': ('t_hurst', 'hurst.parquet'),
+            'garch': ('t_garch', 'garch.parquet'),
+            # Geometry engines
+            'lof_scores': ('t_lof_scores', 'lof_scores.parquet'),
+            'clusters': ('t_clusters', 'clusters.parquet'),
+            'pca': ('t_pca', 'pca.parquet'),
+            # Dynamics engines
+            'lyapunov': ('t_lyapunov', 'lyapunov.parquet'),
+            'attractor': ('t_attractor', 'attractor.parquet'),
+            'basin': ('t_basin', 'basin.parquet'),
+            'dmd': ('t_dmd', 'dmd.parquet'),
+            # Causality engines
+            'granger': ('t_granger', 'granger.parquet'),
+            'transfer_entropy': ('t_transfer_entropy', 'transfer_entropy.parquet'),
+            'cointegration': ('t_cointegration', 'cointegration.parquet'),
+            'causal_graph': ('t_causal_graph', 'causal_graph.parquet'),
+            # Entropy engines
+            'entropy': ('t_entropy', 'entropy.parquet'),
+            'mutual_info': ('t_mutual_info', 'mutual_info.parquet'),
+        }
+
         paths = {}
-        for name, (view, filename) in exports.items():
+
+        # Export SQL views
+        for name, (view, filename) in view_exports.items():
             try:
                 paths[name] = self.export(view, filename)
             except Exception as e:
                 print(f"Warning: Could not export {name}: {e}")
+
+        # Export engine tables
+        for name, (table, filename) in table_exports.items():
+            try:
+                # Check if table exists
+                self.conn.execute(f"SELECT 1 FROM {table} LIMIT 0")
+                paths[name] = self.export(table, filename)
+            except Exception:
+                # Table doesn't exist (engine didn't run or failed)
+                pass
 
         return paths
 
@@ -347,3 +384,57 @@ class SQLOrchestrator:
             'files': [str(p) for p in paths.values()],
             'manifest': str(manifest_path),
         }
+
+
+def main():
+    """CLI entry point for full pipeline."""
+    import sys
+
+    if len(sys.argv) < 2:
+        print("PRISM SQL Pipeline - Full Engine Mode")
+        print("=" * 50)
+        print("\nUsage: python -m prism.sql.orchestrator <input.parquet> [output_dir]")
+        print("\nStages (runs ALL SQL + ALL Python engines):")
+        for name, stage_class in STAGES:
+            doc = stage_class.__doc__ or ''
+            print(f"  {name}: {doc.strip().split(chr(10))[0]}")
+        print("\nExamples:")
+        print("  python -m prism.sql.orchestrator data/observations.parquet outputs/")
+        print("  python -m prism.sql.orchestrator data/observations.parquet /Users/jasonrudder/Domains/cwru")
+        sys.exit(1)
+
+    input_path = sys.argv[1]
+    output_dir = sys.argv[2] if len(sys.argv) > 2 else 'outputs'
+
+    # Check for --primitives flag
+    primitives_path = None
+    if '--primitives' in sys.argv:
+        idx = sys.argv.index('--primitives')
+        if idx + 1 < len(sys.argv):
+            primitives_path = sys.argv[idx + 1]
+
+    print("=" * 60)
+    print("PRISM FULL PIPELINE")
+    print("=" * 60)
+    print(f"Input:  {input_path}")
+    print(f"Output: {output_dir}")
+    print("=" * 60)
+
+    orchestrator = SQLOrchestrator()
+    result = orchestrator.run_pipeline(input_path, output_dir, primitives_path)
+
+    print("\n" + "=" * 60)
+    print(f"COMPLETE: {len(result['files'])} files → {output_dir}")
+    print("=" * 60)
+
+    # List output files
+    for f in sorted(Path(output_dir).glob('*.parquet')):
+        try:
+            count = orchestrator.conn.execute(f"SELECT COUNT(*) FROM '{f}'").fetchone()[0]
+            print(f"  {f.name}: {count:,} rows")
+        except Exception:
+            print(f"  {f.name}: (unknown)")
+
+
+if __name__ == '__main__':
+    main()

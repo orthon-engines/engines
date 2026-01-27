@@ -1,36 +1,37 @@
 """
 Base Stage Orchestrator
 
-CANONICAL RULE: Orchestrators are PURE.
-
-This base class provides:
-  - load_sql()     : Load SQL from file
-  - run()          : Execute the SQL
-  - get_views()    : Return list of views created
-  - validate()     : Check views exist
-
-NO computation. NO inline SQL. NO business logic.
+Each stage:
+  1. Runs SQL file (for SQL-computable stuff)
+  2. Calls Python engines (for real algorithms)
+  3. Inserts results back to DuckDB
 """
 
 from pathlib import Path
 from typing import List
 import duckdb
+import numpy as np
+import pandas as pd
 
 
 class StageOrchestrator:
     """
-    Base class for pure stage orchestrators.
+    Base class for stage orchestrators.
 
     Each stage:
     1. Has a SQL file (sql/{stage_name}.sql)
-    2. Creates views (v_*)
-    3. Has no computation logic
+    2. Creates views (v_*) from SQL
+    3. Creates tables (t_*) from Python engines
     """
 
     # Override in subclass
     SQL_FILE: str = None
     VIEWS: List[str] = []
+    TABLES: List[str] = []  # Engine-created tables
     DEPENDS_ON: List[str] = []
+
+    # Subsampling for expensive engines
+    MAX_SAMPLES = 5000
 
     def __init__(self, conn: duckdb.DuckDBPyConnection):
         """
@@ -56,23 +57,44 @@ class StageOrchestrator:
 
     def run(self) -> None:
         """
-        Execute this stage's SQL.
-
-        PURE: Just loads and executes. No logic.
-
-        DuckDB handles multi-statement SQL files natively.
+        Execute this stage: SQL first, then Python engines.
         """
+        # 1. Run SQL
         sql = self.load_sql()
-
         try:
             self.conn.execute(sql)
         except Exception as e:
-            # Re-raise with context
-            raise RuntimeError(
-                f"SQL execution failed in {self.SQL_FILE}: {e}"
-            ) from e
+            raise RuntimeError(f"SQL execution failed in {self.SQL_FILE}: {e}") from e
+
+        # 2. Run Python engines
+        self._run_engines()
 
         self._loaded = True
+
+    def _run_engines(self) -> None:
+        """Override in subclass to call Python engines."""
+        pass
+
+    def _get_signal(self, signal_id: str) -> np.ndarray:
+        """Get signal time series as numpy array."""
+        df = self.conn.execute(f"""
+            SELECT y FROM observations
+            WHERE signal_id = '{signal_id}'
+            ORDER BY I
+        """).fetchdf()
+        return df['y'].values if len(df) > 0 else np.array([])
+
+    def _subsample(self, arr: np.ndarray, max_samples: int = None) -> np.ndarray:
+        """Subsample array if too long."""
+        max_samples = max_samples or self.MAX_SAMPLES
+        if len(arr) > max_samples:
+            indices = np.linspace(0, len(arr) - 1, max_samples, dtype=int)
+            return arr[indices]
+        return arr
+
+    def _insert_df(self, table_name: str, df: pd.DataFrame) -> None:
+        """Insert DataFrame as table."""
+        self.conn.execute(f"CREATE OR REPLACE TABLE {table_name} AS SELECT * FROM df")
 
     def get_views(self) -> List[str]:
         """Return list of views this stage creates."""
