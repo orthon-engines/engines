@@ -19,6 +19,8 @@ CANONICAL INTERFACE:
     Output: [entity_id, signal_id, spectral_centroid, bandwidth, dominant_freq, ...]
 """
 
+ENGINE_TYPE = 'signal'
+
 import numpy as np
 import pandas as pd
 from scipy.fft import fft, fftfreq

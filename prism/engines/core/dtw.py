@@ -12,6 +12,8 @@ DTW finds optimal alignment between sequences, useful when signals
 have similar shapes but are shifted or stretched in time.
 """
 
+ENGINE_TYPE = 'pairwise'
+
 import numpy as np
 import pandas as pd
 from typing import Dict, Any

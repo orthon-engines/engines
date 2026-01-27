@@ -14,6 +14,8 @@ MST reveals structural relationships:
 - High-degree nodes = "bridge" signals connecting clusters
 """
 
+ENGINE_TYPE = 'pairwise'
+
 import numpy as np
 import pandas as pd
 from scipy.spatial.distance import pdist, squareform

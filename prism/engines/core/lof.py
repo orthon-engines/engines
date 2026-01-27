@@ -13,6 +13,8 @@ of its neighbors. Points with substantially lower density than
 their neighbors are considered outliers.
 """
 
+ENGINE_TYPE = 'signal'
+
 import numpy as np
 import pandas as pd
 from sklearn.neighbors import LocalOutlierFactor

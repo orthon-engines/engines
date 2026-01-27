@@ -15,6 +15,8 @@ enabling extraction of:
 - Instantaneous frequency
 """
 
+ENGINE_TYPE = 'point'
+
 import numpy as np
 import pandas as pd
 from scipy.signal import hilbert

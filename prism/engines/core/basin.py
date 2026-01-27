@@ -13,6 +13,8 @@ Basin analysis determines whether the system has escaped its normal
 operating regime by comparing current behavior to baseline.
 """
 
+ENGINE_TYPE = 'signal'
+
 import numpy as np
 import pandas as pd
 from typing import Dict, Any

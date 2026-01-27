@@ -14,6 +14,8 @@ Convex hull analysis reveals:
 - Boundary signals = extreme behavioral signatures
 """
 
+ENGINE_TYPE = 'signal'
+
 import numpy as np
 import pandas as pd
 from scipy.spatial import ConvexHull

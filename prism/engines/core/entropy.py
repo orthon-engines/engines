@@ -13,6 +13,8 @@ CANONICAL INTERFACE:
     Output: [entity_id, signal_id, sample_entropy, permutation_entropy]
 """
 
+ENGINE_TYPE = 'signal'
+
 import numpy as np
 import pandas as pd
 from typing import Dict, Any

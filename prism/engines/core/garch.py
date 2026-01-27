@@ -30,6 +30,8 @@ References:
     Econometrica 50, 987-1007
 """
 
+ENGINE_TYPE = 'signal'
+
 import numpy as np
 import pandas as pd
 from typing import Dict, Any, Optional

@@ -32,6 +32,8 @@ References:
     Physics Letters A 185, 77-87
 """
 
+ENGINE_TYPE = 'signal'
+
 import os
 import numpy as np
 import pandas as pd

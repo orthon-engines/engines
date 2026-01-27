@@ -15,6 +15,8 @@ Divergence measures how different two probability distributions are:
 - Wasserstein: Earth mover's distance, considers geometry
 """
 
+ENGINE_TYPE = 'pairwise'
+
 import numpy as np
 import pandas as pd
 from scipy import stats

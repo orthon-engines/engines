@@ -13,6 +13,8 @@ DMD extracts coherent spatiotemporal patterns (modes) and their
 growth/decay rates and oscillation frequencies.
 """
 
+ENGINE_TYPE = 'signal'  # Entity-level: outputs per-entity DMD modes
+
 import numpy as np
 import pandas as pd
 from scipy import linalg

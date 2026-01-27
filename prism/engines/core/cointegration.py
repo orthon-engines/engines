@@ -12,6 +12,8 @@ Two series are cointegrated if they share a common stochastic trend,
 meaning they move together in the long run even if they diverge short-term.
 """
 
+ENGINE_TYPE = 'pairwise'
+
 import numpy as np
 import pandas as pd
 from scipy import stats

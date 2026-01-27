@@ -14,6 +14,8 @@ Copula analysis captures:
 - Rank-based correlation (robust to outliers)
 """
 
+ENGINE_TYPE = 'pairwise'
+
 import numpy as np
 import pandas as pd
 from scipy import stats

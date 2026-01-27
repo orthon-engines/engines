@@ -11,6 +11,8 @@ CANONICAL INTERFACE:
 Fast decay = weak memory, slow decay = strong memory/persistence.
 """
 
+ENGINE_TYPE = 'signal'
+
 import numpy as np
 import pandas as pd
 from typing import Dict, Any

@@ -17,6 +17,8 @@ Key measures:
     - RR (Recurrence Rate): % of recurrent points
 """
 
+ENGINE_TYPE = 'signal'
+
 import numpy as np
 import pandas as pd
 from scipy.spatial.distance import cdist

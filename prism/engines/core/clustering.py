@@ -11,6 +11,8 @@ CANONICAL INTERFACE:
 Uses KMeans or DBSCAN to identify regimes in multivariate signal space.
 """
 
+ENGINE_TYPE = 'point'
+
 import numpy as np
 import pandas as pd
 from sklearn.cluster import KMeans, DBSCAN

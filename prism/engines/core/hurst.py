@@ -17,6 +17,8 @@ CANONICAL INTERFACE:
     Output: [entity_id, signal_id, hurst, hurst_r2, hurst_method]
 """
 
+ENGINE_TYPE = 'signal'
+
 import numpy as np
 import pandas as pd
 from scipy import stats

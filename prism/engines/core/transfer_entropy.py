@@ -12,6 +12,8 @@ Transfer entropy from X to Y measures how much knowing the past of X
 reduces uncertainty about Y, beyond what knowing the past of Y provides.
 """
 
+ENGINE_TYPE = 'pairwise'
+
 import numpy as np
 import pandas as pd
 from collections import Counter

@@ -12,6 +12,8 @@ Mutual information captures any statistical dependence, not just linear.
 High MI = signals are predictive of each other.
 """
 
+ENGINE_TYPE = 'pairwise'
+
 import numpy as np
 import pandas as pd
 from collections import Counter
