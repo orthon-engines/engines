@@ -1,33 +1,206 @@
 """
 PRISM Manifest Runner (Orchestrator)
 
-Reads manifest from Orthon and coordinates Python and SQL runners.
+Reads manifest from ORTHON and runs ALL engines.
 
-DETERMINISTIC EXECUTION: Engines either RUN or DON'T EXIST in the manifest.
-No runtime file checks. No conditional skipping.
+FULL COMPUTE. RAM OPTIMIZED. NO EXCEPTIONS.
+
+- ALL engines run, always
+- Insufficient data → NaN, never skip
+- RAM managed via entity batching
+- Parallel execution controlled here (not in individual runners)
+- Writes directly to data/ directory
 """
 
 import json
+import gc
+import os
 from pathlib import Path
-from typing import Dict, Any
+from typing import Dict, Any, List
 import numpy as np
 import pandas as pd
 import polars as pl
 
+try:
+    import yaml
+    HAS_YAML = True
+except ImportError:
+    HAS_YAML = False
+
+try:
+    import psutil
+    HAS_PSUTIL = True
+except ImportError:
+    HAS_PSUTIL = False
+
+try:
+    from joblib import Parallel, delayed
+    HAS_JOBLIB = True
+except ImportError:
+    HAS_JOBLIB = False
+
 from prism.python_runner import PythonRunner, SIGNAL_ENGINES, PAIR_ENGINES, SYMMETRIC_PAIR_ENGINES, WINDOWED_ENGINES
 from prism.sql_runner import SQLRunner, SQL_ENGINES
+
+
+# ALL engines - always enabled, no exceptions
+ALL_SIGNAL_ENGINES = SIGNAL_ENGINES
+ALL_PAIR_ENGINES = PAIR_ENGINES
+ALL_SYMMETRIC_PAIR_ENGINES = SYMMETRIC_PAIR_ENGINES
+ALL_WINDOWED_ENGINES = WINDOWED_ENGINES
+ALL_SQL_ENGINES = SQL_ENGINES
+
+
+def load_manifest(manifest_path: str) -> dict:
+    """
+    Load manifest from YAML or JSON file.
+
+    Supports both ORTHON format (YAML) and legacy format (JSON).
+    """
+    manifest_path = Path(manifest_path)
+
+    with open(manifest_path) as f:
+        content = f.read()
+
+    # Try YAML first (ORTHON format), fall back to JSON (legacy)
+    if manifest_path.suffix in ['.yaml', '.yml']:
+        if not HAS_YAML:
+            raise ImportError("PyYAML required for YAML manifests: pip install pyyaml")
+        manifest = yaml.safe_load(content)
+    elif manifest_path.suffix == '.json':
+        manifest = json.loads(content)
+    else:
+        # Try both
+        try:
+            if HAS_YAML:
+                manifest = yaml.safe_load(content)
+            else:
+                manifest = json.loads(content)
+        except:
+            manifest = json.loads(content)
+
+    return normalize_manifest(manifest, manifest_path.parent)
+
+
+def normalize_manifest(manifest: dict, manifest_dir: Path) -> dict:
+    """
+    Normalize manifest to internal format.
+
+    Handles both ORTHON format and legacy format.
+    Always enables ALL engines.
+    """
+
+    # Check if this is ORTHON format (has 'data' and/or 'prism' keys)
+    if 'data' in manifest or 'prism' in manifest:
+        return _normalize_orthon_manifest(manifest, manifest_dir)
+    else:
+        # Legacy format - normalize and enable all engines
+        return _normalize_legacy_manifest(manifest)
+
+
+def _normalize_orthon_manifest(manifest: dict, manifest_dir: Path) -> dict:
+    """Normalize ORTHON YAML manifest to internal format."""
+
+    data_config = manifest.get('data', {})
+    prism_config = manifest.get('prism', {})
+
+    # Resolve observations path
+    obs_path = data_config.get('observations_path', data_config.get('output_path', 'observations.parquet'))
+    if not Path(obs_path).is_absolute():
+        obs_path = manifest_dir / obs_path
+    obs_path = Path(obs_path)
+
+    # Output directory is same as observations directory
+    output_dir = obs_path.parent
+
+    # Window/stride params
+    window_size = prism_config.get('window_size', 100)
+    stride = prism_config.get('stride', window_size)
+
+    # Build params dict
+    params = {
+        'window_size': window_size,
+        'stride': stride,
+    }
+
+    # Add any engine-specific params from prism config
+    for key, value in prism_config.items():
+        if key not in ['engines', 'ram', 'parallel', 'window_size', 'stride', 'compute']:
+            params[key] = value
+
+    # RAM and parallel config
+    ram_config = prism_config.get('ram', {})
+    parallel_config = prism_config.get('parallel', {})
+
+    # ALL ENGINES - NO EXCEPTIONS
+    normalized = {
+        'observations_path': str(obs_path),
+        'output_dir': str(output_dir),
+        'engines': {
+            'signal': ALL_SIGNAL_ENGINES,
+            'pair': ALL_PAIR_ENGINES,
+            'symmetric_pair': ALL_SYMMETRIC_PAIR_ENGINES,
+            'windowed': ALL_WINDOWED_ENGINES,
+            'sql': ALL_SQL_ENGINES,
+            'dynamics': True,
+            'topology': True,
+            'information_flow': True,
+            'physics': True,
+        },
+        'params': params,
+        'parallel': parallel_config,
+        'ram': ram_config,
+        'metadata': manifest.get('dataset', {}),
+    }
+
+    return normalized
+
+
+def _normalize_legacy_manifest(manifest: dict) -> dict:
+    """Normalize legacy JSON manifest to internal format."""
+
+    # Override engine config - ALL engines always
+    manifest['engines'] = {
+        'signal': ALL_SIGNAL_ENGINES,
+        'pair': ALL_PAIR_ENGINES,
+        'symmetric_pair': ALL_SYMMETRIC_PAIR_ENGINES,
+        'windowed': ALL_WINDOWED_ENGINES,
+        'sql': ALL_SQL_ENGINES,
+        'dynamics': True,
+        'topology': True,
+        'information_flow': True,
+        'physics': True,
+    }
+
+    if 'parallel' not in manifest:
+        manifest['parallel'] = {}
+    if 'ram' not in manifest:
+        manifest['ram'] = {}
+
+    return manifest
+
+
+def get_ram_stats() -> dict:
+    """Get current RAM statistics."""
+    if HAS_PSUTIL:
+        mem = psutil.virtual_memory()
+        return {
+            'total_gb': mem.total / (1024**3),
+            'available_gb': mem.available / (1024**3),
+            'used_pct': mem.percent,
+        }
+    return {'total_gb': 0, 'available_gb': 0, 'used_pct': 0}
 
 
 class ManifestRunner:
     """
     Orchestrates manifest execution.
 
-    Coordinates:
-    1. PythonRunner for python/ and python_windowed/ engines
-    2. SQLRunner for sql/ engines
-    3. Dynamics, Topology, Information Flow, Physics engines
+    FULL COMPUTE. RAM OPTIMIZED. NO EXCEPTIONS.
 
-    All engines read from observations.parquet. No cross-dependencies.
+    - Runs ALL engines
+    - Parallel execution controlled here (n_jobs parameter)
+    - Returns NaN for insufficient data, never skips
     """
 
     def __init__(self, manifest: dict):
@@ -38,17 +211,26 @@ class ManifestRunner:
 
         self.engine_config = manifest.get('engines', {})
         self.params = manifest.get('params', {})
+        self.parallel_config = manifest.get('parallel', {})
 
-        # Load observations once, share with runners
+        # Parallel settings: -1 = all cores, 1 = sequential
+        self.n_jobs = self.parallel_config.get('n_jobs', 1)
+        if self.n_jobs == -1:
+            self.n_jobs = os.cpu_count() or 1
+
+        # Load observations
         print(f"Loading observations from {self.observations_path}")
         self.obs_pd = pd.read_parquet(self.observations_path)
         self.obs_pl = pl.from_pandas(self.obs_pd)
         print(f"  Loaded {len(self.obs_pd):,} observations")
 
-        # Check sampling uniformity (for logging)
-        self._check_sampling()
+        # Get entities
+        self.entities = self.obs_pl.select('entity_id').unique().to_series().to_list()
+        self.n_entities = len(self.entities)
+        print(f"  Entities: {self.n_entities}")
+        print(f"  Parallel jobs: {self.n_jobs}")
 
-        # Results collection
+        self._check_sampling()
         self.results: Dict[str, Any] = {}
 
     def _check_sampling(self):
@@ -59,75 +241,85 @@ class ManifestRunner:
                 dI = np.diff(I_values)
                 cv = np.std(dI) / (np.mean(dI) + 1e-10)
                 if cv > 0.1:
-                    print(f"  Note: Non-uniform sampling detected (CV={cv:.2f})")
-                    print(f"  Dynamical results assume uniform sampling - interpret with caution")
+                    print(f"  Note: Non-uniform sampling (CV={cv:.2f})")
         except Exception:
             pass
 
+    def _clear_ram(self):
+        """Clear RAM and report status."""
+        gc.collect()
+        if HAS_PSUTIL:
+            stats = get_ram_stats()
+            print(f"  RAM: {stats['used_pct']:.1f}% used ({stats['available_gb']:.1f}GB available)")
+
     def run(self) -> dict:
-        """Execute the manifest - deterministic, no conditionals."""
+        """Execute the manifest - FULL COMPUTE, ALL ENGINES."""
         print("=" * 60)
-        print("PRISM MANIFEST RUNNER")
+        print("PRISM MANIFEST RUNNER - FULL COMPUTE")
         print("=" * 60)
         print(f"Input:  {self.observations_path}")
         print(f"Output: {self.output_dir}")
+        print(f"Mode:   ALL engines, {'PARALLEL' if self.n_jobs > 1 else 'SEQUENTIAL'}")
 
-        # 1. Run Python signal/pair engines
+        if HAS_PSUTIL:
+            stats = get_ram_stats()
+            print(f"RAM:    {stats['available_gb']:.1f}GB available")
+
+        # 1. Python signal/pair engines
         python_engines = {
-            'signal': self.engine_config.get('signal', []),
-            'pair': self.engine_config.get('pair', []),
-            'symmetric_pair': self.engine_config.get('symmetric_pair', []),
-            'windowed': self.engine_config.get('windowed', []),
+            'signal': self.engine_config.get('signal', ALL_SIGNAL_ENGINES),
+            'pair': self.engine_config.get('pair', ALL_PAIR_ENGINES),
+            'symmetric_pair': self.engine_config.get('symmetric_pair', ALL_SYMMETRIC_PAIR_ENGINES),
+            'windowed': self.engine_config.get('windowed', ALL_WINDOWED_ENGINES),
         }
 
-        if any(python_engines.values()):
-            print("\n" + "-" * 60)
-            print("PYTHON RUNNER")
-            print("-" * 60)
-            python_runner = PythonRunner(
-                obs=self.obs_pd,
-                output_dir=self.output_dir,
-                engines=python_engines,
-                params=self.params
-            )
-            python_results = python_runner.run()
-            self.results['python'] = python_results
+        print("\n" + "-" * 60)
+        print("PYTHON RUNNER (ALL ENGINES)")
+        print("-" * 60)
 
-        # 2. Run SQL engines
-        sql_engines = self.engine_config.get('sql', [])
+        python_runner = PythonRunner(
+            obs=self.obs_pd,
+            output_dir=self.output_dir,
+            engines=python_engines,
+            params=self.params
+        )
+        self.results['python'] = python_runner.run()
+        self._clear_ram()
 
-        if sql_engines:
-            print("\n" + "-" * 60)
-            print("SQL RUNNER")
-            print("-" * 60)
-            sql_runner = SQLRunner(
-                observations_path=self.observations_path,
-                output_dir=self.output_dir,
-                engines=sql_engines,
-                params=self.params
-            )
-            sql_results = sql_runner.run()
-            self.results['sql'] = sql_results
+        # 2. SQL engines
+        sql_engines = self.engine_config.get('sql', ALL_SQL_ENGINES)
 
-        # 3. Run dynamics engine (Lyapunov, RQA, attractors)
-        if self.engine_config.get('dynamics', False):
-            self._run_dynamics()
+        print("\n" + "-" * 60)
+        print("SQL RUNNER (ALL ENGINES)")
+        print("-" * 60)
 
-        # 4. Run topology engine (persistent homology)
-        if self.engine_config.get('topology', False):
-            self._run_topology()
+        sql_runner = SQLRunner(
+            observations_path=self.observations_path,
+            output_dir=self.output_dir,
+            engines=sql_engines,
+            params=self.params
+        )
+        self.results['sql'] = sql_runner.run()
+        self._clear_ram()
 
-        # 5. Run information flow engine (transfer entropy, Granger)
-        if self.engine_config.get('information_flow', False):
-            self._run_information_flow()
+        # 3. Dynamics (parallel in orchestrator)
+        self._run_dynamics_parallel()
+        self._clear_ram()
 
-        # 6. Run physics engine (state distance, coherence, energy)
-        if self.engine_config.get('physics', False):
-            self._run_physics()
+        # 4. Topology (parallel in orchestrator)
+        self._run_topology_parallel()
+        self._clear_ram()
 
-        # Summary
+        # 5. Information flow (parallel in orchestrator)
+        self._run_information_flow_parallel()
+        self._clear_ram()
+
+        # 6. Physics
+        self._run_physics()
+        self._clear_ram()
+
         print("\n" + "=" * 60)
-        print("COMPLETE")
+        print("COMPLETE - FULL COMPUTE")
         print("=" * 60)
         self._print_summary()
 
@@ -137,77 +329,144 @@ class ManifestRunner:
             'results': self.results
         }
 
-    def _run_dynamics(self):
-        """Compute dynamics (Lyapunov, RQA, attractors) for all entities."""
+    def _run_dynamics_parallel(self):
+        """Compute dynamics with optional parallel execution."""
         print("\n" + "-" * 60)
-        print("DYNAMICS ENGINE")
+        print(f"DYNAMICS ENGINE {'(PARALLEL)' if self.n_jobs > 1 else '(SEQUENTIAL)'}")
         print("-" * 60)
 
         try:
-            from prism.engines.dynamics_runner import run_dynamics
+            from prism.engines.dynamics_runner import process_entity_dynamics
 
             dynamics_params = self.params.get('dynamics', {})
-            dynamics_df = run_dynamics(self.obs_pl, self.output_dir, dynamics_params)
+            print(f"  Processing {self.n_entities} entities on {self.n_jobs} workers...")
 
-            if not dynamics_df.is_empty():
-                self.results['dynamics'] = {'rows': len(dynamics_df), 'cols': len(dynamics_df.columns)}
+            if self.n_jobs > 1 and HAS_JOBLIB:
+                results_nested = Parallel(n_jobs=self.n_jobs)(
+                    delayed(process_entity_dynamics)(
+                        entity_id,
+                        self.obs_pl.filter(pl.col('entity_id') == entity_id),
+                        dynamics_params
+                    )
+                    for entity_id in self.entities
+                )
+                all_results = [r for entity_results in results_nested for r in entity_results]
             else:
+                all_results = []
+                for entity_id in self.entities:
+                    entity_obs = self.obs_pl.filter(pl.col('entity_id') == entity_id)
+                    entity_results = process_entity_dynamics(entity_id, entity_obs, dynamics_params)
+                    all_results.extend(entity_results)
+
+            if not all_results:
+                print("  Warning: no dynamics data computed")
                 self.results['dynamics'] = {'rows': 0, 'cols': 0}
+                return
+
+            df = pl.DataFrame(all_results)
+            output_path = self.output_dir / 'dynamics.parquet'
+            df.write_parquet(output_path)
+            print(f"  dynamics.parquet: {len(df):,} rows x {len(df.columns)} cols")
+            self.results['dynamics'] = {'rows': len(df), 'cols': len(df.columns)}
 
         except Exception as e:
             print(f"  Error in dynamics engine: {e}")
             self.results['dynamics'] = {'error': str(e)}
 
-    def _run_topology(self):
-        """Compute topology (persistent homology, Betti numbers) for all entities."""
+    def _run_topology_parallel(self):
+        """Compute topology with optional parallel execution."""
         print("\n" + "-" * 60)
-        print("TOPOLOGY ENGINE")
+        print(f"TOPOLOGY ENGINE {'(PARALLEL)' if self.n_jobs > 1 else '(SEQUENTIAL)'}")
         print("-" * 60)
 
         try:
-            from prism.engines.topology_runner import run_topology
+            from prism.engines.topology_runner import process_entity_topology
 
             topology_params = self.params.get('topology', {})
-            topology_df = run_topology(self.obs_pl, self.output_dir, topology_params)
+            print(f"  Processing {self.n_entities} entities on {self.n_jobs} workers...")
 
-            if not topology_df.is_empty():
-                self.results['topology'] = {'rows': len(topology_df), 'cols': len(topology_df.columns)}
+            if self.n_jobs > 1 and HAS_JOBLIB:
+                results_nested = Parallel(n_jobs=self.n_jobs)(
+                    delayed(process_entity_topology)(
+                        entity_id,
+                        self.obs_pl.filter(pl.col('entity_id') == entity_id),
+                        topology_params
+                    )
+                    for entity_id in self.entities
+                )
+                all_results = [r for entity_results in results_nested for r in entity_results]
             else:
+                all_results = []
+                for entity_id in self.entities:
+                    entity_obs = self.obs_pl.filter(pl.col('entity_id') == entity_id)
+                    entity_results = process_entity_topology(entity_id, entity_obs, topology_params)
+                    all_results.extend(entity_results)
+
+            if not all_results:
+                print("  Warning: no topology data computed")
                 self.results['topology'] = {'rows': 0, 'cols': 0}
+                return
+
+            df = pl.DataFrame(all_results)
+            output_path = self.output_dir / 'topology.parquet'
+            df.write_parquet(output_path)
+            print(f"  topology.parquet: {len(df):,} rows x {len(df.columns)} cols")
+            self.results['topology'] = {'rows': len(df), 'cols': len(df.columns)}
 
         except Exception as e:
             print(f"  Error in topology engine: {e}")
             self.results['topology'] = {'error': str(e)}
 
-    def _run_information_flow(self):
-        """Compute information flow (transfer entropy, Granger) for all entities."""
+    def _run_information_flow_parallel(self):
+        """Compute information flow with optional parallel execution."""
         print("\n" + "-" * 60)
-        print("INFORMATION FLOW ENGINE")
+        print(f"INFORMATION FLOW ENGINE {'(PARALLEL)' if self.n_jobs > 1 else '(SEQUENTIAL)'}")
         print("-" * 60)
 
         try:
-            from prism.engines.information_flow_runner import run_information_flow
+            from prism.engines.information_flow_runner import process_entity_information_flow
 
             info_params = self.params.get('information_flow', {})
-            info_df = run_information_flow(self.obs_pl, self.output_dir, info_params)
+            print(f"  Processing {self.n_entities} entities on {self.n_jobs} workers...")
 
-            if not info_df.is_empty():
-                self.results['information_flow'] = {'rows': len(info_df), 'cols': len(info_df.columns)}
+            if self.n_jobs > 1 and HAS_JOBLIB:
+                results_nested = Parallel(n_jobs=self.n_jobs)(
+                    delayed(process_entity_information_flow)(
+                        entity_id,
+                        self.obs_pl.filter(pl.col('entity_id') == entity_id),
+                        info_params
+                    )
+                    for entity_id in self.entities
+                )
+                all_results = [r for entity_results in results_nested for r in entity_results]
             else:
+                all_results = []
+                for entity_id in self.entities:
+                    entity_obs = self.obs_pl.filter(pl.col('entity_id') == entity_id)
+                    entity_results = process_entity_information_flow(entity_id, entity_obs, info_params)
+                    all_results.extend(entity_results)
+
+            if not all_results:
+                print("  Warning: no information flow data computed")
                 self.results['information_flow'] = {'rows': 0, 'cols': 0}
+                return
+
+            df = pl.DataFrame(all_results)
+            output_path = self.output_dir / 'information_flow.parquet'
+            df.write_parquet(output_path)
+            print(f"  information_flow.parquet: {len(df):,} rows x {len(df.columns)} cols")
+            self.results['information_flow'] = {'rows': len(df), 'cols': len(df.columns)}
 
         except Exception as e:
             print(f"  Error in information flow engine: {e}")
             self.results['information_flow'] = {'error': str(e)}
 
     def _run_physics(self):
-        """Compute physics stack (state distance, coherence, energy) for all entities."""
+        """Compute physics stack."""
         print("\n" + "-" * 60)
         print("PHYSICS STACK")
         print("-" * 60)
 
-        # Physics engine needs rolling metrics from observations_enriched
-        # If not available, compute directly from observations with limited metrics
         obs_enriched_path = self.output_dir / 'observations_enriched.parquet'
 
         try:
@@ -216,14 +475,11 @@ class ManifestRunner:
             physics_params = self.params.get('physics', {})
 
             if obs_enriched_path.exists():
-                # Use enriched observations (has rolling metrics)
                 obs_enriched = pd.read_parquet(obs_enriched_path)
                 print(f"  Using observations_enriched.parquet ({len(obs_enriched):,} rows)")
             else:
-                # Use raw observations - physics will compute what it can
-                print("  Using raw observations (no rolling metrics available)")
+                print("  Using raw observations")
                 obs_enriched = self.obs_pd.copy()
-                # Add 'y' column expected by physics (alias for value)
                 if 'y' not in obs_enriched.columns and 'value' in obs_enriched.columns:
                     obs_enriched['y'] = obs_enriched['value']
 
@@ -261,27 +517,36 @@ class ManifestRunner:
 
 
 def run_manifest(manifest_path: str) -> dict:
-    """Load and run a manifest from a JSON file."""
-    with open(manifest_path) as f:
-        manifest = json.load(f)
+    """Load and run a manifest from a YAML or JSON file."""
+    manifest = load_manifest(manifest_path)
     runner = ManifestRunner(manifest)
     return runner.run()
 
 
 def run_manifest_dict(manifest: dict) -> dict:
     """Run a manifest from a dictionary."""
+    if 'data' in manifest or 'prism' in manifest:
+        manifest = normalize_manifest(manifest, Path('.'))
+    else:
+        manifest = _normalize_legacy_manifest(manifest)
     runner = ManifestRunner(manifest)
     return runner.run()
 
 
-# Export engine lists for CLI
 __all__ = [
     'ManifestRunner',
     'run_manifest',
     'run_manifest_dict',
+    'load_manifest',
+    'normalize_manifest',
     'SIGNAL_ENGINES',
     'PAIR_ENGINES',
     'SYMMETRIC_PAIR_ENGINES',
     'WINDOWED_ENGINES',
     'SQL_ENGINES',
+    'ALL_SIGNAL_ENGINES',
+    'ALL_PAIR_ENGINES',
+    'ALL_SYMMETRIC_PAIR_ENGINES',
+    'ALL_WINDOWED_ENGINES',
+    'ALL_SQL_ENGINES',
 ]
