@@ -368,7 +368,7 @@ def compute_energy(
     for signal in signals:
         signal_data = entity_data[entity_data['signal_id'] == signal].sort_values('I')
 
-        y = signal_data['y'].values
+        y = signal_data['value'].values
         signal_I = signal_data['I'].values
 
         if has_dy:

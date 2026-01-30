@@ -51,11 +51,11 @@ PRISM expects THIS format. No exceptions.
 | entity_id | str | Which entity (pump, bearing, industry) |
 | I | UInt32 | Observation index within entity |
 | signal_id | str | Which signal (temp, pressure, return) |
-| y | Float64 | The measurement |
+| value | Float64 | The measurement |
 
 Example:
 ```
-entity_id | I | signal_id | y
+entity_id | I | signal_id | value
 ----------|---|-----------|------
 pump_1    | 0 | temp      | 45.2
 pump_1    | 0 | pressure  | 101.3

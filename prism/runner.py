@@ -271,8 +271,6 @@ def run(manifest_path: Path = None) -> dict:
             obs_enriched = pd.read_parquet(obs_enriched_path)
         else:
             obs_enriched = obs_pd.copy()
-            if 'y' not in obs_enriched.columns and 'value' in obs_enriched.columns:
-                obs_enriched['y'] = obs_enriched['value']
 
         physics_df = compute_physics_for_all_entities(
             obs_enriched=obs_enriched,

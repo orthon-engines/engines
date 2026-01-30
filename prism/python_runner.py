@@ -95,7 +95,7 @@ class PythonRunner:
             sorted_group = group.sort_values('I')
             self.signal_data[(entity, signal)] = {
                 'I': sorted_group['I'].values,
-                'y': sorted_group['y'].values,
+                'value': sorted_group['value'].values,
                 'unit': sorted_group['unit'].iloc[0] if 'unit' in sorted_group.columns else None,
                 'df': sorted_group,
             }
@@ -137,7 +137,7 @@ class PythonRunner:
                 engine_funcs[name] = func
 
         for (entity, signal), data in self.signal_data.items():
-            y = data['y']
+            y = data['value']
             I = data['I']
             unit = data['unit']
 
@@ -194,7 +194,7 @@ class PythonRunner:
                     data_a = self.signal_data[(entity, sig_a)]
                     data_b = self.signal_data[(entity, sig_b)]
 
-                    y_a, y_b = data_a['y'], data_b['y']
+                    y_a, y_b = data_a['value'], data_b['value']
                     n = min(len(y_a), len(y_b))
                     if n < 20:
                         continue
@@ -246,7 +246,7 @@ class PythonRunner:
                     data_a = self.signal_data[(entity, sig_a)]
                     data_b = self.signal_data[(entity, sig_b)]
 
-                    y_a, y_b = data_a['y'], data_b['y']
+                    y_a, y_b = data_a['value'], data_b['value']
                     n = min(len(y_a), len(y_b))
                     if n < 50:
                         continue
@@ -297,7 +297,7 @@ class PythonRunner:
 
         total_signals = len(self.signal_data)
         for idx, ((entity, signal), data) in enumerate(self.signal_data.items()):
-            y = data['y']
+            y = data['value']
             I = data['I']
             df = data['df'].copy()
 
