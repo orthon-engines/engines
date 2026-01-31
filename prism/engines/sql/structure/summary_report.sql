@@ -22,7 +22,7 @@ FROM read_parquet('structure.parquet');
 
 -- Entity complexity ranking
 SELECT
-    entity_id,
+    unit_id,
     -- Correlation structure
     covariance_mean_correlation,
     -- Effective dimensionality
@@ -44,7 +44,7 @@ LIMIT 20;
 
 -- Anomaly detection: entities with unusual structure
 SELECT
-    entity_id,
+    unit_id,
     covariance_condition_number,
     eigenvalue_tracy_widom_pvalue,
     koopman_spectral_radius,
@@ -59,7 +59,7 @@ WHERE
     OR koopman_spectral_radius > 1.1
     -- Highly coherent
     OR spectral_mean_coherence > 0.8
-ORDER BY entity_id;
+ORDER BY unit_id;
 
 -- System type classification based on structural signatures
 SELECT

@@ -55,7 +55,7 @@ class BifurcationEngine:
     def compute(
         self,
         signal: np.ndarray,
-        entity_id: str = "unknown"
+        unit_id: str = "unknown"
     ) -> Dict[str, Any]:
         """
         Compute critical slowing down indicators for a signal.
@@ -64,7 +64,7 @@ class BifurcationEngine:
         ----------
         signal : np.ndarray
             Time series data
-        entity_id : str
+        unit_id : str
             Entity identifier
 
         Returns
@@ -78,7 +78,7 @@ class BifurcationEngine:
         signal = signal[~np.isnan(signal)]
 
         if len(signal) < self.config.min_samples:
-            return self._empty_result(entity_id)
+            return self._empty_result(unit_id)
 
         try:
             # Detrend if requested
@@ -107,16 +107,16 @@ class BifurcationEngine:
                 skew, kurt = 0.0, 0.0
 
             # Track histories
-            if entity_id not in self.variance_history:
-                self.variance_history[entity_id] = []
-                self.autocorr_history[entity_id] = []
+            if unit_id not in self.variance_history:
+                self.variance_history[unit_id] = []
+                self.autocorr_history[unit_id] = []
 
-            self.variance_history[entity_id].append(var)
-            self.autocorr_history[entity_id].append(ac1)
+            self.variance_history[unit_id].append(var)
+            self.autocorr_history[unit_id].append(ac1)
 
             # Trend detection
-            var_history = self.variance_history[entity_id]
-            ac_history = self.autocorr_history[entity_id]
+            var_history = self.variance_history[unit_id]
+            ac_history = self.autocorr_history[unit_id]
 
             if len(var_history) >= 4:
                 var_trend, var_p, _, var_slope = mann_kendall(np.array(var_history))
@@ -155,7 +155,7 @@ class BifurcationEngine:
                 csd_status = 'NORMAL'
 
             return {
-                'entity_id': entity_id,
+                'unit_id': unit_id,
                 'n_samples': len(signal),
                 'variance': var,
                 'autocorr_lag1': ac1,
@@ -174,12 +174,12 @@ class BifurcationEngine:
             }
 
         except Exception as e:
-            return self._empty_result(entity_id)
+            return self._empty_result(unit_id)
 
-    def _empty_result(self, entity_id: str) -> Dict[str, Any]:
+    def _empty_result(self, unit_id: str) -> Dict[str, Any]:
         """Return empty result for insufficient data."""
         return {
-            'entity_id': entity_id,
+            'unit_id': unit_id,
             'n_samples': 0,
             'variance': np.nan,
             'autocorr_lag1': np.nan,
@@ -214,7 +214,7 @@ def run_bifurcation_engine(
     Parameters
     ----------
     observations : pl.DataFrame
-        Observations with entity_id, signal_id, index, value
+        Observations with unit_id, signal_id, index, value
     config : BifurcationConfig
         Engine configuration
     signal_columns : list
@@ -227,14 +227,14 @@ def run_bifurcation_engine(
     pl.DataFrame
         CSD results
     """
-    entities = observations.select('entity_id').unique().to_series().to_list()
+    entities = observations.select('unit_id').unique().to_series().to_list()
     all_results = []
 
     for sig_col in signal_columns:
         engine = BifurcationEngine(config)  # Fresh engine per signal
 
-        for entity_id in entities:
-            entity_obs = observations.filter(pl.col('entity_id') == entity_id)
+        for unit_id in entities:
+            entity_obs = observations.filter(pl.col('unit_id') == unit_id)
 
             sig_data = (
                 entity_obs
@@ -246,13 +246,13 @@ def run_bifurcation_engine(
             )
 
             if len(sig_data) > 0:
-                result = engine.compute(sig_data, entity_id)
+                result = engine.compute(sig_data, unit_id)
                 row = engine.to_parquet_row(result)
                 row['signal'] = sig_col
                 all_results.append(row)
 
     df = pl.DataFrame(all_results) if all_results else pl.DataFrame({
-        'entity_id': [], 'signal': [], 'csd_score': [], 'csd_status': []
+        'unit_id': [], 'signal': [], 'csd_score': [], 'csd_status': []
     })
 
     if output_path:

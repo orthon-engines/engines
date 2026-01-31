@@ -58,7 +58,7 @@ class RecurrenceEngine:
     def compute(
         self,
         signal: np.ndarray,
-        entity_id: str = "unknown"
+        unit_id: str = "unknown"
     ) -> Dict[str, Any]:
         """
         Compute RQA metrics for a signal.
@@ -67,7 +67,7 @@ class RecurrenceEngine:
         ----------
         signal : np.ndarray
             Time series data
-        entity_id : str
+        unit_id : str
             Entity identifier
 
         Returns
@@ -81,7 +81,7 @@ class RecurrenceEngine:
         signal = signal[~np.isnan(signal)]
 
         if len(signal) < self.config.min_samples:
-            return self._empty_result(entity_id)
+            return self._empty_result(unit_id)
 
         try:
             # Auto-detect embedding parameters
@@ -99,7 +99,7 @@ class RecurrenceEngine:
             embedded = time_delay_embedding(signal, dimension=dim, delay=tau)
 
             if len(embedded) < 30:
-                return self._empty_result(entity_id)
+                return self._empty_result(unit_id)
 
             # Compute recurrence matrix
             R = recurrence_matrix(embedded, threshold=self.config.recurrence_threshold)
@@ -113,12 +113,12 @@ class RecurrenceEngine:
             div = divergence_rqa(R, min_line=self.config.min_line_length)
 
             # Track determinism history
-            if entity_id not in self.determinism_history:
-                self.determinism_history[entity_id] = []
-            self.determinism_history[entity_id].append(det)
+            if unit_id not in self.determinism_history:
+                self.determinism_history[unit_id] = []
+            self.determinism_history[unit_id].append(det)
 
             # Trend detection
-            history = self.determinism_history[entity_id]
+            history = self.determinism_history[unit_id]
             if len(history) >= 4:
                 trend, p_trend, tau_mk, slope = mann_kendall(np.array(history))
             else:
@@ -140,7 +140,7 @@ class RecurrenceEngine:
                 lam_status = 'NORMAL'
 
             return {
-                'entity_id': entity_id,
+                'unit_id': unit_id,
                 'n_samples': len(signal),
                 'recurrence_rate': float(rr),
                 'determinism': float(det),
@@ -158,12 +158,12 @@ class RecurrenceEngine:
             }
 
         except Exception as e:
-            return self._empty_result(entity_id)
+            return self._empty_result(unit_id)
 
-    def _empty_result(self, entity_id: str) -> Dict[str, Any]:
+    def _empty_result(self, unit_id: str) -> Dict[str, Any]:
         """Return empty result for insufficient data."""
         return {
-            'entity_id': entity_id,
+            'unit_id': unit_id,
             'n_samples': 0,
             'recurrence_rate': np.nan,
             'determinism': np.nan,
@@ -197,7 +197,7 @@ def run_recurrence_engine(
     Parameters
     ----------
     observations : pl.DataFrame
-        Observations with entity_id, signal_id, index, value
+        Observations with unit_id, signal_id, index, value
     config : RecurrenceConfig
         Engine configuration
     signal_column : str
@@ -212,11 +212,11 @@ def run_recurrence_engine(
     """
     engine = RecurrenceEngine(config)
 
-    entities = observations.select('entity_id').unique().to_series().to_list()
+    entities = observations.select('unit_id').unique().to_series().to_list()
     results = []
 
-    for entity_id in entities:
-        entity_obs = observations.filter(pl.col('entity_id') == entity_id)
+    for unit_id in entities:
+        entity_obs = observations.filter(pl.col('unit_id') == unit_id)
 
         sig_data = (
             entity_obs
@@ -228,11 +228,11 @@ def run_recurrence_engine(
         )
 
         if len(sig_data) > 0:
-            result = engine.compute(sig_data, entity_id)
+            result = engine.compute(sig_data, unit_id)
             results.append(engine.to_parquet_row(result))
 
     df = pl.DataFrame(results) if results else pl.DataFrame({
-        'entity_id': [], 'determinism': [], 'det_status': []
+        'unit_id': [], 'determinism': [], 'det_status': []
     })
 
     if output_path:

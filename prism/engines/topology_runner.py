@@ -18,7 +18,7 @@ from typing import Dict, List, Any
 
 
 def process_entity_topology(
-    entity_id: str,
+    unit_id: str,
     entity_obs: pl.DataFrame,
     params: Dict[str, Any] = None
 ) -> List[Dict[str, Any]]:
@@ -26,7 +26,7 @@ def process_entity_topology(
     Process a single entity for topology metrics.
 
     Args:
-        entity_id: Entity identifier
+        unit_id: Entity identifier
         entity_obs: Observations for this entity only
         params: Optional parameters
 
@@ -64,7 +64,7 @@ def process_entity_topology(
             continue
 
         result_row = {
-            'entity_id': entity_id,
+            'unit_id': unit_id,
             'signal_id': signal_id,
             'n_samples': len(sig_data),
         }
@@ -143,7 +143,7 @@ def run_topology(
     For parallel execution, use process_entity_topology with joblib from orchestrator.
 
     Args:
-        obs: Observations with entity_id, signal_id, I, value
+        obs: Observations with unit_id, signal_id, I, value
         output_dir: Where to write topology.parquet
         params: Optional parameters (max_dimension, subsample_size, etc.)
 
@@ -151,14 +151,14 @@ def run_topology(
         DataFrame with topology metrics per entity/signal
     """
     params = params or {}
-    entities = obs.select('entity_id').unique().to_series().to_list()
+    entities = obs.select('unit_id').unique().to_series().to_list()
     all_results = []
 
     print(f"  Processing {len(entities)} entities...")
 
-    for entity_id in entities:
-        entity_obs = obs.filter(pl.col('entity_id') == entity_id)
-        entity_results = process_entity_topology(entity_id, entity_obs, params)
+    for unit_id in entities:
+        entity_obs = obs.filter(pl.col('unit_id') == unit_id)
+        entity_results = process_entity_topology(unit_id, entity_obs, params)
         all_results.extend(entity_results)
 
     if not all_results:

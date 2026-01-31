@@ -57,15 +57,17 @@ def run(manifest_path: Path = None) -> dict:
     All data lives in data/
     """
 
-    # Use canonical data directory
-    data_dir = DATA_DIR
-    data_dir.mkdir(parents=True, exist_ok=True)
-
-    # Load manifest from data/
+    # Determine data directory from manifest location
     if manifest_path is None:
+        # Default: use canonical data/
+        data_dir = DATA_DIR
         manifest_path = data_dir / 'manifest.yaml'
     else:
+        # Use manifest's directory as data directory
         manifest_path = Path(manifest_path)
+        data_dir = manifest_path.parent
+
+    data_dir.mkdir(parents=True, exist_ok=True)
 
     if not manifest_path.exists():
         raise FileNotFoundError(f"Manifest not found: {manifest_path}")
@@ -77,7 +79,7 @@ def run(manifest_path: Path = None) -> dict:
     else:
         manifest = json.loads(manifest_path.read_text())
 
-    # Observations always in data/
+    # Observations in same directory as manifest
     observations_path = data_dir / 'observations.parquet'
 
     if not observations_path.exists():
@@ -121,7 +123,7 @@ def run(manifest_path: Path = None) -> dict:
     obs_pl = pl.from_pandas(obs_pd)
     print(f"  {len(obs_pd):,} observations")
 
-    entities = obs_pl.select('entity_id').unique().to_series().to_list()
+    entities = obs_pl.select('unit_id').unique().to_series().to_list()
     print(f"  {len(entities)} entities")
 
     results = {}
@@ -157,9 +159,9 @@ def run(manifest_path: Path = None) -> dict:
 
         def process_topology_batch(batch_entities):
             batch_results = []
-            for entity_id in batch_entities:
-                entity_obs = obs_pl.filter(pl.col('entity_id') == entity_id)
-                entity_results = process_entity_topology(entity_id, entity_obs, params)
+            for unit_id in batch_entities:
+                entity_obs = obs_pl.filter(pl.col('unit_id') == unit_id)
+                entity_results = process_entity_topology(unit_id, entity_obs, params)
                 batch_results.extend(entity_results)
             return batch_results
 
@@ -199,9 +201,9 @@ def run(manifest_path: Path = None) -> dict:
 
         def process_dynamics_batch(batch_entities):
             batch_results = []
-            for entity_id in batch_entities:
-                entity_obs = obs_pl.filter(pl.col('entity_id') == entity_id)
-                entity_results = process_entity_dynamics(entity_id, entity_obs, params)
+            for unit_id in batch_entities:
+                entity_obs = obs_pl.filter(pl.col('unit_id') == unit_id)
+                entity_results = process_entity_dynamics(unit_id, entity_obs, params)
                 batch_results.extend(entity_results)
             return batch_results
 
@@ -233,9 +235,9 @@ def run(manifest_path: Path = None) -> dict:
 
         def process_info_flow_batch(batch_entities):
             batch_results = []
-            for entity_id in batch_entities:
-                entity_obs = obs_pl.filter(pl.col('entity_id') == entity_id)
-                entity_results = process_entity_information_flow(entity_id, entity_obs, params)
+            for unit_id in batch_entities:
+                entity_obs = obs_pl.filter(pl.col('unit_id') == unit_id)
+                entity_results = process_entity_information_flow(unit_id, entity_obs, params)
                 batch_results.extend(entity_results)
             return batch_results
 

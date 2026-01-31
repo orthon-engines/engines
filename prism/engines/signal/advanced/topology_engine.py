@@ -57,7 +57,7 @@ class TopologyEngine:
     def compute(
         self,
         signal: np.ndarray,
-        entity_id: str = "unknown"
+        unit_id: str = "unknown"
     ) -> Dict[str, Any]:
         """
         Compute topological features for a signal.
@@ -66,7 +66,7 @@ class TopologyEngine:
         ----------
         signal : np.ndarray
             Time series data
-        entity_id : str
+        unit_id : str
             Entity identifier
 
         Returns
@@ -78,7 +78,7 @@ class TopologyEngine:
         signal = signal[~np.isnan(signal)]
 
         if len(signal) < self.config.min_samples:
-            return self._empty_result(entity_id)
+            return self._empty_result(unit_id)
 
         try:
             # Embed the signal
@@ -95,7 +95,7 @@ class TopologyEngine:
             embedded = time_delay_embedding(signal, dimension=dim, delay=tau)
 
             if len(embedded) < 30:
-                return self._empty_result(entity_id)
+                return self._empty_result(unit_id)
 
             # Subsample for computational efficiency
             if len(embedded) > self.config.max_points:
@@ -133,19 +133,19 @@ class TopologyEngine:
             fragmentation = betti.get(0, 1) > 1
 
             # Compare to baseline
-            if entity_id not in self.baseline_diagrams:
-                self.baseline_diagrams[entity_id] = diagrams
+            if unit_id not in self.baseline_diagrams:
+                self.baseline_diagrams[unit_id] = diagrams
                 topo_change = 0.0
             else:
                 try:
                     topo_change = wasserstein_distance(
-                        self.baseline_diagrams[entity_id], diagrams, dimension=1
+                        self.baseline_diagrams[unit_id], diagrams, dimension=1
                     )
                 except Exception:
                     topo_change = 0.0
 
             return {
-                'entity_id': entity_id,
+                'unit_id': unit_id,
                 'n_samples': len(signal),
                 'embedding_dim': dim,
                 'embedding_tau': tau,
@@ -162,7 +162,7 @@ class TopologyEngine:
             }
 
         except Exception as e:
-            return self._empty_result(entity_id)
+            return self._empty_result(unit_id)
 
     def _compute_complexity(self, diagrams: Dict) -> float:
         """
@@ -178,10 +178,10 @@ class TopologyEngine:
                 total += np.sum(pers)
         return total
 
-    def _empty_result(self, entity_id: str) -> Dict[str, Any]:
+    def _empty_result(self, unit_id: str) -> Dict[str, Any]:
         """Return empty result for insufficient data."""
         return {
-            'entity_id': entity_id,
+            'unit_id': unit_id,
             'n_samples': 0,
             'embedding_dim': None,
             'embedding_tau': None,
@@ -214,7 +214,7 @@ def run_topology_engine(
     Parameters
     ----------
     observations : pl.DataFrame
-        Observations with entity_id, signal_id, index, value
+        Observations with unit_id, signal_id, index, value
     config : TopologyConfig
         Engine configuration
     signal_column : str
@@ -229,11 +229,11 @@ def run_topology_engine(
     """
     engine = TopologyEngine(config)
 
-    entities = observations.select('entity_id').unique().to_series().to_list()
+    entities = observations.select('unit_id').unique().to_series().to_list()
     results = []
 
-    for entity_id in entities:
-        entity_obs = observations.filter(pl.col('entity_id') == entity_id)
+    for unit_id in entities:
+        entity_obs = observations.filter(pl.col('unit_id') == unit_id)
 
         sig_data = (
             entity_obs
@@ -245,11 +245,11 @@ def run_topology_engine(
         )
 
         if len(sig_data) > 0:
-            result = engine.compute(sig_data, entity_id)
+            result = engine.compute(sig_data, unit_id)
             results.append(engine.to_parquet_row(result))
 
     df = pl.DataFrame(results) if results else pl.DataFrame({
-        'entity_id': [], 'betti_0': [], 'betti_1': [], 'topological_complexity': []
+        'unit_id': [], 'betti_0': [], 'betti_1': [], 'topological_complexity': []
     })
 
     if output_path:

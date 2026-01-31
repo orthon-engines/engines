@@ -27,7 +27,7 @@ ORDER BY avg_coherence;
 
 -- Highly coherent systems (synchronized signals)
 SELECT
-    entity_id,
+    unit_id,
     spectral_mean_coherence,
     spectral_max_coherence,
     spectral_n_significant_coherence,
@@ -39,7 +39,7 @@ LIMIT 20;
 
 -- Low spectral entropy (narrowband/periodic signals)
 SELECT
-    entity_id,
+    unit_id,
     spectral_avg_spectral_entropy,
     spectral_avg_dominant_frequency,
     spectral_mean_coherence
@@ -50,7 +50,7 @@ LIMIT 20;
 
 -- High spectral entropy (broadband/noise-like)
 SELECT
-    entity_id,
+    unit_id,
     spectral_avg_spectral_entropy,
     spectral_avg_dominant_frequency,
     spectral_mean_coherence

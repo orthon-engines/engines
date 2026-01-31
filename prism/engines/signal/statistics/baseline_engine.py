@@ -32,7 +32,7 @@ class BaselineEngine:
     Outputs:
     - metric_source: Which engine produced the metric
     - metric_name: Name of the metric
-    - entity_id: Entity or 'FLEET' for fleet-wide
+    - unit_id: Entity or 'FLEET' for fleet-wide
     - mean, std, median, min, max: Basic statistics
     - p5, p25, p50, p75, p95: Percentiles
     - n_samples: Number of samples in baseline
@@ -48,7 +48,7 @@ class BaselineEngine:
         data: np.ndarray,
         metric_name: str,
         source_name: str,
-        entity_id: str = 'FLEET'
+        unit_id: str = 'FLEET'
     ) -> Dict[str, Any]:
         """
         Compute baseline statistics for a metric.
@@ -61,7 +61,7 @@ class BaselineEngine:
             Name of the metric
         source_name : str
             Name of the source engine
-        entity_id : str
+        unit_id : str
             Entity ID or 'FLEET'
 
         Returns
@@ -73,12 +73,12 @@ class BaselineEngine:
         data = data[~np.isnan(data)]
 
         if len(data) < self.config.min_samples:
-            return self._empty_result(metric_name, source_name, entity_id)
+            return self._empty_result(metric_name, source_name, unit_id)
 
         stats = {
             'metric_source': source_name,
             'metric_name': metric_name,
-            'entity_id': entity_id,
+            'unit_id': unit_id,
             'mean': float(np.mean(data)),
             'std': float(np.std(data)),
             'median': float(np.median(data)),
@@ -106,13 +106,13 @@ class BaselineEngine:
         self,
         metric_name: str,
         source_name: str,
-        entity_id: str
+        unit_id: str
     ) -> Dict[str, Any]:
         """Return empty result for insufficient data."""
         result = {
             'metric_source': source_name,
             'metric_name': metric_name,
-            'entity_id': entity_id,
+            'unit_id': unit_id,
             'mean': np.nan,
             'std': np.nan,
             'median': np.nan,
@@ -175,17 +175,17 @@ def run_baseline_engine(
         ]
 
         for metric in numeric_cols:
-            if config.group_by == 'entity' and 'entity_id' in df_baseline.columns:
+            if config.group_by == 'entity' and 'unit_id' in df_baseline.columns:
                 # Per-entity baselines
-                entities = df_baseline['entity_id'].unique().to_list()
-                for entity_id in entities:
+                entities = df_baseline['unit_id'].unique().to_list()
+                for unit_id in entities:
                     entity_data = df_baseline.filter(
-                        pl.col('entity_id') == entity_id
+                        pl.col('unit_id') == unit_id
                     )[metric].drop_nulls().to_numpy()
 
                     if len(entity_data) >= config.min_samples:
                         stats = engine.compute_baseline(
-                            entity_data, metric, source_name, entity_id
+                            entity_data, metric, source_name, unit_id
                         )
                         results.append(stats)
 
@@ -198,7 +198,7 @@ def run_baseline_engine(
                 results.append(stats)
 
     df_out = pl.DataFrame(results) if results else pl.DataFrame({
-        'metric_source': [], 'metric_name': [], 'entity_id': [],
+        'metric_source': [], 'metric_name': [], 'unit_id': [],
         'mean': [], 'std': [], 'n_samples': []
     })
 
@@ -213,7 +213,7 @@ def get_baseline_for_metric(
     baseline_df: pl.DataFrame,
     source: str,
     metric: str,
-    entity_id: str = 'FLEET'
+    unit_id: str = 'FLEET'
 ) -> Optional[Dict[str, Any]]:
     """
     Retrieve baseline statistics for a specific metric.
@@ -226,7 +226,7 @@ def get_baseline_for_metric(
         Source engine name
     metric : str
         Metric name
-    entity_id : str
+    unit_id : str
         Entity ID or 'FLEET'
 
     Returns
@@ -238,15 +238,15 @@ def get_baseline_for_metric(
     filtered = baseline_df.filter(
         (pl.col('metric_source') == source) &
         (pl.col('metric_name') == metric) &
-        (pl.col('entity_id') == entity_id)
+        (pl.col('unit_id') == unit_id)
     )
 
-    if len(filtered) == 0 and entity_id != 'FLEET':
+    if len(filtered) == 0 and unit_id != 'FLEET':
         # Fall back to fleet baseline
         filtered = baseline_df.filter(
             (pl.col('metric_source') == source) &
             (pl.col('metric_name') == metric) &
-            (pl.col('entity_id') == 'FLEET')
+            (pl.col('unit_id') == 'FLEET')
         )
 
     if len(filtered) == 0:

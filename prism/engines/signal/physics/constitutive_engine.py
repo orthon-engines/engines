@@ -69,7 +69,7 @@ class ConstitutiveEngine:
     def compute(
         self,
         signals: Dict[str, np.ndarray],
-        entity_id: str = "unknown"
+        unit_id: str = "unknown"
     ) -> Dict[str, Any]:
         """
         Compute constitutive relationships for an entity.
@@ -78,7 +78,7 @@ class ConstitutiveEngine:
         ----------
         signals : dict
             Dictionary mapping signal_id to numpy array of values
-        entity_id : str
+        unit_id : str
             Entity identifier
 
         Returns
@@ -87,11 +87,11 @@ class ConstitutiveEngine:
             Constitutive relationship metrics
         """
         if not signals:
-            return self._empty_result(entity_id)
+            return self._empty_result(unit_id)
 
         min_len = min(len(v) for v in signals.values())
         if min_len < 20:
-            return self._empty_result(entity_id)
+            return self._empty_result(unit_id)
 
         # Auto-detect relationships if enabled
         relationships = list(self.config.relationships)
@@ -136,7 +136,7 @@ class ConstitutiveEngine:
                     continue
 
                 # Track history for drift detection
-                history_key = (entity_id, rel_def.name)
+                history_key = (unit_id, rel_def.name)
                 if history_key not in self.coefficient_history:
                     self.coefficient_history[history_key] = []
                 self.coefficient_history[history_key].append(slope)
@@ -187,7 +187,7 @@ class ConstitutiveEngine:
                 continue
 
         return {
-            'entity_id': entity_id,
+            'unit_id': unit_id,
             'n_samples': min_len,
             'n_relationships': len(results_list),
             'relationships': results_list,
@@ -231,10 +231,10 @@ class ConstitutiveEngine:
 
         return relationships
 
-    def _empty_result(self, entity_id: str) -> Dict[str, Any]:
+    def _empty_result(self, unit_id: str) -> Dict[str, Any]:
         """Return empty result for insufficient data."""
         return {
-            'entity_id': entity_id,
+            'unit_id': unit_id,
             'n_samples': 0,
             'n_relationships': 0,
             'relationships': [],
@@ -245,7 +245,7 @@ class ConstitutiveEngine:
         rows = []
         for rel in result.get('relationships', []):
             row = {
-                'entity_id': result['entity_id'],
+                'unit_id': result['unit_id'],
                 'n_samples': result['n_samples'],
                 **rel,
             }
@@ -264,7 +264,7 @@ def run_constitutive_engine(
     Parameters
     ----------
     observations : pl.DataFrame
-        Observations with entity_id, signal_id, index, value
+        Observations with unit_id, signal_id, index, value
     config : ConstitutiveConfig
         Engine configuration
     output_path : Path, optional
@@ -277,11 +277,11 @@ def run_constitutive_engine(
     """
     engine = ConstitutiveEngine(config)
 
-    entities = observations.select('entity_id').unique().to_series().to_list()
+    entities = observations.select('unit_id').unique().to_series().to_list()
     all_rows = []
 
-    for entity_id in entities:
-        entity_obs = observations.filter(pl.col('entity_id') == entity_id)
+    for unit_id in entities:
+        entity_obs = observations.filter(pl.col('unit_id') == unit_id)
 
         signals = {}
         for sig_id in entity_obs.select('signal_id').unique().to_series().to_list():
@@ -295,7 +295,7 @@ def run_constitutive_engine(
             )
             signals[sig_id] = sig_data
 
-        result = engine.compute(signals, entity_id)
+        result = engine.compute(signals, unit_id)
         rows = engine.to_parquet_rows(result)
         all_rows.extend(rows)
 
@@ -303,7 +303,7 @@ def run_constitutive_engine(
         df = pl.DataFrame(all_rows)
     else:
         df = pl.DataFrame({
-            'entity_id': [],
+            'unit_id': [],
             'relationship_name': [],
             'coefficient': [],
             'r_squared': [],

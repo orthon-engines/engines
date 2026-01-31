@@ -13,7 +13,7 @@ FROM read_parquet('structure.parquet');
 
 -- Entities with high correlation (potential redundancy)
 SELECT
-    entity_id,
+    unit_id,
     covariance_mean_correlation,
     covariance_max_correlation,
     covariance_n_signals
@@ -24,7 +24,7 @@ LIMIT 20;
 
 -- Entities with ill-conditioned matrices (numerical instability risk)
 SELECT
-    entity_id,
+    unit_id,
     covariance_condition_number,
     covariance_determinant,
     covariance_trace

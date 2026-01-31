@@ -6,7 +6,7 @@
 -- Report: Significant Causal Edges
 -- All edges with p < 0.05
 SELECT
-    entity_id,
+    unit_id,
     source,
     target,
     granger_f,
@@ -20,7 +20,7 @@ ORDER BY transfer_entropy DESC;
 -- Report: Top Causal Links by Transfer Entropy
 -- Strongest information flow relationships
 SELECT
-    entity_id,
+    unit_id,
     source,
     target,
     transfer_entropy,
@@ -38,7 +38,7 @@ ORDER BY transfer_entropy DESC;
 -- Report: Causal Network Summary
 -- Network-level metrics per entity
 SELECT
-    entity_id,
+    unit_id,
     n_samples,
     n_signals,
     density,
@@ -63,7 +63,7 @@ ORDER BY density DESC;
 -- Report: Feedback Loop Alerts
 -- Entities with many feedback loops (potential instability)
 SELECT
-    entity_id,
+    unit_id,
     n_feedback_loops,
     hierarchy,
     density,
@@ -80,7 +80,7 @@ ORDER BY n_feedback_loops DESC;
 -- Report: Driver Analysis
 -- Which signals drive the system
 SELECT
-    entity_id,
+    unit_id,
     top_driver,
     top_driver_flow,
     bottleneck,
@@ -93,7 +93,7 @@ ORDER BY top_driver_flow DESC;
 -- Report: Sink Analysis
 -- Which signals are driven by others
 SELECT
-    entity_id,
+    unit_id,
     top_sink,
     top_sink_flow,
     'Responds to other signals' AS role
@@ -104,7 +104,7 @@ ORDER BY top_sink_flow ASC;
 -- Report: Network Density by Entity
 -- How interconnected is each entity's signal network
 SELECT
-    entity_id,
+    unit_id,
     density,
     n_significant_edges,
     n_signals,

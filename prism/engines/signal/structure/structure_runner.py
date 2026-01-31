@@ -36,7 +36,7 @@ class StructureRunner:
     Run all structure engines on observation data.
 
     Takes observations parquet with columns:
-    - entity_id: Entity identifier
+    - unit_id: Entity identifier
     - signal_id: Signal name
     - index: Time/sequence index
     - value: Measurement value
@@ -102,38 +102,38 @@ class StructureRunner:
         obs = pl.read_parquet(observations_path)
 
         # Get unique entities
-        entities = obs.select('entity_id').unique().to_series().to_list()
+        entities = obs.select('unit_id').unique().to_series().to_list()
         print(f"Found {len(entities)} entities")
 
         results = []
         start_time = time.time()
 
-        for i, entity_id in enumerate(entities):
+        for i, unit_id in enumerate(entities):
             if (i + 1) % 10 == 0 or i == 0:
                 elapsed = time.time() - start_time
-                print(f"Processing entity {i+1}/{len(entities)}: {entity_id} ({elapsed:.1f}s)")
+                print(f"Processing entity {i+1}/{len(entities)}: {unit_id} ({elapsed:.1f}s)")
 
             # Extract signals for this entity
-            entity_obs = obs.filter(pl.col('entity_id') == entity_id)
+            entity_obs = obs.filter(pl.col('unit_id') == unit_id)
             signals = self._extract_signals(entity_obs)
 
             if not signals:
                 continue
 
             # Run each engine
-            entity_result = {'entity_id': entity_id}
+            entity_result = {'unit_id': unit_id}
 
             for engine_name, engine in self.engines.items():
                 try:
-                    result = engine.compute(signals, entity_id)
+                    result = engine.compute(signals, unit_id)
                     row = engine.to_parquet_row(result)
 
-                    # Prefix columns with engine name (except entity_id)
+                    # Prefix columns with engine name (except unit_id)
                     for k, v in row.items():
-                        if k != 'entity_id':
+                        if k != 'unit_id':
                             entity_result[f'{engine_name}_{k}'] = v
                 except Exception as e:
-                    print(f"  Warning: {engine_name} failed for {entity_id}: {e}")
+                    print(f"  Warning: {engine_name} failed for {unit_id}: {e}")
 
             results.append(entity_result)
 
@@ -141,7 +141,7 @@ class StructureRunner:
         if results:
             df = pl.DataFrame(results)
         else:
-            df = pl.DataFrame({'entity_id': []})
+            df = pl.DataFrame({'unit_id': []})
 
         # Write output
         if output_path:

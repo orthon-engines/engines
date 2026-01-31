@@ -135,11 +135,11 @@ def stream_compute_sync(
     
     for signal_id in buffer.remaining():
         y = buffer.pop(signal_id)
-        entity_id = buffer.get_entity_id(signal_id)
+        unit_id = buffer.get_unit_id(signal_id)
         
         result = compute_signal(signal_id, y, work_order)
-        if entity_id:
-            result['entity_id'] = entity_id
+        if unit_id:
+            result['unit_id'] = unit_id
         
         writer.write_row(**result)
     

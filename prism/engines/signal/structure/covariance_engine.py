@@ -49,7 +49,7 @@ class CovarianceEngine:
     def compute(
         self,
         signals: Dict[str, np.ndarray],
-        entity_id: str = "unknown"
+        unit_id: str = "unknown"
     ) -> Dict[str, Any]:
         """
         Compute covariance structure for an entity.
@@ -58,7 +58,7 @@ class CovarianceEngine:
         ----------
         signals : dict
             Dictionary mapping signal_id to numpy array of values
-        entity_id : str
+        unit_id : str
             Entity identifier
 
         Returns
@@ -67,14 +67,14 @@ class CovarianceEngine:
             Covariance metrics and matrices
         """
         if len(signals) < 2:
-            return self._empty_result(entity_id)
+            return self._empty_result(unit_id)
 
         # Build data matrix (align all signals)
         signal_ids = sorted(signals.keys())
         min_len = min(len(signals[s]) for s in signal_ids)
 
         if min_len < self.config.min_samples:
-            return self._empty_result(entity_id)
+            return self._empty_result(unit_id)
 
         # Stack signals as columns
         data = np.column_stack([
@@ -86,7 +86,7 @@ class CovarianceEngine:
         data = data[valid_rows]
 
         if len(data) < self.config.min_samples:
-            return self._empty_result(entity_id)
+            return self._empty_result(unit_id)
 
         # Compute matrices
         cov_mat = covariance_matrix(data)
@@ -132,7 +132,7 @@ class CovarianceEngine:
             partial_corr_mat = self._partial_correlation_matrix(corr_mat)
 
         return {
-            'entity_id': entity_id,
+            'unit_id': unit_id,
             'n_signals': n_signals,
             'n_samples': len(data),
             'signal_ids': signal_ids,
@@ -160,10 +160,10 @@ class CovarianceEngine:
         except:
             return np.full_like(corr_mat, np.nan)
 
-    def _empty_result(self, entity_id: str) -> Dict[str, Any]:
+    def _empty_result(self, unit_id: str) -> Dict[str, Any]:
         """Return empty result for insufficient data."""
         return {
-            'entity_id': entity_id,
+            'unit_id': unit_id,
             'n_signals': 0,
             'n_samples': 0,
             'signal_ids': [],
@@ -181,7 +181,7 @@ class CovarianceEngine:
     def to_parquet_row(self, result: Dict[str, Any]) -> Dict[str, Any]:
         """Convert result to flat row for parquet output."""
         return {
-            'entity_id': result['entity_id'],
+            'unit_id': result['unit_id'],
             'n_signals': result['n_signals'],
             'n_samples': result['n_samples'],
             'mean_correlation': result['mean_correlation'],

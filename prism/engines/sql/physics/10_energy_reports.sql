@@ -6,7 +6,7 @@
 -- Report: Energy Balance Summary
 -- Overview of energy balance across all entities
 SELECT
-    entity_id,
+    unit_id,
     n_samples,
     power_in_total,
     power_out_total,
@@ -26,7 +26,7 @@ ORDER BY ABS(balance_residual_pct) DESC;
 -- Report: Energy Anomalies
 -- Entities with significant energy balance violations
 SELECT
-    entity_id,
+    unit_id,
     power_in_total,
     power_out_total,
     balance_residual,
@@ -59,7 +59,7 @@ WHERE efficiency IS NOT NULL;
 -- Report: Low Efficiency Entities
 -- Entities with concerning efficiency levels
 SELECT
-    entity_id,
+    unit_id,
     efficiency,
     power_in_total,
     power_out_total,
@@ -73,7 +73,7 @@ ORDER BY efficiency ASC;
 -- Report: High Dissipation Entities
 -- Entities losing significant energy to dissipation
 SELECT
-    entity_id,
+    unit_id,
     dissipation_pct,
     power_dissipated,
     power_in_total,

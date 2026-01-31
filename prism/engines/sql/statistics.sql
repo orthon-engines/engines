@@ -2,12 +2,12 @@
 -- Statistics Engine (SQL)
 -- =============================================================================
 -- Computes basic statistics for each signal.
--- Input: observations table with (entity_id, signal_id, I, value)
+-- Input: observations table with (unit_id, signal_id, I, value)
 -- Output: signal-level statistics
 -- =============================================================================
 
 SELECT
-    entity_id,
+    unit_id,
     signal_id,
     COUNT(*) AS n_points,
     AVG(value) AS mean,
@@ -22,5 +22,5 @@ SELECT
     VARIANCE(value) AS variance,
     STDDEV_SAMP(value) / NULLIF(ABS(AVG(value)), 0) AS cv
 FROM observations
-GROUP BY entity_id, signal_id
-ORDER BY entity_id, signal_id;
+GROUP BY unit_id, signal_id
+ORDER BY unit_id, signal_id;

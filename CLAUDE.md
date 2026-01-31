@@ -42,25 +42,41 @@ That's it. Everything runs. 100%.
 
 ---
 
-## Input: observations.parquet (PRISM Format)
+## Input: observations.parquet (Schema v2.0)
 
-PRISM expects THIS format. No exceptions.
-
+### Required Columns
 | Column | Type | Description |
 |--------|------|-------------|
-| entity_id | str | Which entity (pump, bearing, industry) |
-| I | UInt32 | Observation index within entity |
-| signal_id | str | Which signal (temp, pressure, return) |
+| signal_id | str | What signal (temp, pressure, return) |
+| I | UInt32 | Index 0,1,2,3... per unit/signal. Sequential, no gaps. |
 | value | Float64 | The measurement |
 
-Example:
+### Optional Columns
+| Column | Type | Description |
+|--------|------|-------------|
+| unit_id | str | Label for grouping. Blank is fine. "bananas" is fine. |
+
+### About unit_id
+
+**unit_id is OPTIONAL.** It's just a sticky note for humans.
+
+- PRISM passes unit_id through to output for SQL filtering
+- unit_id has ZERO effect on compute
+- unit_id can be blank, null, "pump_1", "friday_data", "bananas" - whatever
+- unit_id is NOT an index (that's what I is for)
+- If no unit_id provided, PRISM uses blank ""
+
+**DO NOT validate unit_id contents. DO NOT require unit_id.**
+
+### Example
 ```
-entity_id | I | signal_id | value
-----------|---|-----------|------
-pump_1    | 0 | temp      | 45.2
-pump_1    | 0 | pressure  | 101.3
-pump_1    | 1 | temp      | 45.4
-pump_1    | 1 | pressure  | 101.5
+unit_id | signal_id | I | value
+--------|-----------|---|------
+pump_1  | temp      | 0 | 45.2
+pump_1  | temp      | 1 | 45.4
+pump_1  | pressure  | 0 | 101.3
+pump_1  | pressure  | 1 | 101.5
+        | temp      | 0 | 30.1   ← blank unit_id is fine
 ```
 
 **If data is not in this format, ORTHON must transform it first.**

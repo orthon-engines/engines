@@ -12,7 +12,7 @@ FROM read_parquet('structure.parquet');
 
 -- Wavelet coherence vs spectral coherence comparison
 SELECT
-    entity_id,
+    unit_id,
     wavelet_mean_coherence,
     spectral_mean_coherence,
     (wavelet_mean_coherence - spectral_mean_coherence) as coherence_diff
@@ -24,7 +24,7 @@ LIMIT 20;
 
 -- High temporal variability (non-stationary systems)
 SELECT
-    entity_id,
+    unit_id,
     wavelet_avg_temporal_variability,
     wavelet_mean_coherence,
     wavelet_avg_wavelet_entropy
@@ -35,7 +35,7 @@ LIMIT 20;
 
 -- Low wavelet entropy (scale-localized signals)
 SELECT
-    entity_id,
+    unit_id,
     wavelet_avg_wavelet_entropy,
     wavelet_mean_coherence,
     wavelet_avg_temporal_variability

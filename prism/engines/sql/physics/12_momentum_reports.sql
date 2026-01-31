@@ -6,7 +6,7 @@
 -- Report: Momentum Balance Summary
 -- Overview of momentum balance across all entities
 SELECT
-    entity_id,
+    unit_id,
     n_samples,
     torque_applied,
     torque_load,
@@ -23,7 +23,7 @@ ORDER BY ABS(torque_residual) DESC;
 -- Report: Torque Imbalance Detection
 -- Entities with significant torque imbalance
 SELECT
-    entity_id,
+    unit_id,
     torque_applied,
     torque_load,
     net_torque,
@@ -44,7 +44,7 @@ ORDER BY ABS(torque_residual) DESC;
 -- Report: High Vibration Entities
 -- Entities with excessive vibration energy
 SELECT
-    entity_id,
+    unit_id,
     vibration_energy,
     torque_residual,
     angular_acceleration,
@@ -62,7 +62,7 @@ ORDER BY vibration_energy DESC;
 -- Report: Friction Analysis
 -- Analysis of friction torque across entities
 SELECT
-    entity_id,
+    unit_id,
     torque_friction,
     torque_applied,
     torque_friction / NULLIF(torque_applied, 0) * 100 AS friction_pct,
@@ -75,7 +75,7 @@ ORDER BY torque_friction DESC;
 -- Report: Momentum Anomalies
 -- All entities with momentum issues
 SELECT
-    entity_id,
+    unit_id,
     net_torque,
     torque_residual,
     vibration_energy,
@@ -103,7 +103,7 @@ ORDER BY n_entities DESC;
 -- Report: Angular Dynamics
 -- Analysis of angular motion characteristics
 SELECT
-    entity_id,
+    unit_id,
     angular_velocity_mean,
     angular_acceleration,
     torque_applied,

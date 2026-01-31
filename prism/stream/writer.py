@@ -46,7 +46,7 @@ class ParquetStreamWriter:
 # Output schema for primitives.parquet
 PRIMITIVES_SCHEMA = {
     'signal_id': str,
-    'entity_id': str,
+    'unit_id': str,
     'hurst': float,
     'hurst_r2': float,
     'lyapunov': float,

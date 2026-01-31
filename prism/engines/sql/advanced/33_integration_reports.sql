@@ -6,7 +6,7 @@
 -- Report: Health Dashboard
 -- Main health overview for all entities
 SELECT
-    entity_id,
+    unit_id,
     health_score,
     risk_level,
     stability_score,
@@ -24,7 +24,7 @@ ORDER BY health_score ASC;
 -- Report: Critical Alerts
 -- Entities requiring immediate attention
 SELECT
-    entity_id,
+    unit_id,
     health_score,
     risk_level,
     primary_concern,
@@ -57,7 +57,7 @@ ORDER BY
 -- Report: Score Breakdown
 -- Detailed score analysis
 SELECT
-    entity_id,
+    unit_id,
     health_score,
     stability_score * 100 AS stability_pct,
     predictability_score * 100 AS predictability_pct,
@@ -108,7 +108,7 @@ FROM read_parquet('health.parquet');
 -- Report: Entity Ranking
 -- Rank entities by health
 SELECT
-    entity_id,
+    unit_id,
     health_score,
     risk_level,
     RANK() OVER (ORDER BY health_score ASC) AS risk_rank,
@@ -169,7 +169,7 @@ FROM read_parquet('health.parquet');
 -- Report: Watch List
 -- Entities to monitor closely
 SELECT
-    entity_id,
+    unit_id,
     health_score,
     risk_level,
     primary_concern,

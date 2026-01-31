@@ -74,7 +74,7 @@ class SummaryEngine:
             latest_window = 0
             latest_health = health_df
 
-        n_entities = latest_health['entity_id'].n_unique()
+        n_entities = latest_health['unit_id'].n_unique()
         avg_health = latest_health['health_score'].mean() if 'health_score' in latest_health.columns else 0
 
         # Count by risk level
@@ -126,7 +126,7 @@ Overall Fleet Status: {overall_status}"""
             if len(critical_entities) > 0:
                 alerts = "CRITICAL ALERTS\n===============\n"
                 for row in critical_entities.head(self.config.top_n_entities).iter_rows(named=True):
-                    alerts += f"\n* {row['entity_id']}: "
+                    alerts += f"\n* {row['unit_id']}: "
                     alerts += f"Health {row.get('health_score', 'N/A'):.0f}, "
                     alerts += f"Risk: {row.get('risk_level', 'N/A')}, "
                     alerts += f"Concern: {row.get('primary_concern', 'Unknown')}"
@@ -209,14 +209,14 @@ Current Window Anomalies: {n_anomalies}
 
             rankings_text = "ENTITY RANKINGS\n===============\n\nWorst Performing:\n"
             for i, row in enumerate(worst.iter_rows(named=True)):
-                rankings_text += f"{i+1}. {row['entity_id']}: Health {row['avg_health']:.1f}"
+                rankings_text += f"{i+1}. {row['unit_id']}: Health {row['avg_health']:.1f}"
                 if 'critical_events' in row:
                     rankings_text += f", Critical Events: {row['critical_events']}"
                 rankings_text += "\n"
 
             rankings_text += "\nBest Performing:\n"
             for i, row in enumerate(best.iter_rows(named=True)):
-                rankings_text += f"{i+1}. {row['entity_id']}: Health {row['avg_health']:.1f}\n"
+                rankings_text += f"{i+1}. {row['unit_id']}: Health {row['avg_health']:.1f}\n"
 
             sections.append({
                 'report_section': 'ENTITY_RANKINGS',

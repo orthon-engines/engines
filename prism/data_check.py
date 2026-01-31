@@ -6,6 +6,10 @@ Reads validation rules from canonical PRISM_SCHEMA.yaml.
 
 This is PRISM's gate - if it fails, PRISM aborts.
 
+Schema v2.0.0:
+- REQUIRED: signal_id, I, value
+- OPTIONAL: unit_id (just a label, blank is fine)
+
 Usage:
     # In runner.py (automatic)
     from prism.data_check import check_data, abort_if_invalid
@@ -13,9 +17,6 @@ Usage:
 
     # Standalone
     python -m prism.data_check observations.parquet
-
-    # With schema path
-    python -m prism.data_check observations.parquet --schema /path/to/PRISM_SCHEMA.yaml
 """
 
 import polars as pl
@@ -23,7 +24,7 @@ from pathlib import Path
 import sys
 import yaml
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Optional, Tuple
 
 
 # =============================================================================
@@ -52,7 +53,6 @@ def load_schema(path: Optional[Path] = None) -> dict:
         path = find_schema()
 
     if path is None or not path.exists():
-        # Fallback to embedded defaults
         return get_default_schema()
 
     with open(path) as f:
@@ -63,16 +63,17 @@ def get_default_schema() -> dict:
     """Embedded schema defaults if file not found."""
     return {
         "columns": {
-            "entity_id": {"type": "string", "nullable": False},
-            "I": {"type": "uint32", "nullable": False},
-            "signal_id": {"type": "string", "nullable": False},
-            "value": {"type": "float64", "nullable": True},
+            "unit_id": {"type": "string", "nullable": True, "required": False},
+            "signal_id": {"type": "string", "nullable": False, "required": True},
+            "I": {"type": "uint32", "nullable": False, "required": True},
+            "value": {"type": "float64", "nullable": True, "required": True},
         },
-        "entity_requirements": {
-            "min_signals_per_entity": 2,
-            "min_observations_per_signal": 50,
+        "required_columns": ["signal_id", "I", "value"],
+        "optional_columns": ["unit_id"],
+        "requirements": {
+            "min_signals": 2,
+            "min_observations": 50,
         },
-        "validation_rules": []
     }
 
 
@@ -87,6 +88,7 @@ class CheckResult:
     errors: list = field(default_factory=list)
     warnings: list = field(default_factory=list)
     stats: dict = field(default_factory=dict)
+    df: pl.DataFrame = None  # Store potentially modified df
 
     def error(self, rule_id: str, message: str):
         self.passed = False
@@ -135,7 +137,7 @@ def check_data(
         verbose: Print detailed output
 
     Returns:
-        CheckResult with passed/failed status
+        CheckResult with passed/failed status and potentially modified df
     """
 
     result = CheckResult()
@@ -147,11 +149,9 @@ def check_data(
 
     if verbose:
         print(f"\n{'='*60}")
-        print(f"PRISM DATA CHECK")
+        print(f"PRISM DATA CHECK (Schema v2.0)")
         print(f"{'='*60}")
         print(f"File: {path}")
-        if schema_path:
-            print(f"Schema: {schema_path}")
         print()
 
     # =========================================================================
@@ -184,17 +184,17 @@ def check_data(
         print(f"Columns: {df.columns}\n")
 
     # =========================================================================
-    # CHECK: REQUIRED COLUMNS EXIST
+    # CHECK: REQUIRED COLUMNS (signal_id, I, value)
     # =========================================================================
 
     if verbose:
         print("[1] REQUIRED COLUMNS")
 
-    required_cols = list(schema.get("columns", {}).keys())
+    required_cols = ["signal_id", "I", "value"]
 
     for col in required_cols:
         if col not in df.columns:
-            result.error("COLUMNS_EXIST", f"Missing required column: {col}")
+            result.error("REQUIRED_COLUMNS", f"Missing REQUIRED column: {col}")
             if verbose:
                 print(f"    X {col}: MISSING")
         else:
@@ -207,55 +207,88 @@ def check_data(
         return result
 
     # =========================================================================
+    # CHECK: OPTIONAL unit_id COLUMN
+    # =========================================================================
+
+    if verbose:
+        print(f"\n[2] OPTIONAL COLUMNS")
+
+    if "unit_id" not in df.columns:
+        if verbose:
+            print(f"    ~ unit_id: not present (adding blank)")
+        # Add blank unit_id - this is fine
+        df = df.with_columns(pl.lit("").alias("unit_id"))
+    else:
+        n_units = df["unit_id"].n_unique()
+        if verbose:
+            print(f"    + unit_id: present ({n_units} unique values)")
+
+    # Store the potentially modified df
+    result.df = df
+
+    # =========================================================================
     # CHECK: COLUMN TYPES
     # =========================================================================
 
     if verbose:
-        print(f"\n[2] COLUMN TYPES")
+        print(f"\n[3] COLUMN TYPES")
 
-    for col, spec in schema.get("columns", {}).items():
-        expected_type = spec.get("type", "string")
-        valid_types = TYPE_MAP.get(expected_type, [pl.String])
+    type_checks = {
+        "signal_id": ["string"],
+        "I": ["uint32", "integer"],
+        "value": ["float64", "float"],
+    }
+
+    for col, expected_types in type_checks.items():
         actual_type = df[col].dtype
+        valid = False
+        for et in expected_types:
+            if actual_type in TYPE_MAP.get(et, []):
+                valid = True
+                break
 
-        if actual_type not in valid_types:
-            result.error("COLUMN_TYPES", f"{col}: expected {expected_type}, got {actual_type}")
+        if not valid:
+            result.error("COLUMN_TYPES", f"{col}: expected {expected_types[0]}, got {actual_type}")
             if verbose:
-                print(f"    X {col}: {actual_type} (expected {expected_type})")
+                print(f"    X {col}: {actual_type} (expected {expected_types[0]})")
         else:
             if verbose:
                 print(f"    + {col}: {actual_type}")
 
     # =========================================================================
-    # CHECK: NULL VALUES
+    # CHECK: NULL VALUES IN REQUIRED COLUMNS
     # =========================================================================
 
     if verbose:
-        print(f"\n[3] NULL VALUES")
+        print(f"\n[4] NULL VALUES")
 
-    for col, spec in schema.get("columns", {}).items():
-        nullable = spec.get("nullable", True)
+    # signal_id and I must not have nulls
+    for col in ["signal_id", "I"]:
         null_count = df[col].null_count()
-
-        if not nullable and null_count > 0:
+        if null_count > 0:
             result.error("NO_NULLS_IN_KEYS", f"{col} has {null_count} null values")
             if verbose:
                 print(f"    X {col}: {null_count} nulls (not allowed)")
         else:
             if verbose:
-                status = "+" if null_count == 0 else "~"
-                print(f"    {status} {col}: {null_count} nulls")
+                print(f"    + {col}: no nulls")
+
+    # value can have nulls (NaN for missing data)
+    value_nulls = df["value"].null_count()
+    if verbose:
+        status = "+" if value_nulls == 0 else "~"
+        print(f"    {status} value: {value_nulls} nulls (allowed)")
 
     # =========================================================================
     # CHECK: I IS SEQUENTIAL
     # =========================================================================
 
     if verbose:
-        print(f"\n[4] INDEX SEQUENTIALITY")
+        print(f"\n[5] INDEX SEQUENTIALITY")
 
-    # Check if I is sequential per entity/signal
+    # Check if I is sequential per unit/signal
     seq_check = (
-        df.group_by(["entity_id", "signal_id"])
+        df.group_by(["unit_id", "signal_id"])
         .agg([
             pl.col("I").min().alias("min_i"),
             pl.col("I").max().alias("max_i"),
@@ -269,91 +302,79 @@ def check_data(
     non_sequential = seq_check.filter(~pl.col("is_sequential"))
 
     if len(non_sequential) > 0:
-        result.error("I_SEQUENTIAL", f"{len(non_sequential)} entity/signal pairs have non-sequential I")
+        result.error("I_SEQUENTIAL", f"{len(non_sequential)} unit/signal pairs have non-sequential I")
         if verbose:
             print(f"    X {len(non_sequential)} groups have non-sequential I")
             sample = non_sequential.head(3)
             for row in sample.iter_rows(named=True):
-                print(f"       - {row['entity_id']}/{row['signal_id']}: I goes {row['min_i']}->{row['max_i']} but only {row['count']} values")
+                unit = row['unit_id'] or '(blank)'
+                print(f"       - {unit}/{row['signal_id']}: I={row['min_i']}->{row['max_i']} but {row['count']} values")
     else:
         if verbose:
-            print(f"    + I is sequential for all entity/signal pairs")
+            print(f"    + I is sequential for all unit/signal pairs")
 
-    # Check I starts at 0
-    min_i_check = df.group_by("entity_id").agg(pl.col("I").min().alias("min_i"))
+    # Check I starts at 0 per unit
+    min_i_check = df.group_by("unit_id").agg(pl.col("I").min().alias("min_i"))
     non_zero = min_i_check.filter(pl.col("min_i") != 0)
 
     if len(non_zero) > 0:
-        result.error("I_STARTS_ZERO", f"{len(non_zero)} entities don't start at I=0")
+        result.error("I_STARTS_ZERO", f"{len(non_zero)} units don't start at I=0")
         if verbose:
-            print(f"    X {len(non_zero)} entities don't start at I=0")
+            print(f"    X {len(non_zero)} units don't start at I=0")
     else:
         if verbose:
-            print(f"    + I starts at 0 for all entities")
+            print(f"    + I starts at 0 for all units")
 
     # =========================================================================
-    # CHECK: MINIMUM SIGNALS PER ENTITY
+    # CHECK: MINIMUM SIGNALS
     # =========================================================================
 
     if verbose:
-        print(f"\n[5] SIGNALS PER ENTITY")
+        print(f"\n[6] SIGNAL COUNT")
 
-    min_signals = schema.get("entity_requirements", {}).get("min_signals_per_entity", 2)
-
-    signals_per_entity = (
-        df.group_by("entity_id")
-        .agg(pl.col("signal_id").n_unique().alias("n_signals"))
-    )
-
-    insufficient = signals_per_entity.filter(pl.col("n_signals") < min_signals)
-
-    result.stats["n_entities"] = len(signals_per_entity)
-    result.stats["n_signals"] = df["signal_id"].n_unique()
+    n_signals = df["signal_id"].n_unique()
+    result.stats["n_signals"] = n_signals
     result.stats["signals"] = df["signal_id"].unique().sort().to_list()
 
-    if len(insufficient) > 0:
-        result.error("MIN_SIGNALS", f"{len(insufficient)} entities have <{min_signals} signals")
+    if n_signals < 2:
+        result.error("MIN_SIGNALS", f"Need >= 2 signals, found {n_signals}")
         if verbose:
-            print(f"    X {len(insufficient)} entities have <{min_signals} signals")
-            print(f"       Pair engines will FAIL for these entities")
+            print(f"    X Only {n_signals} signal(s) - pair engines need >= 2")
     else:
         if verbose:
-            print(f"    + All {len(signals_per_entity)} entities have >={min_signals} signals")
-
-    if verbose:
-        print(f"    Signals: {result.stats['signals']}")
+            print(f"    + {n_signals} signals: {result.stats['signals']}")
 
     # =========================================================================
     # CHECK: MINIMUM OBSERVATIONS
     # =========================================================================
 
     if verbose:
-        print(f"\n[6] OBSERVATIONS PER ENTITY/SIGNAL")
-
-    min_obs = schema.get("entity_requirements", {}).get("min_observations_per_signal", 50)
+        print(f"\n[7] OBSERVATIONS PER UNIT/SIGNAL")
 
     obs_per_group = (
-        df.group_by(["entity_id", "signal_id"])
+        df.group_by(["unit_id", "signal_id"])
         .agg(pl.len().alias("n_obs"))
     )
 
-    insufficient_obs = obs_per_group.filter(pl.col("n_obs") < min_obs)
+    insufficient_obs = obs_per_group.filter(pl.col("n_obs") < 50)
 
     result.stats["min_obs"] = obs_per_group["n_obs"].min()
     result.stats["max_obs"] = obs_per_group["n_obs"].max()
     result.stats["mean_obs"] = obs_per_group["n_obs"].mean()
+    result.stats["n_units"] = df["unit_id"].n_unique()
 
     if len(insufficient_obs) > 0:
-        result.warn("MIN_OBSERVATIONS", f"{len(insufficient_obs)} groups have <{min_obs} observations")
+        result.warn("MIN_OBSERVATIONS", f"{len(insufficient_obs)} groups have < 50 observations")
         if verbose:
-            print(f"    ~ {len(insufficient_obs)} groups have <{min_obs} observations")
+            print(f"    ~ {len(insufficient_obs)} groups have < 50 observations")
             print(f"       Some engines may return NaN")
     else:
         if verbose:
-            print(f"    + All groups have >={min_obs} observations")
+            print(f"    + All groups have >= 50 observations")
 
     if verbose:
         print(f"    Range: {result.stats['min_obs']} - {result.stats['max_obs']} (mean: {result.stats['mean_obs']:.0f})")
+        print(f"    Units: {result.stats['n_units']}")
 
     # =========================================================================
     # SUMMARY
@@ -382,10 +403,13 @@ def check_data(
     return result
 
 
-def abort_if_invalid(path: Path, schema_path: Optional[Path] = None):
+def abort_if_invalid(path: Path, schema_path: Optional[Path] = None) -> Tuple[CheckResult, pl.DataFrame]:
     """
     Check data and abort if invalid.
     Use at the start of PRISM runner.
+
+    Returns:
+        Tuple of (CheckResult, DataFrame) - df may have unit_id added if missing
     """
     result = check_data(path, schema_path, verbose=True)
 
@@ -394,7 +418,7 @@ def abort_if_invalid(path: Path, schema_path: Optional[Path] = None):
         print("   Run ORTHON data_confirmation.py to fix the data")
         sys.exit(1)
 
-    return result
+    return result, result.df
 
 
 # =============================================================================

@@ -68,7 +68,7 @@ class EnergyEngine:
     def compute(
         self,
         signals: Dict[str, np.ndarray],
-        entity_id: str = "unknown"
+        unit_id: str = "unknown"
     ) -> Dict[str, Any]:
         """
         Compute energy balance for an entity.
@@ -77,7 +77,7 @@ class EnergyEngine:
         ----------
         signals : dict
             Dictionary mapping signal_id to numpy array of values
-        entity_id : str
+        unit_id : str
             Entity identifier
 
         Returns
@@ -86,12 +86,12 @@ class EnergyEngine:
             Energy balance metrics
         """
         if not signals:
-            return self._empty_result(entity_id)
+            return self._empty_result(unit_id)
 
         # Get minimum length
         min_len = min(len(v) for v in signals.values())
         if min_len < 10:
-            return self._empty_result(entity_id)
+            return self._empty_result(unit_id)
 
         # Compute each power term
         powers = {}
@@ -176,7 +176,7 @@ class EnergyEngine:
             status = 'NORMAL'
 
         return {
-            'entity_id': entity_id,
+            'unit_id': unit_id,
             'n_samples': min_len,
             'power_in_total': float(total_in),
             'power_out_total': float(total_out),
@@ -192,10 +192,10 @@ class EnergyEngine:
             'individual_powers': powers,
         }
 
-    def _empty_result(self, entity_id: str) -> Dict[str, Any]:
+    def _empty_result(self, unit_id: str) -> Dict[str, Any]:
         """Return empty result for insufficient data."""
         return {
-            'entity_id': entity_id,
+            'unit_id': unit_id,
             'n_samples': 0,
             'power_in_total': np.nan,
             'power_out_total': np.nan,
@@ -214,7 +214,7 @@ class EnergyEngine:
     def to_parquet_row(self, result: Dict[str, Any]) -> Dict[str, Any]:
         """Convert result to flat row for parquet output."""
         row = {
-            'entity_id': result['entity_id'],
+            'unit_id': result['unit_id'],
             'n_samples': result['n_samples'],
             'power_in_total': result['power_in_total'],
             'power_out_total': result['power_out_total'],
@@ -245,7 +245,7 @@ def run_energy_engine(
     Parameters
     ----------
     observations : pl.DataFrame
-        Observations with entity_id, signal_id, index, value
+        Observations with unit_id, signal_id, index, value
     config : EnergyConfig
         Engine configuration
     output_path : Path, optional
@@ -259,11 +259,11 @@ def run_energy_engine(
     engine = EnergyEngine(config)
 
     # Pivot observations to wide format
-    entities = observations.select('entity_id').unique().to_series().to_list()
+    entities = observations.select('unit_id').unique().to_series().to_list()
     results = []
 
-    for entity_id in entities:
-        entity_obs = observations.filter(pl.col('entity_id') == entity_id)
+    for unit_id in entities:
+        entity_obs = observations.filter(pl.col('unit_id') == unit_id)
 
         # Extract signals
         signals = {}
@@ -278,7 +278,7 @@ def run_energy_engine(
             )
             signals[sig_id] = sig_data
 
-        result = engine.compute(signals, entity_id)
+        result = engine.compute(signals, unit_id)
         results.append(engine.to_parquet_row(result))
 
     df = pl.DataFrame(results)

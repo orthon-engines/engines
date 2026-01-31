@@ -1,88 +1,97 @@
-# PRISM Canonical Schema
-# ======================
+# PRISM Canonical Schema v2.0.0
+# ==============================
+#
+# BREAKING CHANGE: entity_id → unit_id (now OPTIONAL)
 #
 # THIS IS THE SINGLE SOURCE OF TRUTH.
-#
-# All validators read from this file:
-# - ORTHON: data_confirmation.py
-# - PRISM: data_check.py
-# - Website: AI upload validation
-# - Claude: Integration instructions
-#
-# Location: /shared/schema/PRISM_SCHEMA.yaml
-# Or: https://raw.githubusercontent.com/prism-engines/schema/main/PRISM_SCHEMA.yaml
 
-version: "1.0.0"
+version: "2.0.0"
 name: "PRISM Observations Schema"
 description: "Canonical schema for observations.parquet consumed by PRISM"
 
 # =============================================================================
-# REQUIRED COLUMNS
+# COLUMNS
 # =============================================================================
 
 columns:
-  entity_id:
-    description: "Unique identifier for each entity (pump, bearing, industry, etc.)"
+  unit_id:
+    description: |
+      Optional label for grouping signals.
+
+      This is just a tag - a sticky note for humans.
+      ZERO effect on compute. PRISM passes it through.
+      Used for SQL filtering after compute.
+
+      Can be:
+      - A physical thing: "pump_1", "patient_42"
+      - A category: "Consumer_Staples", "stocks"
+      - An arbitrary grouping: "friday_data", "batch_001"
+      - Literally anything: "bananas"
+      - Empty: "" (totally fine)
+      - Null: (also fine)
+
+      Cannot be:
+      - An index (that's what I is for)
+      - Sequential numbers used for ordering
+
+    type: "string"
+    nullable: true
+    default: ""
+    required: false
+    examples: ["pump_1", "Consumer_Staples", "friday_data", "bananas", ""]
+
+  signal_id:
+    description: |
+      Identifies what is being measured.
+      Each unique signal_id becomes a vector.
+      REQUIRED - PRISM needs this.
     type: "string"
     nullable: false
-    examples: ["pump_1", "bearing_A", "Tech", "SKAB_valve1_1"]
+    required: true
+    examples: ["temp", "pressure", "return", "acc_x", "acc_y"]
 
   I:
-    description: "Observation index within entity. MUST be sequential 0,1,2,3... per entity/signal pair"
+    description: |
+      Index. Orders values within each unit+signal combination.
+      MUST be sequential: 0, 1, 2, 3, ...
+      REQUIRED - PRISM needs this to build vectors.
     type: "uint32"
     nullable: false
+    required: true
     constraints:
       - "Sequential integers starting at 0"
-      - "Resets to 0 for each entity"
+      - "Resets for each unit+signal combination"
       - "No gaps (0,1,2,3... not 0,10,20,30...)"
     examples: [0, 1, 2, 3, 4]
 
-  signal_id:
-    description: "Name of the signal/sensor/measurement"
-    type: "string"
-    nullable: false
-    examples: ["temp", "pressure", "acc_x", "acc_y", "return"]
-
   value:
-    description: "The measurement value"
+    description: |
+      The measurement. The actual number.
+      REQUIRED - this is the data.
     type: "float64"
-    nullable: true  # NaN allowed for missing measurements
-    examples: [25.3, 101.325, -0.0042]
+    nullable: true  # NaN allowed for missing data
+    required: true
+    examples: [25.3, -0.0042, 101.325]
 
 # =============================================================================
-# ENTITY REQUIREMENTS
+# REQUIREMENTS
 # =============================================================================
 
-entity_requirements:
-  min_signals_per_entity: 2
-  reason: "Pair engines (correlation, coherence, transfer entropy) require ≥2 signals"
+required_columns: ["signal_id", "I", "value"]
+optional_columns: ["unit_id"]
 
-  min_observations_per_signal: 50
-  reason: "Windowed engines need sufficient data for rolling calculations"
-  recommended_observations: 500
+requirements:
+  min_signals: 2
+  reason: "Pair engines need at least 2 signals"
 
-  observation_alignment:
-    description: "All signals within an entity must have the same I values"
-    reason: "Pairwise calculations assume aligned observations"
+  min_observations: 50
+  reason: "Windowed engines need sufficient data"
 
-# =============================================================================
-# INDEX REQUIREMENTS
-# =============================================================================
+  I_must_be_sequential: true
+  reason: "Vectors must have consistent ordering"
 
-index_requirements:
-  I_must_be_sequential:
-    description: "I values must be 0,1,2,3... with no gaps"
-    valid_example: [0, 1, 2, 3, 4, 5]
-    invalid_example: [0, 10, 20, 30, 40]  # Sparse - WRONG
-    reason: "Dynamics engines (Lyapunov, RQA) assume continuous time series"
-
-  I_starts_at_zero:
-    description: "I must start at 0 for each entity"
-    reason: "Consistent indexing across entities"
-
-  I_resets_per_entity:
-    description: "Each entity has its own I sequence starting at 0"
-    reason: "Entities are independent time series"
+  unit_id_required: false
+  reason: "It's just a label. Blank is fine."
 
 # =============================================================================
 # VALIDATION RULES
@@ -90,208 +99,90 @@ index_requirements:
 
 validation_rules:
 
-  - id: "COLUMNS_EXIST"
+  - id: "REQUIRED_COLUMNS"
     severity: "error"
-    check: "All required columns present"
-    columns: ["entity_id", "I", "signal_id", "value"]
+    check: "Required columns present"
+    columns: ["signal_id", "I", "value"]
 
   - id: "COLUMN_TYPES"
     severity: "error"
     check: "Columns have correct types"
     rules:
-      entity_id: "string"
-      I: "integer (uint32, uint64, int32, int64)"
+      unit_id: "string (if present)"
       signal_id: "string"
+      I: "integer (uint32, uint64, int32, int64)"
       value: "float (float32, float64)"
 
   - id: "NO_NULLS_IN_KEYS"
     severity: "error"
-    check: "No null values in entity_id, I, signal_id"
-    columns: ["entity_id", "I", "signal_id"]
+    check: "No null values in signal_id or I"
+    columns: ["signal_id", "I"]
 
   - id: "I_SEQUENTIAL"
     severity: "error"
-    check: "I is sequential 0,1,2,3... per entity/signal"
-    test: "max(I) - min(I) + 1 == count(I) for each entity/signal group"
+    check: "I is sequential 0,1,2,3... per unit/signal"
+    test: "max(I) - min(I) + 1 == count(I) for each unit/signal group"
 
   - id: "I_STARTS_ZERO"
     severity: "error"
-    check: "I starts at 0 for each entity"
-    test: "min(I) == 0 for each entity"
+    check: "I starts at 0 for each unit"
+    test: "min(I) == 0 for each unit"
 
   - id: "MIN_SIGNALS"
     severity: "error"
-    check: "Each entity has ≥2 signals"
-    test: "count(distinct signal_id) >= 2 for each entity"
-    message: "Pair engines require at least 2 signals per entity"
+    check: "At least 2 signals exist"
+    test: "count(distinct signal_id) >= 2"
+    message: "Pair engines require at least 2 signals"
 
   - id: "MIN_OBSERVATIONS"
     severity: "warning"
-    check: "Each entity/signal has ≥50 observations"
-    test: "count(*) >= 50 for each entity/signal group"
+    check: "Each unit/signal has >= 50 observations"
+    test: "count(*) >= 50 for each unit/signal group"
     message: "Some engines may produce NaN with insufficient data"
 
-  - id: "SIGNAL_ALIGNMENT"
-    severity: "warning"
-    check: "All signals in an entity have same observation count"
-    test: "count per signal is equal within each entity"
-    message: "Misaligned signals may cause pair calculation issues"
-
 # =============================================================================
-# EXAMPLE VALID DATA
+# EXAMPLES
 # =============================================================================
 
 example_valid:
   description: "Correctly formatted observations"
   data: |
-    entity_id | I | signal_id | value
-    ----------|---|-----------|------
-    pump_1    | 0 | temp      | 25.3
-    pump_1    | 0 | pressure  | 101.2
-    pump_1    | 1 | temp      | 25.4
-    pump_1    | 1 | pressure  | 101.3
-    pump_1    | 2 | temp      | 25.5
-    pump_1    | 2 | pressure  | 101.4
-    pump_2    | 0 | temp      | 30.1
-    pump_2    | 0 | pressure  | 99.8
-    pump_2    | 1 | temp      | 30.2
-    pump_2    | 1 | pressure  | 99.9
-
-# =============================================================================
-# EXAMPLE INVALID DATA
-# =============================================================================
+    unit_id | signal_id | I | value
+    --------|-----------|---|------
+    pump_1  | temp      | 0 | 25.3
+    pump_1  | temp      | 1 | 25.4
+    pump_1  | pressure  | 0 | 101.2
+    pump_1  | pressure  | 1 | 101.3
+            | temp      | 0 | 30.1    ← blank unit_id is fine
+            | pressure  | 0 | 99.8
 
 example_invalid:
-
   - problem: "Sparse I values"
-    data: |
-      entity_id | I  | signal_id | value
-      ----------|----|-----------|------
-      pump_1    | 0  | temp      | 25.3
-      pump_1    | 10 | temp      | 25.4   ← WRONG: should be 1
-      pump_1    | 20 | temp      | 25.5   ← WRONG: should be 2
     fix: "Reindex I to be sequential 0,1,2,3..."
 
-  - problem: "Only 1 signal per entity"
-    data: |
-      entity_id | I | signal_id | value
-      ----------|---|-----------|------
-      pump_1    | 0 | temp      | 25.3
-      pump_1    | 1 | temp      | 25.4
-      pump_1    | 2 | temp      | 25.5
-    fix: "Include additional signals (pressure, flow, etc.)"
+  - problem: "Only 1 signal"
+    fix: "Include additional signals for pair engines"
 
   - problem: "I doesn't start at 0"
-    data: |
-      entity_id | I | signal_id | value
-      ----------|---|-----------|------
-      pump_1    | 5 | temp      | 25.3   ← WRONG: should start at 0
-      pump_1    | 6 | temp      | 25.4
-      pump_1    | 7 | temp      | 25.5
-    fix: "Subtract min(I) per entity to start at 0"
+    fix: "Subtract min(I) per unit to start at 0"
 
 # =============================================================================
-# PRISM ENGINE REQUIREMENTS
-# =============================================================================
-
-engine_requirements:
-
-  signal_engines:
-    description: "Operate on individual signals"
-    requires: "At least 1 signal per entity"
-    min_observations: 50
-
-  pair_engines:
-    description: "Operate on pairs of signals (correlation, coherence, etc.)"
-    requires: "At least 2 signals per entity"
-    min_observations: 50
-    note: "Directed pairs (A→B) and symmetric pairs (A↔B)"
-
-  windowed_engines:
-    description: "Rolling window calculations"
-    requires: "Sequential I values (no gaps)"
-    min_observations: "window_size + 10"
-    default_window: 100
-
-  dynamics_engines:
-    description: "Lyapunov, RQA, Hurst, etc."
-    requires: "Sequential I values, sufficient length"
-    min_observations: 200
-    note: "Returns NaN if insufficient data"
-
-  topology_engines:
-    description: "Betti numbers, persistence diagrams"
-    requires: "Sequential I values"
-    min_observations: 100
-
-  information_flow_engines:
-    description: "Transfer entropy, Granger causality"
-    requires: "At least 2 signals per entity"
-    min_observations: 100
-
-# =============================================================================
-# OUTPUT CONTRACT
-# =============================================================================
-
-outputs:
-  description: "PRISM produces these files when given valid input"
-
-  files:
-    - name: "primitives.parquet"
-      description: "Signal-level metrics"
-
-    - name: "primitives_pairs.parquet"
-      description: "Directed pair metrics"
-
-    - name: "geometry.parquet"
-      description: "Symmetric pair metrics"
-
-    - name: "topology.parquet"
-      description: "Betti numbers, persistence"
-
-    - name: "manifold.parquet"
-      description: "Embedding metrics"
-
-    - name: "dynamics.parquet"
-      description: "Lyapunov, RQA, Hurst"
-
-    - name: "information_flow.parquet"
-      description: "Transfer entropy, Granger"
-
-    - name: "observations_enriched.parquet"
-      description: "Rolling window metrics"
-
-    - name: "physics.parquet"
-      description: "Energy, entropy metrics"
-
-    - name: "zscore.parquet"
-      description: "Normalized metrics"
-
-    - name: "statistics.parquet"
-      description: "Summary statistics"
-
-    - name: "correlation.parquet"
-      description: "Correlation matrices"
-
-    - name: "regime_assignment.parquet"
-      description: "State labels"
-
-# =============================================================================
-# HUMAN READABLE SUMMARY
+# SUMMARY
 # =============================================================================
 
 summary: |
-  PRISM expects observations.parquet with 4 columns:
+  PRISM expects observations.parquet with columns:
 
-  1. entity_id (string): What entity is this? (pump_1, bearing_A, etc.)
-  2. I (integer): Observation number 0,1,2,3... per entity
-  3. signal_id (string): What signal? (temp, pressure, acc_x, etc.)
-  4. value (float): The measurement
+  REQUIRED:
+  - signal_id (string): What signal? (temp, pressure, acc_x)
+  - I (integer): Observation number 0,1,2,3... per unit/signal
+  - value (float): The measurement
+
+  OPTIONAL:
+  - unit_id (string): A label for grouping. Blank is fine.
 
   Rules:
-  - I must be sequential (0,1,2,3...) not sparse (0,10,20...)
-  - Each entity needs at least 2 signals for pair calculations
-  - No nulls in entity_id, I, or signal_id
-
-  If your data doesn't meet these requirements, ORTHON's transform
-  pipeline will convert it to the correct format.
+  - I must be sequential (0,1,2,3...) not sparse
+  - Need at least 2 signals for pair calculations
+  - No nulls in signal_id or I
+  - unit_id can be anything or blank - it's just a tag

@@ -6,7 +6,7 @@
 -- Report: Attractor Summary
 -- Overview of attractor characteristics across all entities
 SELECT
-    entity_id,
+    unit_id,
     n_samples,
     correlation_dimension,
     effective_dimension,
@@ -25,7 +25,7 @@ ORDER BY attractor_change DESC;
 -- Report: Dimension Collapse Alerts
 -- Entities experiencing dimension collapse (often precedes failure)
 SELECT
-    entity_id,
+    unit_id,
     effective_dimension,
     dimension_change,
     attractor_change,
@@ -39,7 +39,7 @@ ORDER BY attractor_change DESC;
 -- Report: Significant Mode Analysis
 -- Analysis of significant modes per entity
 SELECT
-    entity_id,
+    unit_id,
     n_significant_modes,
     effective_dimension,
     mp_upper_bound,
@@ -59,7 +59,7 @@ ORDER BY n_significant_modes;
 -- Report: Attractor Change Tracking
 -- Entities with significant attractor changes
 SELECT
-    entity_id,
+    unit_id,
     attractor_change,
     effective_dimension,
     dimension_change,
@@ -89,7 +89,7 @@ WHERE correlation_dimension IS NOT NULL;
 -- Report: Eigenvalue Analysis
 -- Entities with unusual eigenvalue structure
 SELECT
-    entity_id,
+    unit_id,
     eigenvalue_1,
     eigenvalue_2,
     eigenvalue_ratio,

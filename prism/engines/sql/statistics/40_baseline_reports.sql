@@ -8,7 +8,7 @@
 SELECT
     metric_source,
     metric_name,
-    entity_id,
+    unit_id,
     mean,
     std,
     median,
@@ -22,7 +22,7 @@ SELECT
     cv,
     iqr
 FROM read_parquet('baseline.parquet')
-ORDER BY metric_source, metric_name, entity_id;
+ORDER BY metric_source, metric_name, unit_id;
 
 -- Report: Fleet Baselines Only
 -- Aggregated fleet baselines
@@ -37,7 +37,7 @@ SELECT
     n_samples,
     cv
 FROM read_parquet('baseline.parquet')
-WHERE entity_id = 'FLEET'
+WHERE unit_id = 'FLEET'
 ORDER BY metric_source, metric_name;
 
 -- Report: High Variance Metrics
@@ -56,7 +56,7 @@ SELECT
     END AS variance_level,
     'High variance may indicate unstable baseline' AS note
 FROM read_parquet('baseline.parquet')
-WHERE entity_id = 'FLEET' AND cv > 0.25
+WHERE unit_id = 'FLEET' AND cv > 0.25
 ORDER BY cv DESC;
 
 -- Report: Entity vs Fleet Comparison
@@ -64,7 +64,7 @@ ORDER BY cv DESC;
 SELECT
     e.metric_source,
     e.metric_name,
-    e.entity_id,
+    e.unit_id,
     e.mean AS entity_mean,
     f.mean AS fleet_mean,
     e.mean - f.mean AS deviation,
@@ -81,8 +81,8 @@ FROM read_parquet('baseline.parquet') e
 JOIN read_parquet('baseline.parquet') f
     ON e.metric_source = f.metric_source
     AND e.metric_name = f.metric_name
-    AND f.entity_id = 'FLEET'
-WHERE e.entity_id != 'FLEET'
+    AND f.unit_id = 'FLEET'
+WHERE e.unit_id != 'FLEET'
 ORDER BY ABS((e.mean - f.mean) / NULLIF(f.std, 0)) DESC;
 
 -- Report: Metrics with Wide Ranges
@@ -101,7 +101,7 @@ SELECT
         ELSE 'NORMAL_RANGE'
     END AS range_status
 FROM read_parquet('baseline.parquet')
-WHERE entity_id = 'FLEET'
+WHERE unit_id = 'FLEET'
 ORDER BY relative_range DESC;
 
 -- Report: Baseline Sample Counts
@@ -113,6 +113,6 @@ SELECT
     MIN(n_samples) AS min_samples,
     MAX(n_samples) AS max_samples
 FROM read_parquet('baseline.parquet')
-WHERE entity_id = 'FLEET'
+WHERE unit_id = 'FLEET'
 GROUP BY metric_source
 ORDER BY avg_samples DESC;

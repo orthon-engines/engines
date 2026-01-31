@@ -51,7 +51,7 @@ class WaveletEngine:
     def compute(
         self,
         signals: Dict[str, np.ndarray],
-        entity_id: str = "unknown"
+        unit_id: str = "unknown"
     ) -> Dict[str, Any]:
         """
         Compute wavelet analysis for an entity.
@@ -60,7 +60,7 @@ class WaveletEngine:
         ----------
         signals : dict
             Dictionary mapping signal_id to numpy array of values
-        entity_id : str
+        unit_id : str
             Entity identifier
 
         Returns
@@ -69,13 +69,13 @@ class WaveletEngine:
             Wavelet metrics for all signals and pairs
         """
         if len(signals) < 1:
-            return self._empty_result(entity_id)
+            return self._empty_result(unit_id)
 
         signal_ids = sorted(signals.keys())
         min_len = min(len(signals[s]) for s in signal_ids)
 
         if min_len < self.config.min_samples:
-            return self._empty_result(entity_id)
+            return self._empty_result(unit_id)
 
         # Set up scales
         if self.config.scales is None:
@@ -220,7 +220,7 @@ class WaveletEngine:
             avg_variability = np.nan
 
         return {
-            'entity_id': entity_id,
+            'unit_id': unit_id,
             'n_signals': n_signals,
             'n_samples': min_len,
             'n_scales': len(scales),
@@ -237,10 +237,10 @@ class WaveletEngine:
             'avg_temporal_variability': float(avg_variability),
         }
 
-    def _empty_result(self, entity_id: str) -> Dict[str, Any]:
+    def _empty_result(self, unit_id: str) -> Dict[str, Any]:
         """Return empty result for insufficient data."""
         return {
-            'entity_id': entity_id,
+            'unit_id': unit_id,
             'n_signals': 0,
             'n_samples': 0,
             'n_scales': 0,
@@ -260,7 +260,7 @@ class WaveletEngine:
     def to_parquet_row(self, result: Dict[str, Any]) -> Dict[str, Any]:
         """Convert result to flat row for parquet output."""
         return {
-            'entity_id': result['entity_id'],
+            'unit_id': result['unit_id'],
             'n_signals': result['n_signals'],
             'n_samples': result['n_samples'],
             'n_scales': result['n_scales'],

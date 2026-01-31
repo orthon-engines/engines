@@ -6,7 +6,7 @@
 -- Report: Lyapunov Summary
 -- Overview of stability across all entities
 SELECT
-    entity_id,
+    unit_id,
     n_samples,
     lyapunov,
     stability_class,
@@ -29,7 +29,7 @@ ORDER BY lyapunov DESC;
 -- Report: Stability Alerts
 -- Entities with concerning stability characteristics
 SELECT
-    entity_id,
+    unit_id,
     lyapunov,
     stability_class,
     is_significant,
@@ -48,7 +48,7 @@ ORDER BY lyapunov DESC;
 -- Report: Significant Chaos
 -- Entities where positive Lyapunov is statistically significant
 SELECT
-    entity_id,
+    unit_id,
     lyapunov,
     surrogate_p_value,
     surrogate_z_score,
@@ -61,7 +61,7 @@ ORDER BY lyapunov DESC;
 -- Report: Destabilizing Trends
 -- Entities where Lyapunov exponent is trending upward
 SELECT
-    entity_id,
+    unit_id,
     lyapunov,
     lyapunov_trend,
     lyapunov_trend_slope,

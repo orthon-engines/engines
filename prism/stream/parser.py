@@ -19,7 +19,7 @@ def parse_chunk(chunk: bytes, format: str = 'parquet') -> List[Dict[str, Any]]:
         format: 'parquet' or 'csv'
     
     Returns:
-        List of row dicts with keys: entity_id, signal_id, index, value
+        List of row dicts with keys: unit_id, signal_id, index, value
     """
     if format == 'parquet':
         return _parse_parquet(chunk)

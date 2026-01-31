@@ -54,7 +54,7 @@ class AttractorEngine:
     def compute(
         self,
         signal: np.ndarray,
-        entity_id: str = "unknown"
+        unit_id: str = "unknown"
     ) -> Dict[str, Any]:
         """
         Compute attractor characteristics for a signal.
@@ -63,7 +63,7 @@ class AttractorEngine:
         ----------
         signal : np.ndarray
             Time series data (can be 1D or 2D multivariate)
-        entity_id : str
+        unit_id : str
             Entity identifier
 
         Returns
@@ -85,7 +85,7 @@ class AttractorEngine:
             is_multivariate = True
 
         if len(signal) < self.config.min_samples:
-            return self._empty_result(entity_id)
+            return self._empty_result(unit_id)
 
         try:
             # Embed if univariate
@@ -107,7 +107,7 @@ class AttractorEngine:
                 tau = 1
 
             if len(embedded) < 30:
-                return self._empty_result(entity_id)
+                return self._empty_result(unit_id)
 
             # Correlation dimension
             try:
@@ -139,12 +139,12 @@ class AttractorEngine:
             n_significant = int(np.sum(sig_mask))
 
             # Track history
-            if entity_id not in self.dimension_history:
-                self.dimension_history[entity_id] = []
-            self.dimension_history[entity_id].append(eff_dim)
+            if unit_id not in self.dimension_history:
+                self.dimension_history[unit_id] = []
+            self.dimension_history[unit_id].append(eff_dim)
 
             # Dimension collapse detection
-            history = self.dimension_history[entity_id]
+            history = self.dimension_history[unit_id]
             if len(history) > 1:
                 prev_dim = history[-2]
                 dimension_change = eff_dim - prev_dim
@@ -167,7 +167,7 @@ class AttractorEngine:
                 ev_ratio = np.nan
 
             return {
-                'entity_id': entity_id,
+                'unit_id': unit_id,
                 'n_samples': len(signal) if signal.ndim == 1 else len(embedded),
                 'correlation_dimension': float(D2) if not np.isnan(D2) else None,
                 'effective_dimension': float(eff_dim),
@@ -184,12 +184,12 @@ class AttractorEngine:
             }
 
         except Exception as e:
-            return self._empty_result(entity_id)
+            return self._empty_result(unit_id)
 
-    def _empty_result(self, entity_id: str) -> Dict[str, Any]:
+    def _empty_result(self, unit_id: str) -> Dict[str, Any]:
         """Return empty result for insufficient data."""
         return {
-            'entity_id': entity_id,
+            'unit_id': unit_id,
             'n_samples': 0,
             'correlation_dimension': None,
             'effective_dimension': np.nan,
@@ -222,7 +222,7 @@ def run_attractor_engine(
     Parameters
     ----------
     observations : pl.DataFrame
-        Observations with entity_id, signal_id, index, value
+        Observations with unit_id, signal_id, index, value
     config : AttractorConfig
         Engine configuration
     signal_column : str
@@ -237,11 +237,11 @@ def run_attractor_engine(
     """
     engine = AttractorEngine(config)
 
-    entities = observations.select('entity_id').unique().to_series().to_list()
+    entities = observations.select('unit_id').unique().to_series().to_list()
     results = []
 
-    for entity_id in entities:
-        entity_obs = observations.filter(pl.col('entity_id') == entity_id)
+    for unit_id in entities:
+        entity_obs = observations.filter(pl.col('unit_id') == unit_id)
 
         sig_data = (
             entity_obs
@@ -253,11 +253,11 @@ def run_attractor_engine(
         )
 
         if len(sig_data) > 0:
-            result = engine.compute(sig_data, entity_id)
+            result = engine.compute(sig_data, unit_id)
             results.append(engine.to_parquet_row(result))
 
     df = pl.DataFrame(results) if results else pl.DataFrame({
-        'entity_id': [], 'effective_dimension': [], 'dimension_collapse': []
+        'unit_id': [], 'effective_dimension': [], 'dimension_collapse': []
     })
 
     if output_path:

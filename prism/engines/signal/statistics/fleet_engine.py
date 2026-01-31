@@ -58,7 +58,7 @@ class FleetEngine:
         Parameters
         ----------
         health_df : pl.DataFrame
-            Health DataFrame with entity_id, health_score, risk_level
+            Health DataFrame with unit_id, health_score, risk_level
 
         Returns
         -------
@@ -69,7 +69,7 @@ class FleetEngine:
             return pl.DataFrame()
 
         # Compute per-entity statistics
-        entity_stats = health_df.group_by('entity_id').agg([
+        entity_stats = health_df.group_by('unit_id').agg([
             pl.col('health_score').mean().alias('avg_health'),
             pl.col('health_score').min().alias('min_health'),
             pl.col('health_score').max().alias('max_health'),
@@ -80,11 +80,11 @@ class FleetEngine:
 
         # Count risk events
         if 'risk_level' in health_df.columns:
-            risk_counts = health_df.group_by('entity_id').agg([
+            risk_counts = health_df.group_by('unit_id').agg([
                 pl.col('risk_level').filter(pl.col('risk_level') == 'CRITICAL').count().alias('critical_events'),
                 pl.col('risk_level').filter(pl.col('risk_level') == 'HIGH').count().alias('high_events'),
             ])
-            entity_stats = entity_stats.join(risk_counts, on='entity_id', how='left')
+            entity_stats = entity_stats.join(risk_counts, on='unit_id', how='left')
         else:
             entity_stats = entity_stats.with_columns([
                 pl.lit(0).alias('critical_events'),
@@ -224,7 +224,7 @@ def run_fleet_engine(
             anomaly_df = pl.read_parquet(anomaly_path)
             anomaly_summary = anomaly_df.filter(
                 pl.col('is_anomaly') == True
-            ).group_by('entity_id').agg([
+            ).group_by('unit_id').agg([
                 pl.count().alias('total_anomalies'),
                 pl.col('anomaly_severity').filter(
                     pl.col('anomaly_severity') == 'CRITICAL'
@@ -233,7 +233,7 @@ def run_fleet_engine(
                     pl.col('anomaly_severity') == 'WARNING'
                 ).count().alias('warning_anomalies'),
             ])
-            rankings = rankings.join(anomaly_summary, on='entity_id', how='left')
+            rankings = rankings.join(anomaly_summary, on='unit_id', how='left')
             rankings = rankings.fill_null(0)
         except Exception:
             rankings = rankings.with_columns([

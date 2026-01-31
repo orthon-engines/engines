@@ -6,7 +6,7 @@
 -- Report: Executive Dashboard KPIs
 -- Key performance indicators
 SELECT
-    (SELECT COUNT(DISTINCT entity_id) FROM read_parquet('health.parquet')) AS total_entities,
+    (SELECT COUNT(DISTINCT unit_id) FROM read_parquet('health.parquet')) AS total_entities,
     (SELECT ROUND(AVG(health_score), 1)
      FROM read_parquet('health.parquet')
      WHERE window_id = (SELECT MAX(window_id) FROM read_parquet('health.parquet'))) AS current_avg_health,
@@ -159,7 +159,7 @@ WHERE window_id = (SELECT MAX(window_id) FROM read_parquet('health.parquet'));
 -- Report: Watch List
 -- Entities requiring attention
 SELECT
-    entity_id,
+    unit_id,
     health_score,
     risk_level,
     primary_concern,

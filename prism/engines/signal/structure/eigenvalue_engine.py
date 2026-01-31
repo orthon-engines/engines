@@ -52,7 +52,7 @@ class EigenvalueEngine:
     def compute(
         self,
         signals: Dict[str, np.ndarray],
-        entity_id: str = "unknown"
+        unit_id: str = "unknown"
     ) -> Dict[str, Any]:
         """
         Compute eigenvalue decomposition for an entity.
@@ -61,7 +61,7 @@ class EigenvalueEngine:
         ----------
         signals : dict
             Dictionary mapping signal_id to numpy array of values
-        entity_id : str
+        unit_id : str
             Entity identifier
 
         Returns
@@ -70,14 +70,14 @@ class EigenvalueEngine:
             Eigenvalue metrics and decomposition
         """
         if len(signals) < 2:
-            return self._empty_result(entity_id)
+            return self._empty_result(unit_id)
 
         # Build data matrix
         signal_ids = sorted(signals.keys())
         min_len = min(len(signals[s]) for s in signal_ids)
 
         if min_len < self.config.min_samples:
-            return self._empty_result(entity_id)
+            return self._empty_result(unit_id)
 
         data = np.column_stack([
             np.asarray(signals[s])[:min_len] for s in signal_ids
@@ -88,7 +88,7 @@ class EigenvalueEngine:
         data = data[valid_rows]
 
         if len(data) < self.config.min_samples:
-            return self._empty_result(entity_id)
+            return self._empty_result(unit_id)
 
         n_samples, n_features = data.shape
 
@@ -144,7 +144,7 @@ class EigenvalueEngine:
         loadings = pca_loadings(data, n_comp)
 
         return {
-            'entity_id': entity_id,
+            'unit_id': unit_id,
             'n_signals': n_features,
             'n_samples': n_samples,
             'signal_ids': signal_ids,
@@ -194,10 +194,10 @@ class EigenvalueEngine:
 
         return float(np.clip(p_value, 0, 1))
 
-    def _empty_result(self, entity_id: str) -> Dict[str, Any]:
+    def _empty_result(self, unit_id: str) -> Dict[str, Any]:
         """Return empty result for insufficient data."""
         return {
-            'entity_id': entity_id,
+            'unit_id': unit_id,
             'n_signals': 0,
             'n_samples': 0,
             'signal_ids': [],
@@ -223,7 +223,7 @@ class EigenvalueEngine:
             ev_dict[f'eigenvalue_{i+1}'] = float(eigenvalues[i])
 
         return {
-            'entity_id': result['entity_id'],
+            'unit_id': result['unit_id'],
             'n_signals': result['n_signals'],
             'n_samples': result['n_samples'],
             'n_significant': result['n_significant'],

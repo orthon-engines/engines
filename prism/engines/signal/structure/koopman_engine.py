@@ -47,7 +47,7 @@ class KoopmanEngine:
     def compute(
         self,
         signals: Dict[str, np.ndarray],
-        entity_id: str = "unknown"
+        unit_id: str = "unknown"
     ) -> Dict[str, Any]:
         """
         Compute DMD for an entity.
@@ -56,7 +56,7 @@ class KoopmanEngine:
         ----------
         signals : dict
             Dictionary mapping signal_id to numpy array of values
-        entity_id : str
+        unit_id : str
             Entity identifier
 
         Returns
@@ -65,14 +65,14 @@ class KoopmanEngine:
             DMD modes, eigenvalues, and derived metrics
         """
         if len(signals) < 1:
-            return self._empty_result(entity_id)
+            return self._empty_result(unit_id)
 
         # Build data matrix (time × signals)
         signal_ids = sorted(signals.keys())
         min_len = min(len(signals[s]) for s in signal_ids)
 
         if min_len < self.config.min_samples:
-            return self._empty_result(entity_id)
+            return self._empty_result(unit_id)
 
         # Stack as rows (time) × columns (signals)
         data = np.column_stack([
@@ -84,7 +84,7 @@ class KoopmanEngine:
         data = data[valid_rows]
 
         if len(data) < self.config.min_samples:
-            return self._empty_result(entity_id)
+            return self._empty_result(unit_id)
 
         # DMD on transposed data (signals × time)
         # DMD expects columns to be snapshots
@@ -141,7 +141,7 @@ class KoopmanEngine:
             mode_coherence = np.nan
 
         return {
-            'entity_id': entity_id,
+            'unit_id': unit_id,
             'n_signals': len(signal_ids),
             'n_samples': len(data),
             'signal_ids': signal_ids,
@@ -158,10 +158,10 @@ class KoopmanEngine:
             'mode_coherence': mode_coherence,
         }
 
-    def _empty_result(self, entity_id: str) -> Dict[str, Any]:
+    def _empty_result(self, unit_id: str) -> Dict[str, Any]:
         """Return empty result for insufficient data."""
         return {
-            'entity_id': entity_id,
+            'unit_id': unit_id,
             'n_signals': 0,
             'n_samples': 0,
             'signal_ids': [],
@@ -187,7 +187,7 @@ class KoopmanEngine:
             freq_dict[f'growth_rate_{i+1}'] = float(result['growth_rates'][i])
 
         return {
-            'entity_id': result['entity_id'],
+            'unit_id': result['unit_id'],
             'n_signals': result['n_signals'],
             'n_samples': result['n_samples'],
             'rank': result['rank'],

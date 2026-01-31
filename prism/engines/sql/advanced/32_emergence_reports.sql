@@ -6,7 +6,7 @@
 -- Report: High Synergy Triplets
 -- Signal combinations with emergent information
 SELECT
-    entity_id,
+    unit_id,
     source_1,
     source_2,
     target,
@@ -25,7 +25,7 @@ ORDER BY synergy_ratio DESC;
 -- Report: Redundant Signal Pairs
 -- Signals that provide overlapping information
 SELECT
-    entity_id,
+    unit_id,
     source_1,
     source_2,
     target,
@@ -40,7 +40,7 @@ ORDER BY redundancy DESC;
 -- Report: Unique Information Sources
 -- Signals providing non-overlapping information
 SELECT
-    entity_id,
+    unit_id,
     source_1,
     source_2,
     target,
@@ -59,7 +59,7 @@ ORDER BY unique_1 + unique_2 DESC;
 -- Report: Pairwise Mutual Information
 -- Information shared between signal pairs
 SELECT
-    entity_id,
+    unit_id,
     signal_a,
     signal_b,
     mutual_information,
@@ -75,7 +75,7 @@ ORDER BY mutual_information DESC;
 -- Report: Emergence Summary by Entity
 -- Aggregate emergence metrics
 SELECT
-    entity_id,
+    unit_id,
     n_samples,
     n_signals,
     n_pairs,
@@ -97,14 +97,14 @@ ORDER BY emergence_ratio DESC;
 -- Report: Information Distribution
 -- How is information distributed across triplets
 SELECT
-    entity_id,
+    unit_id,
     AVG(redundancy) AS avg_redundancy,
     AVG(synergy) AS avg_synergy,
     AVG(unique_1 + unique_2) AS avg_unique,
     AVG(synergy_ratio) AS avg_synergy_ratio,
     COUNT(*) AS n_triplets
 FROM read_parquet('emergence_triplets.parquet')
-GROUP BY entity_id
+GROUP BY unit_id
 ORDER BY avg_synergy_ratio DESC;
 
 -- Report: Target Signal Analysis
@@ -122,7 +122,7 @@ ORDER BY avg_total_info DESC;
 -- Report: Redundant Sensors Alert
 -- Sensors that may be redundant
 SELECT DISTINCT
-    entity_id,
+    unit_id,
     signal_a,
     signal_b,
     mutual_information,

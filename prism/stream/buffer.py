@@ -16,7 +16,7 @@ class SignalData:
     """Accumulated data for a single signal."""
     values: List[float] = field(default_factory=list)
     indices: List[float] = field(default_factory=list)
-    entity_id: Optional[str] = None
+    unit_id: Optional[str] = None
     
     def add(self, index: float, value: float):
         self.indices.append(index)
@@ -66,7 +66,7 @@ class SignalBuffer:
         Add rows to buffer, grouped by signal_id.
         
         Expected row format:
-            {'entity_id': str, 'signal_id': str, 'index': float, 'value': float}
+            {'unit_id': str, 'signal_id': str, 'index': float, 'value': float}
         """
         for row in rows:
             signal_id = row.get('signal_id')
@@ -74,7 +74,7 @@ class SignalBuffer:
                 continue
             
             if signal_id not in self.signals:
-                self.signals[signal_id] = SignalData(entity_id=row.get('entity_id'))
+                self.signals[signal_id] = SignalData(unit_id=row.get('unit_id'))
             
             old_size = self.signals[signal_id].memory_bytes
             self.signals[signal_id].add(
@@ -107,10 +107,10 @@ class SignalBuffer:
         """Return all remaining signal_ids."""
         return list(self.signals.keys())
     
-    def get_entity_id(self, signal_id: str) -> Optional[str]:
-        """Get entity_id for a signal."""
+    def get_unit_id(self, signal_id: str) -> Optional[str]:
+        """Get unit_id for a signal."""
         if signal_id in self.signals:
-            return self.signals[signal_id].entity_id
+            return self.signals[signal_id].unit_id
         return None
     
     def _maybe_evict(self) -> None:

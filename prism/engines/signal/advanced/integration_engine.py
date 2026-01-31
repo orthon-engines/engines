@@ -64,7 +64,7 @@ class IntegrationEngine:
     def compute(
         self,
         metrics: Dict[str, Dict[str, Any]],
-        entity_id: str = "unknown"
+        unit_id: str = "unknown"
     ) -> Dict[str, Any]:
         """
         Compute health assessment from multiple metric sources.
@@ -74,7 +74,7 @@ class IntegrationEngine:
         metrics : dict
             Maps metric source name to dict of metric values
             e.g., {'lyapunov': {'lyapunov': 0.1, ...}, ...}
-        entity_id : str
+        unit_id : str
             Entity identifier
 
         Returns
@@ -86,7 +86,7 @@ class IntegrationEngine:
         weights = self.config.weights
         thresholds = self.config.thresholds
 
-        result = {'entity_id': entity_id}
+        result = {'unit_id': unit_id}
 
         # Helper to get value
         def get_val(source: str, key: str):
@@ -238,10 +238,10 @@ class IntegrationEngine:
 
         return result
 
-    def _empty_result(self, entity_id: str) -> Dict[str, Any]:
+    def _empty_result(self, unit_id: str) -> Dict[str, Any]:
         """Return empty result when no data available."""
         return {
-            'entity_id': entity_id,
+            'unit_id': unit_id,
             'stability_score': np.nan,
             'predictability_score': np.nan,
             'physics_score': np.nan,
@@ -293,20 +293,20 @@ def run_integration_engine(
     # Get all unique entity IDs
     all_entities = set()
     for df in dfs.values():
-        if df is not None and 'entity_id' in df.columns:
-            all_entities.update(df['entity_id'].unique().to_list())
+        if df is not None and 'unit_id' in df.columns:
+            all_entities.update(df['unit_id'].unique().to_list())
 
     results = []
 
-    for entity_id in sorted(all_entities):
+    for unit_id in sorted(all_entities):
         # Gather metrics for this entity from all sources
         metrics = {}
 
         for source_name, df in dfs.items():
-            if df is None or 'entity_id' not in df.columns:
+            if df is None or 'unit_id' not in df.columns:
                 continue
 
-            entity_rows = df.filter(pl.col('entity_id') == entity_id)
+            entity_rows = df.filter(pl.col('unit_id') == unit_id)
             if len(entity_rows) == 0:
                 continue
 
@@ -314,11 +314,11 @@ def run_integration_engine(
             row = entity_rows.to_dicts()[0]
             metrics[source_name] = row
 
-        result = engine.compute(metrics, entity_id)
+        result = engine.compute(metrics, unit_id)
         results.append(result)
 
     df = pl.DataFrame(results) if results else pl.DataFrame({
-        'entity_id': [], 'health_score': [], 'risk_level': [], 'recommendation': []
+        'unit_id': [], 'health_score': [], 'risk_level': [], 'recommendation': []
     })
 
     if output_path:

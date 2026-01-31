@@ -6,7 +6,7 @@
 -- Report: Current Anomalies
 -- All anomalies sorted by severity
 SELECT
-    entity_id,
+    unit_id,
     window_id,
     metric_source,
     metric_name,
@@ -29,7 +29,7 @@ ORDER BY
 -- Report: Critical Anomalies Only
 -- Highest severity anomalies
 SELECT
-    entity_id,
+    unit_id,
     window_id,
     metric_source,
     metric_name,
@@ -43,7 +43,7 @@ ORDER BY ABS(z_score) DESC;
 -- Report: Anomaly Summary by Entity
 -- Count of anomalies per entity
 SELECT
-    entity_id,
+    unit_id,
     COUNT(*) AS total_anomalies,
     COUNT(CASE WHEN anomaly_severity = 'CRITICAL' THEN 1 END) AS critical,
     COUNT(CASE WHEN anomaly_severity = 'WARNING' THEN 1 END) AS warning,
@@ -57,7 +57,7 @@ SELECT
     END AS entity_anomaly_status
 FROM read_parquet('anomaly.parquet')
 WHERE is_anomaly = TRUE
-GROUP BY entity_id
+GROUP BY unit_id
 ORDER BY total_anomalies DESC;
 
 -- Report: Anomaly Summary by Metric
@@ -66,7 +66,7 @@ SELECT
     metric_source,
     metric_name,
     COUNT(*) AS total_anomalies,
-    COUNT(DISTINCT entity_id) AS affected_entities,
+    COUNT(DISTINCT unit_id) AS affected_entities,
     AVG(z_score) AS avg_z,
     AVG(ABS(z_score)) AS avg_abs_z,
     MAX(ABS(z_score)) AS max_abs_z,
@@ -87,7 +87,7 @@ SELECT
     COUNT(*) AS n_anomalies,
     COUNT(CASE WHEN anomaly_severity = 'CRITICAL' THEN 1 END) AS critical,
     COUNT(CASE WHEN anomaly_severity = 'WARNING' THEN 1 END) AS warning,
-    COUNT(DISTINCT entity_id) AS affected_entities,
+    COUNT(DISTINCT unit_id) AS affected_entities,
     AVG(ABS(z_score)) AS avg_severity
 FROM read_parquet('anomaly.parquet')
 WHERE is_anomaly = TRUE
@@ -103,7 +103,7 @@ SELECT
     AVG(a.z_score * b.z_score) AS correlation_sign
 FROM read_parquet('anomaly.parquet') a
 JOIN read_parquet('anomaly.parquet') b
-    ON a.entity_id = b.entity_id
+    ON a.unit_id = b.unit_id
     AND a.window_id = b.window_id
     AND a.metric_name < b.metric_name
 WHERE a.is_anomaly = TRUE AND b.is_anomaly = TRUE
@@ -123,7 +123,7 @@ SELECT
         ELSE '<1.5 (Normal)'
     END AS z_score_bucket,
     COUNT(*) AS n_observations,
-    COUNT(DISTINCT entity_id) AS n_entities
+    COUNT(DISTINCT unit_id) AS n_entities
 FROM read_parquet('anomaly.parquet')
 GROUP BY z_score_bucket
 ORDER BY

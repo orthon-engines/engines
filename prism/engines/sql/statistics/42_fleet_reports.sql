@@ -6,7 +6,7 @@
 -- Report: Entity Rankings
 -- Full rankings with all metrics
 SELECT
-    entity_id,
+    unit_id,
     health_rank,
     avg_health,
     min_health,
@@ -26,7 +26,7 @@ ORDER BY health_rank;
 -- Report: Top Performers
 -- Best performing entities
 SELECT
-    entity_id,
+    unit_id,
     avg_health,
     health_tier,
     critical_events,
@@ -38,7 +38,7 @@ LIMIT 10;
 -- Report: Bottom Performers
 -- Worst performing entities requiring attention
 SELECT
-    entity_id,
+    unit_id,
     avg_health,
     health_tier,
     critical_events,
@@ -84,7 +84,7 @@ ORDER BY
 -- Report: Volatility Analysis
 -- Entities with high health volatility
 SELECT
-    entity_id,
+    unit_id,
     avg_health,
     health_volatility,
     min_health,
@@ -102,7 +102,7 @@ ORDER BY health_volatility DESC;
 -- Report: Risk Event Analysis
 -- Entities ranked by total risk events
 SELECT
-    entity_id,
+    unit_id,
     critical_events,
     high_events,
     critical_events + high_events AS total_risk_events,

@@ -23,7 +23,7 @@ warnings.filterwarnings('ignore', category=RuntimeWarning)
 # METRIC DETECTION
 # ============================================================
 
-EXCLUDE_COLUMNS = {'entity_id', 'signal_id', 'I', 'value', 'unit', 'timestamp'}
+EXCLUDE_COLUMNS = {'unit_id', 'signal_id', 'I', 'value', 'unit', 'timestamp'}
 
 PREFERRED_STATE_METRICS = [
     'rolling_hurst', 'rolling_entropy', 'rolling_kurtosis',
@@ -107,14 +107,14 @@ def compute_baseline(
 
 def compute_state_distance(
     obs_enriched: pd.DataFrame,
-    entity_id: str,
+    unit_id: str,
     I: np.ndarray,
     n_baseline: int = 100
 ) -> Dict[str, np.ndarray]:
     """Compute state distance and velocity using available metrics."""
     n = len(I)
 
-    entity_data = obs_enriched[obs_enriched['entity_id'] == entity_id]
+    entity_data = obs_enriched[obs_enriched['unit_id'] == unit_id]
 
     if entity_data.empty:
         return {
@@ -196,7 +196,7 @@ def compute_state_distance(
 
 def compute_coherence(
     obs_enriched: pd.DataFrame,
-    entity_id: str,
+    unit_id: str,
     I: np.ndarray,
     window: int = 50
 ) -> Dict[str, np.ndarray]:
@@ -215,7 +215,7 @@ def compute_coherence(
     """
     n = len(I)
 
-    entity_data = obs_enriched[obs_enriched['entity_id'] == entity_id]
+    entity_data = obs_enriched[obs_enriched['unit_id'] == unit_id]
     signals = entity_data['signal_id'].unique()
     n_signals = len(signals)
 
@@ -345,13 +345,13 @@ def compute_coherence(
 
 def compute_energy(
     obs_enriched: pd.DataFrame,
-    entity_id: str,
+    unit_id: str,
     I: np.ndarray
 ) -> Dict[str, np.ndarray]:
     """Compute energy proxy and flow metrics."""
     n = len(I)
 
-    entity_data = obs_enriched[obs_enriched['entity_id'] == entity_id]
+    entity_data = obs_enriched[obs_enriched['unit_id'] == unit_id]
     signals = entity_data['signal_id'].unique()
 
     if len(signals) == 0:
@@ -437,7 +437,7 @@ def compute_energy(
 def compute_thermodynamics(
     energy_proxy: np.ndarray,
     obs_enriched: pd.DataFrame,
-    entity_id: str,
+    unit_id: str,
     I: np.ndarray
 ) -> Dict[str, np.ndarray]:
     """Compute thermodynamic metrics."""
@@ -451,7 +451,7 @@ def compute_thermodynamics(
     else:
         dissipation_rate = np.zeros(n)
 
-    entity_data = obs_enriched[obs_enriched['entity_id'] == entity_id]
+    entity_data = obs_enriched[obs_enriched['unit_id'] == unit_id]
 
     # Check for rolling entropy columns
     entropy_col = None
@@ -491,12 +491,12 @@ def compute_thermodynamics(
 
 def compute_physics_for_entity(
     obs_enriched: pd.DataFrame,
-    entity_id: str,
+    unit_id: str,
     n_baseline: int = 100,
     coherence_window: int = 50
 ) -> pd.DataFrame:
     """Compute all physics layers for a single entity."""
-    entity_data = obs_enriched[obs_enriched['entity_id'] == entity_id]
+    entity_data = obs_enriched[obs_enriched['unit_id'] == unit_id]
 
     if entity_data.empty:
         return pd.DataFrame()
@@ -507,13 +507,13 @@ def compute_physics_for_entity(
     if n < 10:
         return pd.DataFrame()
 
-    state = compute_state_distance(obs_enriched, entity_id, I, n_baseline)
-    coherence = compute_coherence(obs_enriched, entity_id, I, coherence_window)
-    energy = compute_energy(obs_enriched, entity_id, I)
-    thermo = compute_thermodynamics(energy['energy_proxy'], obs_enriched, entity_id, I)
+    state = compute_state_distance(obs_enriched, unit_id, I, n_baseline)
+    coherence = compute_coherence(obs_enriched, unit_id, I, coherence_window)
+    energy = compute_energy(obs_enriched, unit_id, I)
+    thermo = compute_thermodynamics(energy['energy_proxy'], obs_enriched, unit_id, I)
 
     result = pd.DataFrame({
-        'entity_id': entity_id,
+        'unit_id': unit_id,
         'I': I,
         # L1: State
         'state_distance': state['state_distance'],
@@ -546,18 +546,18 @@ def compute_physics_for_all_entities(
     coherence_window: int = 50
 ) -> pd.DataFrame:
     """Compute physics stack for all entities."""
-    entities = obs_enriched['entity_id'].unique()
+    entities = obs_enriched['unit_id'].unique()
 
     results = []
-    for entity_id in entities:
+    for unit_id in entities:
         try:
             result = compute_physics_for_entity(
-                obs_enriched, entity_id, n_baseline, coherence_window
+                obs_enriched, unit_id, n_baseline, coherence_window
             )
             if not result.empty:
                 results.append(result)
         except Exception as e:
-            print(f"  Warning: physics computation failed for {entity_id}: {e}")
+            print(f"  Warning: physics computation failed for {unit_id}: {e}")
 
     if results:
         return pd.concat(results, ignore_index=True)

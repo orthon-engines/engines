@@ -108,7 +108,7 @@ class RAMManager:
     Usage:
         ram_manager = RAMManager()
         ram_manager.process_in_batches(
-            items=entity_ids,
+            items=unit_ids,
             process_func=run_all_engines,
             write_func=write_parquet,
         )

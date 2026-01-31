@@ -97,7 +97,7 @@ class SQLRunner:
         """)
 
         count = self.conn.execute("SELECT COUNT(*) FROM observations").fetchone()[0]
-        n_entities = self.conn.execute("SELECT COUNT(DISTINCT entity_id) FROM observations").fetchone()[0]
+        n_entities = self.conn.execute("SELECT COUNT(DISTINCT unit_id) FROM observations").fetchone()[0]
         n_signals = self.conn.execute("SELECT COUNT(DISTINCT signal_id) FROM observations").fetchone()[0]
 
         print(f"  Loaded {count:,} observations ({n_entities} entities, {n_signals} signals)")
@@ -105,7 +105,7 @@ class SQLRunner:
         # Create index for performance
         self.conn.execute("""
             CREATE INDEX idx_obs_entity_signal_I
-            ON observations(entity_id, signal_id, I)
+            ON observations(unit_id, signal_id, I)
         """)
 
     def _load_python_outputs(self):

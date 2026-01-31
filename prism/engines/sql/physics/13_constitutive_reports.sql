@@ -7,7 +7,7 @@
 -- Report: Relationship Summary
 -- Overview of all detected constitutive relationships
 SELECT
-    entity_id,
+    unit_id,
     relationship_name,
     relationship_type,
     independent_signal,
@@ -19,12 +19,12 @@ SELECT
     trend,
     status
 FROM read_parquet('physics_constitutive.parquet')
-ORDER BY entity_id, relationship_name;
+ORDER BY unit_id, relationship_name;
 
 -- Report: Degraded Relationships
 -- Relationships showing significant degradation
 SELECT
-    entity_id,
+    unit_id,
     relationship_name,
     coefficient,
     expected_coefficient,
@@ -45,7 +45,7 @@ ORDER BY ABS(coefficient_drift_pct) DESC;
 -- Report: Drifting Relationships
 -- Relationships with statistically significant trends
 SELECT
-    entity_id,
+    unit_id,
     relationship_name,
     coefficient,
     coefficient_drift_pct,
@@ -64,7 +64,7 @@ ORDER BY ABS(coefficient_drift_pct) DESC;
 -- Report: Weak Relationships
 -- Relationships with poor R-squared (may indicate model mismatch)
 SELECT
-    entity_id,
+    unit_id,
     relationship_name,
     independent_signal,
     dependent_signal,
@@ -78,7 +78,7 @@ ORDER BY r_squared ASC;
 -- Report: Strong Relationships
 -- Well-established relationships (high R-squared, stable)
 SELECT
-    entity_id,
+    unit_id,
     relationship_name,
     coefficient,
     r_squared,
@@ -95,7 +95,7 @@ SELECT
     COUNT(*) as n_relationships,
     AVG(r_squared) as avg_r_squared,
     AVG(ABS(coefficient_drift_pct)) as avg_drift_pct,
-    COUNT(DISTINCT entity_id) as n_entities
+    COUNT(DISTINCT unit_id) as n_entities
 FROM read_parquet('physics_constitutive.parquet')
 GROUP BY status
 ORDER BY n_relationships DESC;
@@ -118,7 +118,7 @@ ORDER BY n_entities DESC;
 -- Report: Actionable Degradation
 -- Relationships requiring maintenance attention
 SELECT
-    entity_id,
+    unit_id,
     relationship_name,
     coefficient,
     coefficient_drift_pct,

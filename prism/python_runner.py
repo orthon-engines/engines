@@ -141,8 +141,8 @@ class PythonRunner:
         self.manifold_df = pd.DataFrame()
 
     def _index_signals(self):
-        """Index all signals by (entity_id, signal_id)."""
-        for (entity, signal), group in self.obs.groupby(['entity_id', 'signal_id']):
+        """Index all signals by (unit_id, signal_id)."""
+        for (entity, signal), group in self.obs.groupby(['unit_id', 'signal_id']):
             sorted_group = group.sort_values('I')
             self.signal_data[(entity, signal)] = {
                 'I': sorted_group['I'].values,
@@ -197,7 +197,7 @@ class PythonRunner:
 
             # Identity only - no calculations in runner
             row = {
-                'entity_id': entity,
+                'unit_id': entity,
                 'signal_id': signal,
                 'unit': unit,
                 'n_points': len(y),
@@ -253,7 +253,7 @@ class PythonRunner:
                     y_a, y_b = y_a[:n], y_b[:n]
 
                     # A → B
-                    row_ab = {'entity_id': entity, 'source_signal': sig_a, 'target_signal': sig_b}
+                    row_ab = {'unit_id': entity, 'source_signal': sig_a, 'target_signal': sig_b}
                     for name, func in engine_funcs.items():
                         try:
                             params = self.params.get(name, {})
@@ -264,7 +264,7 @@ class PythonRunner:
                     self.primitives_pairs.append(row_ab)
 
                     # B → A
-                    row_ba = {'entity_id': entity, 'source_signal': sig_b, 'target_signal': sig_a}
+                    row_ba = {'unit_id': entity, 'source_signal': sig_b, 'target_signal': sig_a}
                     for name, func in engine_funcs.items():
                         try:
                             params = self.params.get(name, {})
@@ -305,7 +305,7 @@ class PythonRunner:
                     y_a, y_b = y_a[:n], y_b[:n]
 
                     row = {
-                        'entity_id': entity,
+                        'unit_id': entity,
                         'signal_a': sig_a,
                         'signal_b': sig_b,
                     }

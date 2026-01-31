@@ -26,7 +26,7 @@ ORDER BY avg_spectral_radius;
 
 -- Best DMD fits (low reconstruction error)
 SELECT
-    entity_id,
+    unit_id,
     koopman_reconstruction_error,
     koopman_rank,
     koopman_mode_coherence,
@@ -38,7 +38,7 @@ LIMIT 20;
 
 -- Unstable systems (growing modes)
 SELECT
-    entity_id,
+    unit_id,
     koopman_spectral_radius,
     koopman_growth_rate_1,
     koopman_dominant_frequency,
@@ -50,7 +50,7 @@ LIMIT 20;
 
 -- Dominant frequencies
 SELECT
-    entity_id,
+    unit_id,
     koopman_dominant_frequency,
     koopman_frequency_1,
     koopman_frequency_2,

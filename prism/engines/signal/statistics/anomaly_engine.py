@@ -31,7 +31,7 @@ class AnomalyEngine:
     Computes anomaly scores by comparing to baselines.
 
     Outputs:
-    - entity_id, window_id: Location
+    - unit_id, window_id: Location
     - metric_source, metric_name: Which metric
     - value: Current value
     - baseline_mean, baseline_std: Baseline statistics
@@ -159,7 +159,7 @@ def run_anomaly_engine(
         except Exception:
             continue
 
-        if 'entity_id' not in df.columns:
+        if 'unit_id' not in df.columns:
             continue
 
         # Get numeric columns
@@ -170,7 +170,7 @@ def run_anomaly_engine(
         ]
 
         for row in df.iter_rows(named=True):
-            entity_id = row.get('entity_id')
+            unit_id = row.get('unit_id')
             window_id = row.get('window_id', 0)
             timestamp = row.get('timestamp_start')
 
@@ -181,7 +181,7 @@ def run_anomaly_engine(
 
                 # Get baseline (try entity-specific, fall back to fleet)
                 baseline = get_baseline_for_metric(
-                    baseline_df, source_name, metric, entity_id
+                    baseline_df, source_name, metric, unit_id
                 )
 
                 if baseline is None:
@@ -193,7 +193,7 @@ def run_anomaly_engine(
                 score = engine.score_value(float(value), baseline)
 
                 results.append({
-                    'entity_id': entity_id,
+                    'unit_id': unit_id,
                     'window_id': window_id,
                     'timestamp_start': timestamp,
                     'metric_source': source_name,
@@ -203,7 +203,7 @@ def run_anomaly_engine(
                 })
 
     df_out = pl.DataFrame(results) if results else pl.DataFrame({
-        'entity_id': [], 'window_id': [], 'metric_source': [],
+        'unit_id': [], 'window_id': [], 'metric_source': [],
         'metric_name': [], 'value': [], 'z_score': [],
         'is_anomaly': [], 'anomaly_severity': []
     })
@@ -217,7 +217,7 @@ def run_anomaly_engine(
 
 def compute_composite_anomaly_score(
     anomaly_df: pl.DataFrame,
-    entity_id: str,
+    unit_id: str,
     window_id: int = None,
     weights: Dict[str, float] = None
 ) -> float:
@@ -231,7 +231,7 @@ def compute_composite_anomaly_score(
     ----------
     anomaly_df : pl.DataFrame
         Anomaly DataFrame
-    entity_id : str
+    unit_id : str
         Entity ID
     window_id : int, optional
         Window ID (if None, uses all windows)
@@ -243,7 +243,7 @@ def compute_composite_anomaly_score(
     float
         Composite anomaly score (0-100)
     """
-    filtered = anomaly_df.filter(pl.col('entity_id') == entity_id)
+    filtered = anomaly_df.filter(pl.col('unit_id') == unit_id)
 
     if window_id is not None:
         filtered = filtered.filter(pl.col('window_id') == window_id)

@@ -119,7 +119,7 @@ def validate_primitives(df: pl.DataFrame, name: str) -> List[Tuple[str, bool, st
     results = []
 
     # Required columns
-    required = ['entity_id', 'signal_id']
+    required = ['unit_id', 'signal_id']
     missing = [c for c in required if c not in df.columns]
 
     if missing:
@@ -142,7 +142,7 @@ def validate_observations_enriched(df: pl.DataFrame, name: str) -> List[Tuple[st
     results = []
 
     # Required columns
-    required = ['entity_id', 'signal_id', 'I', 'value']
+    required = ['unit_id', 'signal_id', 'I', 'value']
     missing = [c for c in required if c not in df.columns]
 
     if missing:
@@ -151,7 +151,7 @@ def validate_observations_enriched(df: pl.DataFrame, name: str) -> List[Tuple[st
         results.append((f"{name} has required columns", True, ""))
 
     # Should have enrichment columns beyond the base
-    enrichment_cols = [c for c in df.columns if c not in ['entity_id', 'signal_id', 'I', 'value', 'unit', 'timestamp']]
+    enrichment_cols = [c for c in df.columns if c not in ['unit_id', 'signal_id', 'I', 'value', 'unit', 'timestamp']]
     if len(enrichment_cols) >= 1:
         results.append((f"{name} has enrichment columns ({len(enrichment_cols)})", True, ""))
     else:
@@ -165,7 +165,7 @@ def validate_geometry(df: pl.DataFrame, name: str) -> List[Tuple[str, bool, str]
     results = []
 
     # Required columns for pair data
-    required = ['entity_id']
+    required = ['unit_id']
     missing = [c for c in required if c not in df.columns]
 
     if missing:
@@ -190,7 +190,7 @@ def validate_zscore(df: pl.DataFrame, name: str) -> List[Tuple[str, bool, str]]:
     results = []
 
     # Required columns
-    required = ['entity_id', 'signal_id', 'I', 'value', 'z_score']
+    required = ['unit_id', 'signal_id', 'I', 'value', 'z_score']
     missing = [c for c in required if c not in df.columns]
 
     if missing:
@@ -216,7 +216,7 @@ def validate_statistics(df: pl.DataFrame, name: str) -> List[Tuple[str, bool, st
     results = []
 
     # Required columns
-    required = ['entity_id', 'signal_id', 'mean', 'std']
+    required = ['unit_id', 'signal_id', 'mean', 'std']
     missing = [c for c in required if c not in df.columns]
 
     if missing:

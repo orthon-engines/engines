@@ -6,7 +6,7 @@
 -- Report: Mass Balance Summary
 -- Overview of mass balance across all entities
 SELECT
-    entity_id,
+    unit_id,
     n_samples,
     flow_in_total,
     flow_out_total,
@@ -22,7 +22,7 @@ ORDER BY ABS(mass_balance_residual_pct) DESC;
 -- Report: Leak Detection
 -- Entities with potential leaks (positive mass balance residual)
 SELECT
-    entity_id,
+    unit_id,
     flow_in_total,
     flow_out_total,
     leak_indicator,
@@ -42,7 +42,7 @@ ORDER BY leak_indicator DESC;
 -- Report: Blockage Detection
 -- Entities with potential blockages (negative mass balance residual)
 SELECT
-    entity_id,
+    unit_id,
     flow_in_total,
     flow_out_total,
     blockage_indicator,
@@ -62,7 +62,7 @@ ORDER BY blockage_indicator DESC;
 -- Report: Mass Balance Anomalies
 -- All entities with mass balance issues
 SELECT
-    entity_id,
+    unit_id,
     flow_in_total,
     flow_out_total,
     accumulation_rate,

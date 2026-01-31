@@ -6,7 +6,7 @@
 -- Report: RQA Summary
 -- Overview of recurrence metrics across all entities
 SELECT
-    entity_id,
+    unit_id,
     n_samples,
     recurrence_rate,
     determinism,
@@ -28,7 +28,7 @@ ORDER BY determinism ASC;
 -- Report: Determinism Alerts
 -- Entities with low or dropping determinism (becoming unpredictable)
 SELECT
-    entity_id,
+    unit_id,
     determinism,
     det_status,
     det_trend,
@@ -53,7 +53,7 @@ ORDER BY determinism ASC;
 -- Report: Laminarity Alerts (System Sticking)
 -- Entities with high laminarity (system getting stuck in states)
 SELECT
-    entity_id,
+    unit_id,
     laminarity,
     trapping_time,
     lam_status,
@@ -71,7 +71,7 @@ ORDER BY laminarity DESC;
 -- Report: Divergence Analysis
 -- Entities with high divergence (instability indicator)
 SELECT
-    entity_id,
+    unit_id,
     divergence,
     determinism,
     entropy,
@@ -100,7 +100,7 @@ ORDER BY n_entities DESC;
 -- Report: Recurrence Entropy Analysis
 -- Complexity analysis via entropy
 SELECT
-    entity_id,
+    unit_id,
     entropy,
     determinism,
     recurrence_rate,
@@ -116,7 +116,7 @@ ORDER BY entropy DESC;
 -- Report: Determinism Trends
 -- Track how determinism is changing over time
 SELECT
-    entity_id,
+    unit_id,
     det_trend,
     det_trend_p,
     det_trend_slope,

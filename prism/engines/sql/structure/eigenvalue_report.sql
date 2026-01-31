@@ -20,7 +20,7 @@ ORDER BY eigenvalue_n_significant;
 
 -- Entities with high dimensionality (complex dynamics)
 SELECT
-    entity_id,
+    unit_id,
     eigenvalue_n_significant,
     eigenvalue_participation_ratio,
     eigenvalue_spectral_entropy,
@@ -32,7 +32,7 @@ LIMIT 20;
 
 -- Entities with low dimensionality (simple/redundant)
 SELECT
-    entity_id,
+    unit_id,
     eigenvalue_n_significant,
     eigenvalue_participation_ratio,
     eigenvalue_n_signals
@@ -44,7 +44,7 @@ LIMIT 20;
 
 -- Tracy-Widom significance (unusual largest eigenvalue)
 SELECT
-    entity_id,
+    unit_id,
     eigenvalue_tracy_widom_pvalue,
     eigenvalue_1,
     eigenvalue_mp_threshold

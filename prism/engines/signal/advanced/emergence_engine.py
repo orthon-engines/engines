@@ -47,7 +47,7 @@ class EmergenceEngine:
         self,
         signals: np.ndarray,
         signal_names: List[str],
-        entity_id: str = "unknown"
+        unit_id: str = "unknown"
     ) -> Dict[str, Any]:
         """
         Compute emergence metrics for multivariate signals.
@@ -58,7 +58,7 @@ class EmergenceEngine:
             2D array (n_samples, n_signals)
         signal_names : list
             Names for each signal column
-        entity_id : str
+        unit_id : str
             Entity identifier
 
         Returns
@@ -73,10 +73,10 @@ class EmergenceEngine:
         n_samples, n_signals = signals.shape
 
         if n_samples < self.config.min_samples:
-            return self._empty_result(entity_id, signal_names)
+            return self._empty_result(unit_id, signal_names)
 
         if n_signals < 2:
-            return self._empty_result(entity_id, signal_names)
+            return self._empty_result(unit_id, signal_names)
 
         try:
             pairwise_results = []
@@ -150,7 +150,7 @@ class EmergenceEngine:
             redundancy_ratio = total_redundancy / total_info if total_info > 0 else 0.0
 
             summary = {
-                'entity_id': entity_id,
+                'unit_id': unit_id,
                 'n_samples': n_samples,
                 'n_signals': n_signals,
                 'n_pairs': len(pairwise_results),
@@ -164,23 +164,23 @@ class EmergenceEngine:
             }
 
             return {
-                'entity_id': entity_id,
+                'unit_id': unit_id,
                 'pairwise': pairwise_results,
                 'triplets': triplet_results,
                 'summary': summary,
             }
 
         except Exception as e:
-            return self._empty_result(entity_id, signal_names)
+            return self._empty_result(unit_id, signal_names)
 
-    def _empty_result(self, entity_id: str, signal_names: List[str]) -> Dict[str, Any]:
+    def _empty_result(self, unit_id: str, signal_names: List[str]) -> Dict[str, Any]:
         """Return empty result for insufficient data."""
         return {
-            'entity_id': entity_id,
+            'unit_id': unit_id,
             'pairwise': [],
             'triplets': [],
             'summary': {
-                'entity_id': entity_id,
+                'unit_id': unit_id,
                 'n_samples': 0,
                 'n_signals': len(signal_names),
                 'n_pairs': 0,
@@ -207,7 +207,7 @@ def run_emergence_engine(
     Parameters
     ----------
     observations : pl.DataFrame
-        Observations with entity_id, signal_id, index, value
+        Observations with unit_id, signal_id, index, value
     config : EmergenceConfig
         Engine configuration
     signal_columns : list
@@ -222,13 +222,13 @@ def run_emergence_engine(
     """
     engine = EmergenceEngine(config)
 
-    entities = observations.select('entity_id').unique().to_series().to_list()
+    entities = observations.select('unit_id').unique().to_series().to_list()
     all_pairwise = []
     all_triplets = []
     all_summary = []
 
-    for entity_id in entities:
-        entity_obs = observations.filter(pl.col('entity_id') == entity_id)
+    for unit_id in entities:
+        entity_obs = observations.filter(pl.col('unit_id') == unit_id)
 
         # Pivot to get signals as columns
         signals_data = []
@@ -253,16 +253,16 @@ def run_emergence_engine(
 
         signals_matrix = np.column_stack([s[:min_len] for s in signals_data])
 
-        result = engine.compute(signals_matrix, signal_columns, entity_id)
+        result = engine.compute(signals_matrix, signal_columns, unit_id)
 
         # Add pairwise results
         for pair in result['pairwise']:
-            pair['entity_id'] = entity_id
+            pair['unit_id'] = unit_id
             all_pairwise.append(pair)
 
         # Add triplet results
         for triplet in result['triplets']:
-            triplet['entity_id'] = entity_id
+            triplet['unit_id'] = unit_id
             all_triplets.append(triplet)
 
         # Add summary
@@ -270,16 +270,16 @@ def run_emergence_engine(
 
     # Create DataFrames
     df_pairwise = pl.DataFrame(all_pairwise) if all_pairwise else pl.DataFrame({
-        'entity_id': [], 'signal_a': [], 'signal_b': [], 'mutual_information': []
+        'unit_id': [], 'signal_a': [], 'signal_b': [], 'mutual_information': []
     })
 
     df_triplets = pl.DataFrame(all_triplets) if all_triplets else pl.DataFrame({
-        'entity_id': [], 'source_1': [], 'source_2': [], 'target': [],
+        'unit_id': [], 'source_1': [], 'source_2': [], 'target': [],
         'redundancy': [], 'synergy': [], 'synergy_ratio': []
     })
 
     df_summary = pl.DataFrame(all_summary) if all_summary else pl.DataFrame({
-        'entity_id': [], 'emergence_ratio': [], 'redundancy_ratio': []
+        'unit_id': [], 'emergence_ratio': [], 'redundancy_ratio': []
     })
 
     if output_path:

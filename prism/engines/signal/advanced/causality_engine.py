@@ -48,7 +48,7 @@ class CausalityEngine:
         self,
         signals: np.ndarray,
         signal_names: List[str],
-        entity_id: str = "unknown"
+        unit_id: str = "unknown"
     ) -> Dict[str, Any]:
         """
         Compute causal network for multivariate signals.
@@ -59,7 +59,7 @@ class CausalityEngine:
             2D array (n_samples, n_signals)
         signal_names : list
             Names for each signal column
-        entity_id : str
+        unit_id : str
             Entity identifier
 
         Returns
@@ -74,10 +74,10 @@ class CausalityEngine:
         n_samples, n_signals = signals.shape
 
         if n_samples < self.config.min_samples:
-            return self._empty_result(entity_id, signal_names)
+            return self._empty_result(unit_id, signal_names)
 
         if n_signals < 2:
-            return self._empty_result(entity_id, signal_names)
+            return self._empty_result(unit_id, signal_names)
 
         try:
             # Build causality matrices
@@ -147,7 +147,7 @@ class CausalityEngine:
             mean_te = float(np.mean(significant_te)) if len(significant_te) > 0 else 0.0
 
             network_metrics = {
-                'entity_id': entity_id,
+                'unit_id': unit_id,
                 'n_samples': n_samples,
                 'n_signals': n_signals,
                 'density': float(density),
@@ -164,13 +164,13 @@ class CausalityEngine:
             }
 
             return {
-                'entity_id': entity_id,
+                'unit_id': unit_id,
                 'edges': edges,
                 'network': network_metrics,
             }
 
         except Exception as e:
-            return self._empty_result(entity_id, signal_names)
+            return self._empty_result(unit_id, signal_names)
 
     def _compute_hierarchy(self, adj: np.ndarray) -> float:
         """
@@ -228,13 +228,13 @@ class CausalityEngine:
 
         return loops
 
-    def _empty_result(self, entity_id: str, signal_names: List[str]) -> Dict[str, Any]:
+    def _empty_result(self, unit_id: str, signal_names: List[str]) -> Dict[str, Any]:
         """Return empty result for insufficient data."""
         return {
-            'entity_id': entity_id,
+            'unit_id': unit_id,
             'edges': [],
             'network': {
-                'entity_id': entity_id,
+                'unit_id': unit_id,
                 'n_samples': 0,
                 'n_signals': len(signal_names),
                 'density': np.nan,
@@ -264,7 +264,7 @@ def run_causality_engine(
     Parameters
     ----------
     observations : pl.DataFrame
-        Observations with entity_id, signal_id, index, value
+        Observations with unit_id, signal_id, index, value
     config : CausalityConfig
         Engine configuration
     signal_columns : list
@@ -279,12 +279,12 @@ def run_causality_engine(
     """
     engine = CausalityEngine(config)
 
-    entities = observations.select('entity_id').unique().to_series().to_list()
+    entities = observations.select('unit_id').unique().to_series().to_list()
     all_edges = []
     all_network = []
 
-    for entity_id in entities:
-        entity_obs = observations.filter(pl.col('entity_id') == entity_id)
+    for unit_id in entities:
+        entity_obs = observations.filter(pl.col('unit_id') == unit_id)
 
         # Pivot to get signals as columns
         signals_data = []
@@ -309,11 +309,11 @@ def run_causality_engine(
 
         signals_matrix = np.column_stack([s[:min_len] for s in signals_data])
 
-        result = engine.compute(signals_matrix, signal_columns, entity_id)
+        result = engine.compute(signals_matrix, signal_columns, unit_id)
 
         # Add edges
         for edge in result['edges']:
-            edge['entity_id'] = entity_id
+            edge['unit_id'] = unit_id
             all_edges.append(edge)
 
         # Add network metrics
@@ -321,12 +321,12 @@ def run_causality_engine(
 
     # Create DataFrames
     df_edges = pl.DataFrame(all_edges) if all_edges else pl.DataFrame({
-        'entity_id': [], 'source': [], 'target': [], 'granger_f': [],
+        'unit_id': [], 'source': [], 'target': [], 'granger_f': [],
         'granger_p': [], 'transfer_entropy': [], 'is_significant': []
     })
 
     df_network = pl.DataFrame(all_network) if all_network else pl.DataFrame({
-        'entity_id': [], 'density': [], 'hierarchy': [], 'n_feedback_loops': []
+        'unit_id': [], 'density': [], 'hierarchy': [], 'n_feedback_loops': []
     })
 
     if output_path:

@@ -19,7 +19,7 @@ from typing import Dict, List, Any, Optional
 
 
 def process_entity_dynamics(
-    entity_id: str,
+    unit_id: str,
     entity_obs: pl.DataFrame,
     params: Dict[str, Any] = None
 ) -> List[Dict[str, Any]]:
@@ -27,7 +27,7 @@ def process_entity_dynamics(
     Process a single entity for dynamics metrics.
 
     Args:
-        entity_id: Entity identifier
+        unit_id: Entity identifier
         entity_obs: Observations for this entity only
         params: Optional parameters
 
@@ -74,7 +74,7 @@ def process_entity_dynamics(
             continue
 
         result_row = {
-            'entity_id': entity_id,
+            'unit_id': unit_id,
             'signal_id': signal_id,
             'n_samples': len(sig_data),
             'sampling_uniform': sampling_uniform,
@@ -147,7 +147,7 @@ def run_dynamics(
     For parallel execution, use process_entity_dynamics with joblib from orchestrator.
 
     Args:
-        obs: Observations with entity_id, signal_id, I, value
+        obs: Observations with unit_id, signal_id, I, value
         output_dir: Where to write dynamics.parquet
         params: Optional parameters (embedding_dim, delay, etc.)
 
@@ -155,14 +155,14 @@ def run_dynamics(
         DataFrame with dynamics metrics per entity/signal
     """
     params = params or {}
-    entities = obs.select('entity_id').unique().to_series().to_list()
+    entities = obs.select('unit_id').unique().to_series().to_list()
     all_results = []
 
     print(f"  Processing {len(entities)} entities...")
 
-    for entity_id in entities:
-        entity_obs = obs.filter(pl.col('entity_id') == entity_id)
-        entity_results = process_entity_dynamics(entity_id, entity_obs, params)
+    for unit_id in entities:
+        entity_obs = obs.filter(pl.col('unit_id') == unit_id)
+        entity_results = process_entity_dynamics(unit_id, entity_obs, params)
         all_results.extend(entity_results)
 
     if not all_results:

@@ -6,7 +6,7 @@
 -- Report: Topology Summary
 -- Overview of topological features per entity
 SELECT
-    entity_id,
+    unit_id,
     n_samples,
     embedding_dim,
     embedding_tau,
@@ -28,7 +28,7 @@ ORDER BY topological_complexity DESC;
 -- Report: Fragmentation Alerts
 -- Entities with disconnected attractors
 SELECT
-    entity_id,
+    unit_id,
     betti_0,
     topological_complexity,
     persistence_entropy_h0,
@@ -41,7 +41,7 @@ ORDER BY betti_0 DESC;
 -- Report: Loop Structure Analysis
 -- Entities with significant H1 features (loops)
 SELECT
-    entity_id,
+    unit_id,
     betti_1,
     total_persistence_h1,
     max_persistence_h1,
@@ -59,7 +59,7 @@ ORDER BY betti_1 DESC;
 -- Report: Topological Complexity Ranking
 -- Rank entities by complexity
 SELECT
-    entity_id,
+    unit_id,
     topological_complexity,
     betti_0 + betti_1 + betti_2 AS total_betti,
     persistence_entropy_h0,
@@ -75,7 +75,7 @@ ORDER BY topological_complexity DESC;
 -- Report: Topology Change Alerts
 -- Entities with significant structural changes
 SELECT
-    entity_id,
+    unit_id,
     topology_change,
     betti_1,
     fragmentation,
@@ -92,7 +92,7 @@ ORDER BY topology_change DESC;
 -- Report: Persistence Entropy Summary
 -- Entropy of persistence diagrams
 SELECT
-    entity_id,
+    unit_id,
     persistence_entropy_h0,
     persistence_entropy_h1,
     CASE

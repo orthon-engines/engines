@@ -57,7 +57,7 @@ class LyapunovEngine:
     def compute(
         self,
         signal: np.ndarray,
-        entity_id: str = "unknown"
+        unit_id: str = "unknown"
     ) -> Dict[str, Any]:
         """
         Compute Lyapunov exponent for a signal.
@@ -66,7 +66,7 @@ class LyapunovEngine:
         ----------
         signal : np.ndarray
             Time series data
-        entity_id : str
+        unit_id : str
             Entity identifier
 
         Returns
@@ -80,7 +80,7 @@ class LyapunovEngine:
         signal = signal[~np.isnan(signal)]
 
         if len(signal) < self.config.min_samples:
-            return self._empty_result(entity_id)
+            return self._empty_result(unit_id)
 
         try:
             # Auto-detect embedding parameters
@@ -98,7 +98,7 @@ class LyapunovEngine:
             embedded = time_delay_embedding(signal, dimension=dim, delay=tau)
 
             if len(embedded) < 50:
-                return self._empty_result(entity_id)
+                return self._empty_result(unit_id)
 
             # Compute Lyapunov exponent
             if self.config.method == 'rosenstein':
@@ -140,19 +140,19 @@ class LyapunovEngine:
                 is_significant = False
 
             # Track history for trend detection
-            if entity_id not in self.lyapunov_history:
-                self.lyapunov_history[entity_id] = []
-            self.lyapunov_history[entity_id].append(lyap)
+            if unit_id not in self.lyapunov_history:
+                self.lyapunov_history[unit_id] = []
+            self.lyapunov_history[unit_id].append(lyap)
 
             # Trend detection
-            history = self.lyapunov_history[entity_id]
+            history = self.lyapunov_history[unit_id]
             if len(history) >= 4:
                 trend, p_trend, tau_mk, slope = mann_kendall(np.array(history))
             else:
                 trend, p_trend, slope = 'no trend', 1.0, 0.0
 
             return {
-                'entity_id': entity_id,
+                'unit_id': unit_id,
                 'n_samples': len(signal),
                 'lyapunov': float(lyap),
                 'stability_class': stability_class,
@@ -167,12 +167,12 @@ class LyapunovEngine:
             }
 
         except Exception as e:
-            return self._empty_result(entity_id)
+            return self._empty_result(unit_id)
 
-    def _empty_result(self, entity_id: str) -> Dict[str, Any]:
+    def _empty_result(self, unit_id: str) -> Dict[str, Any]:
         """Return empty result for insufficient data."""
         return {
-            'entity_id': entity_id,
+            'unit_id': unit_id,
             'n_samples': 0,
             'lyapunov': np.nan,
             'stability_class': 'unknown',
@@ -203,7 +203,7 @@ def run_lyapunov_engine(
     Parameters
     ----------
     observations : pl.DataFrame
-        Observations with entity_id, signal_id, index, value
+        Observations with unit_id, signal_id, index, value
     config : LyapunovConfig
         Engine configuration
     signal_column : str
@@ -218,11 +218,11 @@ def run_lyapunov_engine(
     """
     engine = LyapunovEngine(config)
 
-    entities = observations.select('entity_id').unique().to_series().to_list()
+    entities = observations.select('unit_id').unique().to_series().to_list()
     results = []
 
-    for entity_id in entities:
-        entity_obs = observations.filter(pl.col('entity_id') == entity_id)
+    for unit_id in entities:
+        entity_obs = observations.filter(pl.col('unit_id') == unit_id)
 
         # Get signal
         sig_data = (
@@ -235,11 +235,11 @@ def run_lyapunov_engine(
         )
 
         if len(sig_data) > 0:
-            result = engine.compute(sig_data, entity_id)
+            result = engine.compute(sig_data, unit_id)
             results.append(engine.to_parquet_row(result))
 
     df = pl.DataFrame(results) if results else pl.DataFrame({
-        'entity_id': [], 'lyapunov': [], 'stability_class': []
+        'unit_id': [], 'lyapunov': [], 'stability_class': []
     })
 
     if output_path:
