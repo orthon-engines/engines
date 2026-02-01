@@ -44,7 +44,7 @@ def compute(y: np.ndarray, params: Dict[str, Any] = None) -> dict:
         }
 
     lyap_values = np.full(n, np.nan)
-    stability_classes = np.array(['unknown'] * n, dtype=object)
+    confidence_values = np.full(n, np.nan)
 
     for i in range(0, n - window + 1, stride):
         chunk = y[i:i + window]
@@ -53,11 +53,11 @@ def compute(y: np.ndarray, params: Dict[str, Any] = None) -> dict:
         result = lyapunov.compute(chunk, min_samples=min_samples)
 
         lyap_values[end] = result['lyapunov']
-        stability_classes[end] = result['stability_class']
+        confidence_values[end] = result.get('confidence', np.nan)
 
     return {
         'rolling_lyapunov': lyap_values,
-        'rolling_stability_class': stability_classes,
+        'rolling_lyapunov_confidence': confidence_values,
     }
 
 

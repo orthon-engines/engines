@@ -218,20 +218,15 @@ def run_fleet_engine(
     # Add clusters
     rankings = engine.compute_clusters(rankings)
 
-    # Add anomaly counts if available
+    # Add high z-score counts if available (PRISM computes, ORTHON interprets)
     if anomaly_path:
         try:
             anomaly_df = pl.read_parquet(anomaly_path)
-            anomaly_summary = anomaly_df.filter(
-                pl.col('is_anomaly') == True
-            ).group_by('unit_id').agg([
-                pl.count().alias('total_anomalies'),
-                pl.col('anomaly_severity').filter(
-                    pl.col('anomaly_severity') == 'CRITICAL'
-                ).count().alias('critical_anomalies'),
-                pl.col('anomaly_severity').filter(
-                    pl.col('anomaly_severity') == 'WARNING'
-                ).count().alias('warning_anomalies'),
+            # Count z-scores by magnitude (computed values, not classification)
+            anomaly_summary = anomaly_df.group_by('unit_id').agg([
+                (pl.col('z_score').abs() > 3.0).sum().alias('high_zscore_count'),
+                (pl.col('z_score').abs() > 2.0).sum().alias('elevated_zscore_count'),
+                pl.col('z_score').abs().max().alias('max_zscore'),
             ])
             rankings = rankings.join(anomaly_summary, on='unit_id', how='left')
             rankings = rankings.fill_null(0)

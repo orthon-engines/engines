@@ -164,53 +164,39 @@ def fragility_timeline():
 
 
 # =============================================================================
-# 4. THREE CRISIS CLASSIFIER
+# 4. CRISIS GEOMETRY ANALYSIS
 # =============================================================================
 
-def classify_crisis(pre_coherence: float, pre_entropy: float, pre_dim: float) -> str:
+def crisis_geometry_analysis():
     """
-    Classify crisis type based on pre-event geometry.
+    Analyze pre-crisis geometry for historical events.
 
-    Returns: SYSTEMIC_PANIC, CHAOTIC_BUBBLE, STRESS_BUILDING, or NORMAL
-    """
-    if pre_coherence > 0.90:
-        return "SYSTEMIC_PANIC"
-    elif pre_entropy > 0.50 and pre_coherence < 0.65:
-        return "CHAOTIC_BUBBLE"
-    elif pre_coherence > 0.75 and pre_entropy < 0.40:
-        return "STRESS_BUILDING"
-    elif pre_coherence < 0.70 and pre_entropy < 0.50 and pre_dim > 2.0:
-        return "NORMAL"
-    else:
-        return "TRANSITION"
+    Reports computed metrics (coherence, entropy, effective_dim) for each event.
+    PRISM computes these values; interpretation is left to the analyst.
 
-
-def crisis_classifier():
-    """
-    Apply the 3-type crisis classifier to historical events.
-
-    THREE CRISIS SIGNATURES:
-    1. SYSTEMIC PANIC (GFC): Low entropy + High coherence (ordered collapse)
-    2. CHAOTIC BUBBLE (Dot-com): High entropy + Low coherence (disordered)
-    3. EXTERNAL SHOCK (9/11): Normal state disrupted externally
+    THREE OBSERVED GEOMETRY PATTERNS:
+    1. High coherence + Low entropy (ordered collapse, e.g., GFC)
+    2. Low coherence + High entropy (disordered, e.g., Dot-com)
+    3. Normal coherence/entropy (external shock, e.g., 9/11)
     """
     physics = pl.read_parquet(DATA_DIR / "physics.parquet")
 
     events = {
-        "GFC 2008": {"date": datetime(2008, 9, 15), "actual": "SYSTEMIC_PANIC"},
-        "9/11": {"date": datetime(2001, 9, 11), "actual": "EXTERNAL_SHOCK"},
-        "Dot-com": {"date": datetime(2000, 3, 10), "actual": "CHAOTIC_BUBBLE"},
-        "Flash Crash": {"date": datetime(2010, 5, 6), "actual": "EXTERNAL_SHOCK"},
-        "EU Debt": {"date": datetime(2011, 8, 5), "actual": "SYSTEMIC_PANIC"},
-        "China 2015": {"date": datetime(2015, 8, 24), "actual": "SYSTEMIC_PANIC"},
+        "GFC 2008": datetime(2008, 9, 15),
+        "9/11": datetime(2001, 9, 11),
+        "Dot-com": datetime(2000, 3, 10),
+        "Flash Crash": datetime(2010, 5, 6),
+        "EU Debt": datetime(2011, 8, 5),
+        "China 2015": datetime(2015, 8, 24),
     }
 
-    print("CRISIS CLASSIFICATION")
+    print("CRISIS GEOMETRY ANALYSIS")
     print("=" * 70)
+    print(f"{'Event':<15} {'Coherence':>10} {'Entropy':>10} {'Eff.Dim':>10}")
+    print("-" * 70)
 
-    correct = 0
-    for name, event in events.items():
-        event_i = date_to_i(event["date"])
+    for name, event_date in events.items():
+        event_i = date_to_i(event_date)
 
         # Pre-event window (30-7 days before)
         pre_start = event_i - int(30 / DAYS_PER_OBS)
@@ -223,19 +209,11 @@ def crisis_classifier():
             coh = pre_data["coherence"].mean()
             dim = pre_data["effective_dim"].mean()
 
-            predicted = classify_crisis(coh, ent, dim)
-            actual = event["actual"]
+            print(f"{name:<15} {coh:>10.4f} {ent:>10.4f} {dim:>10.2f}")
+        else:
+            print(f"{name:<15} {'N/A':>10} {'N/A':>10} {'N/A':>10}")
 
-            # Match logic
-            match = (predicted == actual or
-                    (actual == "EXTERNAL_SHOCK" and predicted in ["NORMAL", "CHAOTIC_BUBBLE"]))
-            if match:
-                correct += 1
-
-            mark = "✓" if match else "✗"
-            print(f"{mark} {name:<15} Predicted: {predicted:<18} Actual: {actual}")
-
-    print(f"\nAccuracy: {correct}/{len(events)} = {100*correct/len(events):.0f}%")
+    print("\nNote: PRISM computes values. Pattern interpretation is analyst's domain.")
 
 
 # =============================================================================
@@ -353,7 +331,7 @@ if __name__ == "__main__":
     fragility_timeline()
     print("\n")
 
-    crisis_classifier()
+    crisis_geometry_analysis()
     print("\n")
 
     deformation_asymmetry()

@@ -170,21 +170,17 @@ def detect_collapse(
     """
     n = len(effective_dim)
 
+    # Return computed values only - no boolean classification
+    # collapse_onset_idx = None means no collapse detected
     if n < min_collapse_length:
         return {
-            'collapse_detected': False,
             'collapse_onset_idx': None,
             'collapse_onset_fraction': None,
-            'collapse_velocity': 0.0,
-            'collapse_acceleration': 0.0,
-            'collapse_duration': 0,
-            'total_collapse': 0.0,
         }
 
     # Compute derivatives
     deriv = compute_derivatives(effective_dim)
     velocity = deriv['velocity']
-    acceleration = deriv['acceleration']
 
     # Identify collapsing regions
     collapsing = velocity < threshold_velocity
@@ -212,34 +208,18 @@ def detect_collapse(
 
     if not collapse_runs:
         return {
-            'collapse_detected': False,
             'collapse_onset_idx': None,
             'collapse_onset_fraction': None,
-            'collapse_velocity': 0.0,
-            'collapse_acceleration': 0.0,
-            'collapse_duration': 0,
-            'total_collapse': 0.0,
         }
 
     # Take the longest collapse run
     longest_run = max(collapse_runs, key=lambda x: x[2])
     onset_idx, end_idx, duration = longest_run
 
-    # Compute collapse metrics
-    collapse_region = slice(onset_idx, end_idx)
-    mean_velocity = np.mean(velocity[collapse_region])
-    mean_acceleration = np.mean(acceleration[collapse_region])
-    total_collapse = effective_dim[onset_idx] - effective_dim[min(end_idx, n-1)]
-
+    # Return computed index/fraction only - no boolean
     return {
-        'collapse_detected': True,
         'collapse_onset_idx': int(onset_idx),
         'collapse_onset_fraction': onset_idx / n,
-        'collapse_velocity': float(mean_velocity),
-        'collapse_acceleration': float(mean_acceleration),
-        'collapse_duration': int(duration),
-        'total_collapse': float(total_collapse),
-        'collapse_runs': collapse_runs,
     }
 
 

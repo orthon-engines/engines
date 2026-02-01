@@ -35,10 +35,11 @@ class AnomalyEngine:
     - metric_source, metric_name: Which metric
     - value: Current value
     - baseline_mean, baseline_std: Baseline statistics
-    - z_score: Standard deviations from mean
+    - z_score: Standard deviations from mean (computed, not classified)
     - percentile_rank: Position in baseline distribution
-    - is_anomaly: True if z_score > threshold
-    - anomaly_severity: NORMAL, ELEVATED, WARNING, CRITICAL
+
+    NOTE: PRISM computes only. No is_anomaly or anomaly_severity classification.
+    ORTHON interprets z_score to determine anomaly status.
     """
 
     ENGINE_TYPE = "statistics"
@@ -66,12 +67,11 @@ class AnomalyEngine:
         dict
             Anomaly score details
         """
+        # Return computed values only - no classification
         if baseline is None or np.isnan(value):
             return {
                 'z_score': np.nan,
                 'percentile_rank': np.nan,
-                'is_anomaly': False,
-                'anomaly_severity': 'UNKNOWN',
             }
 
         mean = baseline.get('mean', 0)
@@ -80,10 +80,10 @@ class AnomalyEngine:
         if std == 0 or np.isnan(std):
             std = 1e-10
 
-        # Z-score
+        # Z-score (computed value - ORTHON interprets)
         z = (value - mean) / std
 
-        # Percentile rank
+        # Percentile rank (computed value)
         p5 = baseline.get('p5', mean - 2 * std)
         p95 = baseline.get('p95', mean + 2 * std)
 
@@ -93,28 +93,11 @@ class AnomalyEngine:
         else:
             pct_rank = 50.0
 
-        # Determine severity
-        abs_z = abs(z)
-        if abs_z >= self.config.critical_threshold:
-            severity = 'CRITICAL'
-            is_anomaly = True
-        elif abs_z >= self.config.z_threshold:
-            severity = 'WARNING'
-            is_anomaly = True
-        elif abs_z >= self.config.elevated_threshold:
-            severity = 'ELEVATED'
-            is_anomaly = False
-        else:
-            severity = 'NORMAL'
-            is_anomaly = False
-
         return {
             'baseline_mean': float(mean),
             'baseline_std': float(std),
             'z_score': float(z),
             'percentile_rank': float(pct_rank),
-            'is_anomaly': is_anomaly,
-            'anomaly_severity': severity,
         }
 
 
@@ -205,7 +188,7 @@ def run_anomaly_engine(
     df_out = pl.DataFrame(results) if results else pl.DataFrame({
         'unit_id': [], 'window_id': [], 'metric_source': [],
         'metric_name': [], 'value': [], 'z_score': [],
-        'is_anomaly': [], 'anomaly_severity': []
+        'z_score': [], 'percentile_rank': []
     })
 
     if output_path:

@@ -2,6 +2,7 @@
 Lyapunov Exponent Engine.
 
 Computes the largest Lyapunov exponent using Rosenstein's algorithm.
+PRISM computes only - no classification.
 """
 
 import numpy as np
@@ -21,11 +22,10 @@ def compute(y: np.ndarray, min_samples: int = 200) -> Dict[str, Any]:
 
     Returns:
         dict with:
-            - 'lyapunov': Largest Lyapunov exponent
-            - 'is_chaotic': True if λ > 0.05
-            - 'stability_class': 'chaotic', 'marginal', 'periodic', 'stable'
+            - 'lyapunov': Largest Lyapunov exponent (number only)
             - 'embedding_dim': Used embedding dimension
             - 'embedding_tau': Used time delay
+            - 'confidence': Confidence in estimate (0-1)
     """
     y = np.asarray(y).flatten()
     y = y[~np.isnan(y)]
@@ -54,24 +54,14 @@ def compute(y: np.ndarray, min_samples: int = 200) -> Dict[str, Any]:
         # Compute Lyapunov using correct algorithm
         lyap, divergence, iterations = lyapunov_rosenstein(embedded)
 
-        # Classify stability
-        if np.isnan(lyap):
-            stability_class = 'unknown'
-        elif lyap > 0.05:
-            stability_class = 'chaotic'
-        elif lyap > 0.01:
-            stability_class = 'marginal'
-        elif lyap > -0.01:
-            stability_class = 'periodic'
-        else:
-            stability_class = 'stable'
+        # Compute confidence based on iterations and variance
+        confidence = min(1.0, iterations / 100) if iterations else 0.5
 
         return {
             'lyapunov': float(lyap) if not np.isnan(lyap) else None,
-            'is_chaotic': bool(lyap > 0.05) if not np.isnan(lyap) else False,
-            'stability_class': stability_class,
             'embedding_dim': dim,
             'embedding_tau': tau,
+            'confidence': confidence,
         }
 
     except ImportError:
@@ -134,22 +124,15 @@ def _compute_simplified(y: np.ndarray) -> Dict[str, Any]:
 
     lyap = float(np.median(divergences))
 
-    # Classify
-    if lyap > 0.05:
-        stability_class = 'chaotic'
-    elif lyap > 0.01:
-        stability_class = 'marginal'
-    elif lyap > -0.01:
-        stability_class = 'periodic'
-    else:
-        stability_class = 'stable'
+    # Confidence based on divergence consistency
+    divergence_std = np.std(divergences)
+    confidence = 1.0 / (1.0 + divergence_std) if divergence_std < 10 else 0.1
 
     return {
         'lyapunov': lyap,
-        'is_chaotic': lyap > 0.05,
-        'stability_class': stability_class,
         'embedding_dim': dim,
         'embedding_tau': tau,
+        'confidence': confidence,
     }
 
 
@@ -157,8 +140,7 @@ def _empty_result() -> Dict[str, Any]:
     """Return empty result for insufficient data."""
     return {
         'lyapunov': None,
-        'is_chaotic': False,
-        'stability_class': 'unknown',
         'embedding_dim': None,
         'embedding_tau': None,
+        'confidence': 0.0,
     }

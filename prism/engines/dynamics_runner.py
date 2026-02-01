@@ -82,10 +82,9 @@ def process_entity_dynamics(
         }
 
         try:
-            # Lyapunov exponent and stability
+            # Lyapunov exponent (computed value only, no classification)
             lyap_result = lyapunov.compute(sig_data, min_samples=50)
             result_row['lyapunov'] = lyap_result.get('lyapunov')
-            result_row['stability_class'] = lyap_result.get('stability_class')
             result_row['lyapunov_confidence'] = lyap_result.get('confidence')
 
             # Get embedding parameters for RQA
@@ -96,7 +95,7 @@ def process_entity_dynamics(
 
         except Exception as e:
             result_row['lyapunov'] = np.nan
-            result_row['stability_class'] = 'unknown'
+            result_row['lyapunov_confidence'] = 0.0
             embedding_dim = 3
             embedding_tau = 1
 

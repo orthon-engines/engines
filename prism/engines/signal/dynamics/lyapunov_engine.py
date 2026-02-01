@@ -108,17 +108,7 @@ class LyapunovEngine:
                 lyap_result = lyapunov_kantz(embedded)
                 lyap = lyap_result[0] if isinstance(lyap_result, tuple) else lyap_result
 
-            # Stability classification
-            if lyap > 0.1:
-                stability_class = 'chaotic'
-            elif lyap > 0:
-                stability_class = 'marginal'
-            elif lyap > -0.1:
-                stability_class = 'periodic'
-            else:
-                stability_class = 'stable'
-
-            # Surrogate test for significance
+            # Surrogate test for significance (computed, not classification)
             try:
                 def compute_lyap(sig):
                     emb = time_delay_embedding(sig, dimension=dim, delay=tau)
@@ -155,15 +145,12 @@ class LyapunovEngine:
                 'unit_id': unit_id,
                 'n_samples': len(signal),
                 'lyapunov': float(lyap),
-                'stability_class': stability_class,
-                'is_significant': is_significant,
                 'surrogate_p_value': float(p_surr) if not np.isnan(p_surr) else None,
                 'surrogate_z_score': float(z_surr) if not np.isnan(z_surr) else None,
                 'embedding_dim': dim,
                 'embedding_tau': tau,
-                'lyapunov_trend': trend,
-                'lyapunov_trend_p': float(p_trend),
                 'lyapunov_trend_slope': float(slope),
+                'lyapunov_trend_p': float(p_trend),
             }
 
         except Exception as e:
@@ -175,15 +162,12 @@ class LyapunovEngine:
             'unit_id': unit_id,
             'n_samples': 0,
             'lyapunov': np.nan,
-            'stability_class': 'unknown',
-            'is_significant': False,
             'surrogate_p_value': None,
             'surrogate_z_score': None,
             'embedding_dim': None,
             'embedding_tau': None,
-            'lyapunov_trend': 'unknown',
-            'lyapunov_trend_p': np.nan,
             'lyapunov_trend_slope': np.nan,
+            'lyapunov_trend_p': np.nan,
         }
 
     def to_parquet_row(self, result: Dict[str, Any]) -> Dict[str, Any]:
@@ -239,7 +223,7 @@ def run_lyapunov_engine(
             results.append(engine.to_parquet_row(result))
 
     df = pl.DataFrame(results) if results else pl.DataFrame({
-        'unit_id': [], 'lyapunov': [], 'stability_class': []
+        'unit_id': [], 'lyapunov': []
     })
 
     if output_path:

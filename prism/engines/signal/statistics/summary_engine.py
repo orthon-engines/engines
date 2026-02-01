@@ -154,33 +154,21 @@ Overall Fleet Status: {overall_status}"""
                 'priority': 3
             })
 
-        # ----- ANOMALY SUMMARY -----
-        if anomaly_df is not None and len(anomaly_df) > 0:
+        # ----- HIGH Z-SCORE SUMMARY (computed, not classified) -----
+        if anomaly_df is not None and len(anomaly_df) > 0 and 'z_score' in anomaly_df.columns:
             if 'window_id' in anomaly_df.columns:
-                recent_anomalies = anomaly_df.filter(
-                    (pl.col('is_anomaly') == True) &
-                    (pl.col('window_id') == latest_window)
-                )
+                recent = anomaly_df.filter(pl.col('window_id') == latest_window)
             else:
-                recent_anomalies = anomaly_df.filter(pl.col('is_anomaly') == True)
+                recent = anomaly_df
 
-            n_anomalies = len(recent_anomalies)
+            # Count by z-score magnitude (PRISM computes, ORTHON interprets)
+            high_zscore = recent.filter(pl.col('z_score').abs() > 3.0).height
+            elevated_zscore = recent.filter(pl.col('z_score').abs() > 2.0).height
 
-            if 'anomaly_severity' in recent_anomalies.columns:
-                critical_anomalies = recent_anomalies.filter(
-                    pl.col('anomaly_severity') == 'CRITICAL'
-                ).height
-                warning_anomalies = recent_anomalies.filter(
-                    pl.col('anomaly_severity') == 'WARNING'
-                ).height
-            else:
-                critical_anomalies = warning_anomalies = 0
-
-            anomaly_summary = f"""ANOMALY SUMMARY
-===============
-Current Window Anomalies: {n_anomalies}
-- Critical: {critical_anomalies}
-- Warning: {warning_anomalies}
+            anomaly_summary = f"""HIGH Z-SCORE SUMMARY
+====================
+z_score > 3.0: {high_zscore}
+z_score > 2.0: {elevated_zscore}
 """
 
             if 'metric_name' in recent_anomalies.columns and len(recent_anomalies) > 0:
