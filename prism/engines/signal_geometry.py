@@ -196,19 +196,24 @@ def compute_signal_geometry(
         print(f"Feature groups: {list(feature_groups.keys())}")
         print()
 
-    # Process each (unit_id, I)
+    # I is REQUIRED
+    if 'I' not in signal_vector.columns:
+        raise ValueError("Missing required column 'I'. Use temporal signal_vector.")
+
+    # Process each I (unit_id is pass-through, not for compute)
     results = []
-    groups = signal_vector.group_by(['unit_id', 'I'], maintain_order=True)
-    n_groups = signal_vector.select(['unit_id', 'I']).unique().height
+    groups = signal_vector.group_by(['I'], maintain_order=True)
+    n_groups = signal_vector.select(['I']).unique().height
 
     if verbose:
         print(f"Processing {n_groups} time points...")
 
-    for i, ((unit_id, I), group) in enumerate(groups):
-        # Get state vector for this (unit_id, I)
-        state_row = state_vector.filter(
-            (pl.col('unit_id') == unit_id) & (pl.col('I') == I)
-        )
+    for i, (group_key, group) in enumerate(groups):
+        I = group_key[0] if isinstance(group_key, tuple) else group_key
+        unit_id = group['unit_id'].to_list()[0] if 'unit_id' in group.columns else ''
+
+        # Get state vector for this I
+        state_row = state_vector.filter(pl.col('I') == I)
 
         if len(state_row) == 0:
             continue
@@ -273,11 +278,12 @@ def compute_signal_geometry(
     # Build DataFrame
     result = pl.DataFrame(results)
 
-    # Pivot to have one row per (unit_id, I, signal_id) with all engine columns
+    # Pivot to have one row per (I, signal_id, engine) with all columns
+    # unit_id is pass-through only
     if len(result) > 0:
-        result = result.group_by(['unit_id', 'I', 'signal_id', 'engine']).agg([
+        result = result.group_by(['I', 'signal_id', 'engine']).agg([
             pl.col(c).first() for c in result.columns
-            if c not in ['unit_id', 'I', 'signal_id', 'engine']
+            if c not in ['I', 'signal_id', 'engine']
         ])
 
     result.write_parquet(output_path)

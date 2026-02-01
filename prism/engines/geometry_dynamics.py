@@ -426,12 +426,14 @@ def compute_geometry_dynamics(
         print(f"Loaded: {len(state_geometry)} rows")
         print(f"Columns: {state_geometry.columns}")
 
-    # Process each (unit_id, engine)
+    # Process each engine (unit_id is cargo, not a compute key)
     results = []
 
-    groups = state_geometry.group_by(['unit_id', 'engine'], maintain_order=True)
+    groups = state_geometry.group_by(['engine'], maintain_order=True)
 
-    for (unit_id, engine), group in groups:
+    for group_key, group in groups:
+        engine = group_key[0] if isinstance(group_key, tuple) else group_key
+        unit_id = group['unit_id'][0] if 'unit_id' in group.columns else ''
         # Sort by I
         group = group.sort('I')
 
@@ -576,21 +578,23 @@ def compute_signal_dynamics(
         print(f"Distance columns: {distance_cols}")
         print(f"Coherence columns: {coherence_cols}")
 
-    # Process each (unit_id, signal_id)
+    # Process each signal_id (unit_id is cargo, not a compute key)
     results = []
 
     signal_col = 'signal_id' if 'signal_id' in signal_geometry.columns else 'signal_id'
-    groups = signal_geometry.group_by(['unit_id', signal_col], maintain_order=True)
-    n_groups = signal_geometry.select(['unit_id', signal_col]).unique().height
+    groups = signal_geometry.group_by([signal_col], maintain_order=True)
+    n_groups = signal_geometry.select([signal_col]).unique().height
 
     if verbose:
         print(f"Processing {n_groups} signal groups...")
 
     processed = 0
-    for (unit_id, signal_id), group in groups:
-        # Skip null signal_id (unit_id can be null, signal_id cannot)
+    for group_key, group in groups:
+        signal_id = group_key[0] if isinstance(group_key, tuple) else group_key
+        # Skip null signal_id
         if signal_id is None:
             continue
+        unit_id = group['unit_id'][0] if 'unit_id' in group.columns else ''
 
         # Sort by I
         group = group.sort('I')
@@ -705,12 +709,14 @@ def compute_pairwise_dynamics(
     if verbose:
         print(f"Loaded: {len(pairwise)} rows")
 
-    # Process each (unit_id, signal_a, signal_b, engine)
+    # Process each (signal_a, signal_b, engine) - unit_id is cargo
     results = []
 
-    groups = pairwise.group_by(['unit_id', 'signal_a', 'signal_b', 'engine'], maintain_order=True)
+    groups = pairwise.group_by(['signal_a', 'signal_b', 'engine'], maintain_order=True)
 
-    for (unit_id, sig_a, sig_b, engine), group in groups:
+    for group_key, group in groups:
+        sig_a, sig_b, engine = group_key if isinstance(group_key, tuple) else (group_key, None, None)
+        unit_id = group['unit_id'][0] if 'unit_id' in group.columns else ''
         group = group.sort('I')
 
         I_values = group['I'].to_numpy()

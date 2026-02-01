@@ -232,19 +232,19 @@ def compute_state_geometry(
         print(f"Feature groups: {list(feature_groups.keys())}")
         print()
 
-    # Process each (unit_id, I)
+    # Process each I (unit_id is cargo, not a compute key)
     results = []
-    groups = signal_vector.group_by(['unit_id', 'I'], maintain_order=True)
-    n_groups = signal_vector.select(['unit_id', 'I']).unique().height
+    groups = signal_vector.group_by(['I'], maintain_order=True)
+    n_groups = signal_vector.select(['I']).unique().height
 
     if verbose:
         print(f"Processing {n_groups} time points...")
 
-    for i, ((unit_id, I), group) in enumerate(groups):
-        # Get state vector for this (unit_id, I)
-        state_row = state_vector.filter(
-            (pl.col('unit_id') == unit_id) & (pl.col('I') == I)
-        )
+    for i, (I_tuple, group) in enumerate(groups):
+        I = I_tuple[0] if isinstance(I_tuple, tuple) else I_tuple
+
+        # Get state vector for this I
+        state_row = state_vector.filter(pl.col('I') == I)
 
         if len(state_row) == 0:
             continue
@@ -276,7 +276,8 @@ def compute_state_geometry(
             # Compute eigenvalues
             eigen_result = compute_eigenvalues(matrix, centroid)
 
-            # Build result row
+            # Build result row (unit_id from group if present, else blank)
+            unit_id = group['unit_id'][0] if 'unit_id' in group.columns else ''
             row = {
                 'unit_id': unit_id,
                 'I': I,

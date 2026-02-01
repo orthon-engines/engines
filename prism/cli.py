@@ -30,22 +30,22 @@ def run_typology(data_dir: Path) -> dict:
     return {'typology': output_path, 'rows': len(result)}
 
 
-def run_signal_vector(data_dir: Path, temporal: bool = False) -> dict:
-    """Run signal vector (aggregate or temporal)."""
+def run_signal_vector(data_dir: Path, temporal: bool = True) -> dict:
+    """Run signal vector (temporal by default - includes I column)."""
     typology_path = data_dir / 'typology.parquet'
     obs_path = data_dir / 'observations.parquet'
+    output_path = data_dir / 'signal_vector.parquet'
 
     if temporal:
         from prism.signal_vector_temporal import compute_signal_vector_temporal_sql
-        output_path = data_dir / 'signal_vector_temporal.parquet'
-        print(f"[SIGNAL VECTOR TEMPORAL] → {output_path}")
+        print(f"[SIGNAL VECTOR] → {output_path}")
         result = compute_signal_vector_temporal_sql(
             str(obs_path), str(typology_path), str(output_path)
         )
     else:
+        # Deprecated: aggregate mode loses I column
         from prism.signal_vector import run_signal_vector as run_sv
-        output_path = data_dir / 'signal_vector.parquet'
-        print(f"[SIGNAL VECTOR] → {output_path}")
+        print(f"[SIGNAL VECTOR (aggregate - deprecated)] → {output_path}")
         result = run_sv(str(data_dir))
 
     return {'signal_vector': output_path, 'rows': len(result)}
@@ -159,8 +159,8 @@ def run_full_pipeline(data_dir: Path) -> dict:
     # 1. Typology
     results['typology'] = run_typology(data_dir)
 
-    # 2. Signal Vector (aggregate)
-    results['signal_vector'] = run_signal_vector(data_dir, temporal=False)
+    # 2. Signal Vector (temporal - includes I column)
+    results['signal_vector'] = run_signal_vector(data_dir, temporal=True)
 
     # 3. State Vector
     results['state_vector'] = run_state_vector(data_dir)

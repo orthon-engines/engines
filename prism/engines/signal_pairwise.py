@@ -206,32 +206,37 @@ def compute_signal_pairwise(
         if not feature_groups and len(all_features) >= 2:
             feature_groups['full'] = all_features[:3]
 
+    # I is REQUIRED
+    if 'I' not in signal_vector.columns:
+        raise ValueError("Missing required column 'I'. Use temporal signal_vector.")
+
     if verbose:
         print(f"Feature groups: {list(feature_groups.keys())}")
 
         # Estimate output size
         n_signals = signal_vector.select('signal_id').unique().height
         n_pairs = n_signals * (n_signals - 1) // 2
-        n_indices = signal_vector.select(['unit_id', 'I']).unique().height
+        n_indices = signal_vector.select(['I']).unique().height
         n_engines = len(feature_groups)
         print(f"Signals: {n_signals} → Pairs: {n_pairs}")
         print(f"Indices: {n_indices}")
         print(f"Estimated rows: {n_pairs * n_indices * n_engines:,}")
         print()
 
-    # Process each (unit_id, I)
+    # Process each I (unit_id is pass-through, not for compute)
     results = []
-    groups = signal_vector.group_by(['unit_id', 'I'], maintain_order=True)
-    n_groups = signal_vector.select(['unit_id', 'I']).unique().height
+    groups = signal_vector.group_by(['I'], maintain_order=True)
+    n_groups = signal_vector.select(['I']).unique().height
 
     if verbose:
         print(f"Processing {n_groups} time points...")
 
-    for i, ((unit_id, I), group) in enumerate(groups):
-        # Get state vector for this (unit_id, I)
-        state_row = state_vector.filter(
-            (pl.col('unit_id') == unit_id) & (pl.col('I') == I)
-        )
+    for i, (group_key, group) in enumerate(groups):
+        I = group_key[0] if isinstance(group_key, tuple) else group_key
+        unit_id = group['unit_id'].to_list()[0] if 'unit_id' in group.columns else ''
+
+        # Get state vector for this I
+        state_row = state_vector.filter(pl.col('I') == I)
 
         signal_ids = group['signal_id'].to_list()
 

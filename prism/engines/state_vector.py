@@ -473,31 +473,25 @@ def compute_state_vector(
         print(f"\nComposite features: {composite_features}")
         print()
 
-    # Process each (unit_id, I) - but signal_vector is per (unit_id, signal_id), not per I
-    # Need to check if I column exists
-    has_I = 'I' in signal_vector.columns
-
-    if has_I:
-        group_cols = ['unit_id', 'I']
-    else:
-        group_cols = ['unit_id']
+    # Process each I - group by I only (unit_id is pass-through, not for compute)
+    # I is REQUIRED in canonical schema
+    if 'I' not in signal_vector.columns:
+        raise ValueError("Missing required column 'I'. Use temporal signal_vector.")
 
     results = []
     n_multimode = 0
     n_disagreement = 0
 
-    groups = signal_vector.group_by(group_cols, maintain_order=True)
-    n_groups = signal_vector.select(group_cols).unique().height
+    groups = signal_vector.group_by(['I'], maintain_order=True)
+    n_groups = signal_vector.select(['I']).unique().height
 
     if verbose:
-        print(f"Processing {n_groups} {'time points' if has_I else 'units'}...")
+        print(f"Processing {n_groups} time points...")
 
     for i, (group_key, group) in enumerate(groups):
-        if has_I:
-            unit_id, I = group_key
-        else:
-            unit_id = group_key[0] if isinstance(group_key, tuple) else group_key
-            I = 0
+        I = group_key[0] if isinstance(group_key, tuple) else group_key
+        # Get unit_id from first row (pass-through only)
+        unit_id = group['unit_id'].to_list()[0] if 'unit_id' in group.columns else ''
 
         # ─────────────────────────────────────────────────
         # COMPOSITE STATE (all features)
