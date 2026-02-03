@@ -1,11 +1,10 @@
 """
 Attractor Engine.
 
-Computes attractor properties via phase space reconstruction.
+Imports from primitives/embedding/ and primitives/dynamical/ (canonical).
 """
 
 import numpy as np
-from scipy.spatial.distance import pdist
 from typing import Dict, Union
 
 
@@ -28,7 +27,6 @@ def compute(y: np.ndarray, embedding_dim: int = None, delay: int = None) -> Dict
         'delay': np.nan
     }
 
-    # Handle NaN values
     y = np.asarray(y).flatten()
     y = y[~np.isnan(y)]
     n = len(y)
@@ -36,79 +34,29 @@ def compute(y: np.ndarray, embedding_dim: int = None, delay: int = None) -> Dict
     if n < 100:
         return result
 
-    # Check for constant signal
     if np.std(y) < 1e-10:
         result['attractor_type'] = 'fixed_point'
         result['correlation_dim'] = 0.0
         return result
 
     try:
-        # Estimate delay from first zero crossing of autocorrelation
+        from prism.primitives.embedding.delay import (
+            optimal_delay,
+            optimal_dimension,
+        )
+        from prism.primitives.dynamical.dimension import correlation_dimension
+
+        # Auto-detect parameters using primitives
         if delay is None:
-            y_centered = y - np.mean(y)
-            autocorr = np.correlate(y_centered, y_centered, mode='full')
-            autocorr = autocorr[len(autocorr)//2:]
-            autocorr_max = autocorr[0]
-            if autocorr_max > 0:
-                autocorr = autocorr / autocorr_max
-            else:
-                autocorr = np.zeros_like(autocorr)
+            delay = optimal_delay(y, max_lag=min(100, n // 10), method='autocorr')
 
-            delay = 1
-            for i in range(1, min(len(autocorr), n // 4)):
-                if autocorr[i] <= 0:
-                    delay = i
-                    break
-
-        # Determine embedding dimension
         if embedding_dim is None:
-            embedding_dim = min(5, max(2, n // (delay * 5)))
+            embedding_dim = optimal_dimension(y, delay=delay, max_dim=10)
 
-        # Check if we have enough points for embedding
-        m = n - (embedding_dim - 1) * delay
-        if m < 50:
-            return {
-                'embedding_dim': int(embedding_dim),
-                'correlation_dim': np.nan,
-                'attractor_type': 'unknown',
-                'delay': int(delay)
-            }
-
-        # Create embedded matrix
-        embedded = np.zeros((m, embedding_dim))
-        for i in range(embedding_dim):
-            embedded[:, i] = y[i*delay:i*delay+m]
-
-        # Sample for efficiency
-        sample_size = min(500, m)
-        if m > 500:
-            indices = np.random.choice(m, sample_size, replace=False)
-        else:
-            indices = np.arange(m)
-
-        dists = pdist(embedded[indices])
-        dists = dists[dists > 0]
-
-        if len(dists) < 100:
-            return {
-                'embedding_dim': int(embedding_dim),
-                'correlation_dim': np.nan,
-                'attractor_type': 'unknown',
-                'delay': int(delay)
-            }
-
-        # Correlation dimension via Grassberger-Procaccia
-        radii = np.percentile(dists, [10, 20, 30, 40, 50])
-        log_r, log_c = [], []
-        for r in radii:
-            c = np.sum(dists < r) / len(dists)
-            if c > 0:
-                log_r.append(np.log(r))
-                log_c.append(np.log(c))
-
-        corr_dim = np.nan
-        if len(log_r) >= 3:
-            corr_dim, _ = np.polyfit(log_r, log_c, 1)
+        # Compute correlation dimension using primitive
+        corr_dim, log_r, log_C = correlation_dimension(
+            y, dimension=embedding_dim, delay=delay
+        )
 
         # Classify attractor type
         if np.isnan(corr_dim):
@@ -129,7 +77,99 @@ def compute(y: np.ndarray, embedding_dim: int = None, delay: int = None) -> Dict
             'delay': int(delay)
         }
 
+    except ImportError:
+        # Fallback if primitives not available
+        result = _compute_fallback(y, embedding_dim, delay)
     except Exception:
         pass
 
     return result
+
+
+def _compute_fallback(y: np.ndarray, embedding_dim: int = None, delay: int = None) -> Dict[str, Union[float, int, str]]:
+    """Fallback computation without primitives."""
+    from scipy.spatial.distance import pdist
+
+    n = len(y)
+
+    # Estimate delay from autocorrelation
+    if delay is None:
+        y_centered = y - np.mean(y)
+        autocorr = np.correlate(y_centered, y_centered, mode='full')
+        autocorr = autocorr[len(autocorr)//2:]
+        autocorr_max = autocorr[0]
+        if autocorr_max > 0:
+            autocorr = autocorr / autocorr_max
+
+        delay = 1
+        for i in range(1, min(len(autocorr), n // 4)):
+            if autocorr[i] <= 0:
+                delay = i
+                break
+
+    if embedding_dim is None:
+        embedding_dim = min(5, max(2, n // (delay * 5)))
+
+    # Embed
+    m = n - (embedding_dim - 1) * delay
+    if m < 50:
+        return {
+            'embedding_dim': int(embedding_dim),
+            'correlation_dim': np.nan,
+            'attractor_type': 'unknown',
+            'delay': int(delay)
+        }
+
+    embedded = np.zeros((m, embedding_dim))
+    for i in range(embedding_dim):
+        embedded[:, i] = y[i*delay:i*delay+m]
+
+    # Sample for efficiency
+    sample_size = min(500, m)
+    if m > 500:
+        indices = np.random.choice(m, sample_size, replace=False)
+    else:
+        indices = np.arange(m)
+
+    dists = pdist(embedded[indices])
+    dists = dists[dists > 0]
+
+    if len(dists) < 100:
+        return {
+            'embedding_dim': int(embedding_dim),
+            'correlation_dim': np.nan,
+            'attractor_type': 'unknown',
+            'delay': int(delay)
+        }
+
+    # Correlation dimension via Grassberger-Procaccia
+    radii = np.percentile(dists, [10, 20, 30, 40, 50])
+    log_r, log_c = [], []
+    for r in radii:
+        c = np.sum(dists < r) / len(dists)
+        if c > 0:
+            log_r.append(np.log(r))
+            log_c.append(np.log(c))
+
+    corr_dim = np.nan
+    if len(log_r) >= 3:
+        corr_dim, _ = np.polyfit(log_r, log_c, 1)
+
+    # Classify
+    if np.isnan(corr_dim):
+        atype = 'unknown'
+    elif corr_dim < 0.5:
+        atype = 'fixed_point'
+    elif corr_dim < 1.5:
+        atype = 'limit_cycle'
+    elif corr_dim < 2.5:
+        atype = 'torus'
+    else:
+        atype = 'strange'
+
+    return {
+        'embedding_dim': int(embedding_dim),
+        'correlation_dim': float(corr_dim) if not np.isnan(corr_dim) else np.nan,
+        'attractor_type': atype,
+        'delay': int(delay)
+    }

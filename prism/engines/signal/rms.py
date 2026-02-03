@@ -1,10 +1,11 @@
 """
 RMS (Root Mean Square) Engine.
 
-Computes the RMS value of a signal.
+Imports from primitives/individual/statistics.py (canonical).
 """
 
 import numpy as np
+from prism.primitives.individual.statistics import rms
 
 
 def compute(y: np.ndarray) -> dict:
@@ -20,4 +21,4 @@ def compute(y: np.ndarray) -> dict:
     if len(y) < 1:
         return {'rms': np.nan}
 
-    return {'rms': float(np.sqrt(np.mean(y ** 2)))}
+    return {'rms': rms(y)}

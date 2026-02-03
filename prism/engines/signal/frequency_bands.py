@@ -1,13 +1,12 @@
 """
 Frequency Bands Engine.
 
-Computes energy in specified frequency bands.
-Replaces hardcoded BPFO/BPFI - bands are parameters.
+Imports from primitives/individual/spectral.py (canonical).
 """
 
 import numpy as np
-from scipy.signal import welch
 from typing import Dict
+from prism.primitives.individual.spectral import psd
 
 
 def compute(y: np.ndarray, sample_rate: float = 1.0, bands: dict = None) -> Dict[str, float]:
@@ -26,7 +25,6 @@ def compute(y: np.ndarray, sample_rate: float = 1.0, bands: dict = None) -> Dict
     """
     result = {}
 
-    # Handle NaN values
     y = np.asarray(y).flatten()
     y = y[~np.isnan(y)]
     n = len(y)
@@ -42,9 +40,8 @@ def compute(y: np.ndarray, sample_rate: float = 1.0, bands: dict = None) -> Dict
     try:
         nyquist = sample_rate / 2
 
-        # Compute PSD
-        nperseg = min(256, n)
-        freqs, psd = welch(y, fs=sample_rate, nperseg=nperseg)
+        # Use primitive for PSD
+        freqs, power = psd(y, fs=sample_rate, nperseg=min(256, n))
 
         # Default bands if not specified
         if bands is None:
@@ -54,26 +51,23 @@ def compute(y: np.ndarray, sample_rate: float = 1.0, bands: dict = None) -> Dict
                 'high': [nyquist * 0.5, nyquist]
             }
 
-        total_power = np.sum(psd)
+        total_power = np.sum(power)
 
         for name, (low, high) in bands.items():
-            # Nyquist check: skip bands entirely above Nyquist
             if low >= nyquist:
                 result[f'band_{name}'] = 0.0
                 result[f'band_{name}_rel'] = 0.0
                 continue
 
-            # Clamp high frequency to Nyquist
             high = min(high, nyquist)
 
-            # Skip invalid bands
             if low >= high:
                 result[f'band_{name}'] = 0.0
                 result[f'band_{name}_rel'] = 0.0
                 continue
 
             mask = (freqs >= low) & (freqs <= high)
-            band_power = float(np.sum(psd[mask]))
+            band_power = float(np.sum(power[mask]))
             result[f'band_{name}'] = band_power
             result[f'band_{name}_rel'] = float(band_power / (total_power + 1e-10))
 

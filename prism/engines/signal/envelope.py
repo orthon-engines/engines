@@ -1,12 +1,12 @@
 """
 Envelope Engine.
 
-Computes the Hilbert envelope of a signal.
+Imports from primitives/individual/hilbert.py (canonical).
 """
 
 import numpy as np
-from scipy.signal import hilbert
-from scipy import stats
+from prism.primitives.individual.hilbert import envelope
+from prism.primitives.individual.statistics import kurtosis, rms
 
 
 def compute(y: np.ndarray) -> dict:
@@ -27,13 +27,12 @@ def compute(y: np.ndarray) -> dict:
         }
 
     try:
-        analytic = hilbert(y)
-        envelope = np.abs(analytic)
+        env = envelope(y)
 
         return {
-            'envelope_rms': float(np.sqrt(np.mean(envelope ** 2))),
-            'envelope_peak': float(np.max(envelope)),
-            'envelope_kurtosis': float(stats.kurtosis(envelope, fisher=True))
+            'envelope_rms': rms(env),
+            'envelope_peak': float(np.max(env)),
+            'envelope_kurtosis': kurtosis(env, fisher=True)
         }
     except Exception:
         return {

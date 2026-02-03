@@ -1,10 +1,11 @@
 """
 Peak Engine.
 
-Computes the peak (maximum absolute) value of a signal.
+Imports from primitives/individual/statistics.py (canonical).
 """
 
 import numpy as np
+from prism.primitives.individual.statistics import peak_to_peak
 
 
 def compute(y: np.ndarray) -> dict:
@@ -22,5 +23,5 @@ def compute(y: np.ndarray) -> dict:
 
     return {
         'peak': float(np.max(np.abs(y))),
-        'peak_to_peak': float(np.max(y) - np.min(y))
+        'peak_to_peak': peak_to_peak(y)
     }
