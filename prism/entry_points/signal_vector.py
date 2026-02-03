@@ -2,10 +2,12 @@
 Signal Vector Entry Point.
 
 Thin orchestrator that:
-1. Reads manifest
-2. Loads observations
-3. Calls appropriate engines per-signal with per-signal config
-4. Writes output to parquet
+1. Validates prerequisites (observations, typology, manifest exist)
+2. Filters CONSTANT signals (zero variance = zero information)
+3. Reads manifest
+4. Loads observations
+5. Calls appropriate engines per-signal with per-signal config
+6. Writes output to parquet
 
 Entry point does NOT contain compute logic - only orchestration.
 
@@ -28,6 +30,12 @@ import polars as pl
 from pathlib import Path
 from typing import Dict, List, Any, Callable, Tuple, Set
 from collections import defaultdict
+import multiprocessing
+
+from joblib import Parallel, delayed
+
+# Hardcoded: always use all available cores
+_N_WORKERS = multiprocessing.cpu_count()
 
 
 # =============================================================================
@@ -331,74 +339,176 @@ def _diagnose_manifest_engines(
     }
 
 
-def compute_signal_vector(
-    observations: pl.DataFrame,
-    manifest: Dict[str, Any],
-) -> pl.DataFrame:
+def _compute_single_signal(
+    signal_id: str,
+    signal_data: np.ndarray,
+    signal_config: Dict[str, Any],
+    system_window: int,
+    system_stride: int,
+) -> List[Dict[str, Any]]:
     """
-    Compute signal vector with per-engine window support.
+    Compute all windows for one signal.
 
-    This is the core computation function that processes observations
-    according to the manifest specification.
+    This function runs in a worker process.
 
     Args:
-        observations: Observations DataFrame with signal_id, I, value columns
-        manifest: Manifest dict with system, cohorts, engine_windows sections
+        signal_id: Signal identifier
+        signal_data: numpy array of signal values (sorted by I)
+        signal_config: Config dict for this signal from manifest
+        system_window: System window size
+        system_stride: System stride
 
     Returns:
-        DataFrame with computed features per signal per window
+        List of row dicts for this signal
     """
-    system_window = manifest['system']['window']
-    system_stride = manifest['system']['stride']
-    engine_windows = manifest.get('engine_windows', {})
+    engines = signal_config.get('engines', [])
+    overrides = signal_config.get('engine_window_overrides', {})
 
-    results = []
+    if not engines or len(signal_data) == 0:
+        return []
+
+    # Group engines by window requirement
+    engine_groups = group_engines_by_window(engines, overrides, system_window)
+
+    rows = []
+
+    # Compute windows at system stride
+    for window_end in range(system_window - 1, len(signal_data), system_stride):
+        row = {
+            'signal_id': signal_id,
+            'I': window_end,
+        }
+
+        # Run each engine group with appropriate window
+        for window_size, engine_list in engine_groups.items():
+            window_start = max(0, window_end - window_size + 1)
+
+            # Skip if not enough data for this window
+            if window_end - window_start + 1 < window_size:
+                # Fill with NaN for these engines
+                for engine in engine_list:
+                    row.update(null_output_for_engine(engine))
+                continue
+
+            window_data = signal_data[window_start:window_end + 1]
+
+            for engine in engine_list:
+                try:
+                    engine_output = run_engine(engine, window_data)
+                    row.update(engine_output)
+                except Exception:
+                    row.update(null_output_for_engine(engine))
+
+        rows.append(row)
+
+    return rows
+
+
+def _prepare_signal_tasks(
+    observations: pl.DataFrame,
+    manifest: Dict[str, Any],
+) -> List[Tuple[str, np.ndarray, Dict[str, Any]]]:
+    """
+    Prepare (signal_id, signal_data, signal_config) tuples for parallel dispatch.
+
+    Returns:
+        List of (signal_id, signal_data, signal_config) tuples
+    """
+    tasks = []
 
     for cohort_name, cohort_config in manifest['cohorts'].items():
         for signal_id, signal_config in cohort_config.items():
             if not isinstance(signal_config, dict):
                 continue
 
-            signal_data = get_signal_data(observations, cohort_name, signal_id)
             engines = signal_config.get('engines', [])
-            overrides = signal_config.get('engine_window_overrides', {})
-
-            if not engines or len(signal_data) == 0:
+            if not engines:
                 continue
 
-            # Group engines by window requirement
-            engine_groups = group_engines_by_window(engines, overrides, system_window)
+            signal_data = get_signal_data(observations, cohort_name, signal_id)
+            if len(signal_data) == 0:
+                continue
 
-            # Compute windows at system stride
-            for window_end in range(system_window - 1, len(signal_data), system_stride):
-                row = {
-                    'signal_id': signal_id,
-                    'I': window_end,
-                }
+            tasks.append((signal_id, signal_data, signal_config))
 
-                # Run each engine group with appropriate window
-                for window_size, engine_list in engine_groups.items():
-                    window_start = max(0, window_end - window_size + 1)
+    return tasks
 
-                    # Skip if not enough data for this window
-                    if window_end - window_start + 1 < window_size:
-                        # Fill with NaN for these engines
-                        for engine in engine_list:
-                            row.update(null_output_for_engine(engine))
-                        continue
 
-                    window_data = signal_data[window_start:window_end + 1]
+def compute_signal_vector(
+    observations: pl.DataFrame,
+    manifest: Dict[str, Any],
+    verbose: bool = True,
+    progress_interval: int = 100,
+    output_path: str = None,
+    flush_interval: int = 1000,
+) -> pl.DataFrame:
+    """
+    Compute signal vector with per-engine window support.
 
-                    for engine in engine_list:
-                        try:
-                            engine_output = run_engine(engine, window_data)
-                            row.update(engine_output)
-                        except Exception:
-                            row.update(null_output_for_engine(engine))
+    Automatically parallelizes across signals using all available CPU cores.
 
-                results.append(row)
+    Args:
+        observations: Observations DataFrame with signal_id, I, value columns
+        manifest: Manifest dict with system, cohorts, engine_windows sections
+        verbose: Print progress updates
+        progress_interval: Print progress every N windows (ignored in parallel mode)
+        output_path: Path to write output (enables streaming mode)
+        flush_interval: Flush to disk every N windows (ignored in parallel mode)
 
-    return pl.DataFrame(results) if results else pl.DataFrame()
+    Returns:
+        DataFrame with computed features per signal per window
+    """
+    import sys
+
+    system_window = manifest['system']['window']
+    system_stride = manifest['system']['stride']
+
+    # Prepare signal tasks
+    tasks = _prepare_signal_tasks(observations, manifest)
+
+    if not tasks:
+        return pl.DataFrame()
+
+    # Count total windows for progress
+    total_windows = 0
+    for signal_id, signal_data, signal_config in tasks:
+        n_windows = max(0, (len(signal_data) - system_window) // system_stride + 1)
+        total_windows += n_windows
+
+    if verbose:
+        print(f"Processing {total_windows:,} windows across {len(tasks)} signals using {_N_WORKERS} workers...")
+        sys.stdout.flush()
+
+    if len(tasks) == 1:
+        # Single signal - no parallelism overhead
+        signal_id, signal_data, signal_config = tasks[0]
+        all_rows = _compute_single_signal(
+            signal_id, signal_data, signal_config, system_window, system_stride
+        )
+    else:
+        # Parallel across signals - always
+        results = Parallel(n_jobs=_N_WORKERS, prefer="processes")(
+            delayed(_compute_single_signal)(
+                signal_id, signal_data, signal_config, system_window, system_stride
+            )
+            for signal_id, signal_data, signal_config in tasks
+        )
+
+        # Flatten results
+        all_rows = []
+        for signal_rows in results:
+            if signal_rows:
+                all_rows.extend(signal_rows)
+
+    if verbose:
+        print(f"  {len(all_rows):,} rows computed", flush=True)
+
+    if not all_rows:
+        return pl.DataFrame()
+
+    # Use infer_schema_length=None to scan ALL rows for schema inference
+    # This ensures columns that only appear in some signals are not dropped
+    return pl.DataFrame(all_rows, infer_schema_length=None)
 
 
 def run(
@@ -447,10 +557,13 @@ def run(
         print(f"System window={system.get('window')}, stride={system.get('stride')}")
 
     # Compute signal vector using core function
-    df = compute_signal_vector(obs, manifest)
+    # Streaming mode (>1000 windows) writes directly to output_path
+    df = compute_signal_vector(obs, manifest, verbose=verbose, output_path=output_path)
 
-    # Write output
-    df.write_parquet(output_path)
+    # Check if file was already written by streaming mode
+    output_exists = Path(output_path).exists()
+    if not output_exists:
+        df.write_parquet(output_path)
 
     if verbose:
         print(f"Wrote {len(df):,} rows to {output_path}")
@@ -481,6 +594,8 @@ def run_from_manifest(
     data_dir: str = None,
     output_dir: str = None,
     verbose: bool = True,
+    skip_prerequisites: bool = False,
+    filter_constants: bool = True,
 ) -> pl.DataFrame:
     """
     Run signal vector from manifest file.
@@ -490,20 +605,44 @@ def run_from_manifest(
         data_dir: Directory with observations.parquet (optional, derived from manifest)
         output_dir: Directory for output (optional, derived from manifest)
         verbose: Print progress
+        skip_prerequisites: If True, skip prerequisite validation (not recommended)
+        filter_constants: If True, filter CONSTANT signals from manifest (default)
 
     Returns:
         DataFrame with computed features
 
     Raises:
         ValueError: If manifest is missing required fields
+        PrerequisiteError: If required files are missing
     """
     import yaml
 
     manifest_path = Path(manifest_path).resolve()
     manifest_dir = manifest_path.parent
 
+    # Check prerequisites first
+    if not skip_prerequisites:
+        from prism.validation import check_prerequisites, PrerequisiteError
+        if verbose:
+            print("Checking prerequisites...")
+        check_prerequisites('signal_vector', str(manifest_dir), raise_on_missing=True)
+        if verbose:
+            print("  Prerequisites satisfied.")
+
     with open(manifest_path) as f:
         manifest = yaml.safe_load(f)
+
+    # Filter CONSTANT signals from manifest
+    if filter_constants:
+        typology_path = manifest_dir / 'typology.parquet'
+        if typology_path.exists():
+            from prism.validation import filter_constant_signals
+            typology_df = pl.read_parquet(typology_path)
+            original_count = _count_manifest_signals(manifest)
+            manifest = filter_constant_signals(manifest, typology_df, verbose=False)
+            filtered_count = _count_manifest_signals(manifest)
+            if verbose and original_count != filtered_count:
+                print(f"Filtered {original_count - filtered_count} CONSTANT signal(s)")
 
     # Derive paths from manifest if not provided
     if data_dir is None:
@@ -527,6 +666,15 @@ def run_from_manifest(
     )
 
 
+def _count_manifest_signals(manifest: Dict[str, Any]) -> int:
+    """Count total signals in manifest cohorts."""
+    count = 0
+    for cohort_signals in manifest.get('cohorts', {}).values():
+        if isinstance(cohort_signals, dict):
+            count += len(cohort_signals)
+    return count
+
+
 def main():
     """CLI entry point: python -m prism.entry_points.signal_vector <manifest.yaml>"""
     import argparse
@@ -537,12 +685,24 @@ def main():
     )
     parser.add_argument('manifest', help='Path to manifest.yaml')
     parser.add_argument('--quiet', '-q', action='store_true', help='Suppress output')
+    parser.add_argument(
+        '--skip-prerequisites',
+        action='store_true',
+        help='Skip prerequisite validation (not recommended)'
+    )
+    parser.add_argument(
+        '--no-filter-constants',
+        action='store_true',
+        help='Do not filter CONSTANT signals'
+    )
 
     args = parser.parse_args()
 
     run_from_manifest(
         manifest_path=args.manifest,
         verbose=not args.quiet,
+        skip_prerequisites=args.skip_prerequisites,
+        filter_constants=not args.no_filter_constants,
     )
 
 
