@@ -1,0 +1,19 @@
+engine: envelope
+version: "1.0"
+
+requirements:
+  base_window: 32
+  min_window: 16
+  max_window: 256
+  scaling: linear
+
+outputs:
+  - envelope_mean
+  - envelope_std
+  - envelope_max
+
+dependencies: []
+
+metadata:
+  description: Signal envelope analysis
+  category: amplitude

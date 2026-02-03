@@ -1,0 +1,20 @@
+engine: garch
+version: "1.0"
+
+requirements:
+  base_window: 64
+  min_window: 32
+  max_window: 512
+  scaling: linear
+
+outputs:
+  - garch_omega
+  - garch_alpha
+  - garch_beta
+  - garch_persistence
+
+dependencies: []
+
+metadata:
+  description: GARCH volatility modeling
+  category: volatility
