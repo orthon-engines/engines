@@ -279,6 +279,33 @@ temp      | 1596760568 | 45.2
 
 ---
 
+## Claude Code Behaviors
+
+| Behavior | Allowed |
+|----------|---------|
+| Call existing engines | YES |
+| Sequence operations | YES |
+| Pass config from manifest | YES |
+| Generate new runners/scripts | NO |
+| Inline compute logic | NO |
+| Write to /tmp | NO |
+| Create files outside repo | NO |
+| Create new venv | NO |
+
+**Explanation:**
+- **Call existing engines**: Use `engine_registry[name](window)` to invoke engines
+- **Sequence operations**: Chain entry points, concat DataFrames, etc.
+- **Pass config**: Read window_size, stride, engines from manifest
+- **Generate new runners**: Do NOT create standalone scripts — use existing entry points
+- **Inline compute**: Do NOT add calculations to entry points — put them in engines
+- **Write to /tmp**: NEVER use /tmp — everything must be verifiable in the repo
+- **Create files outside repo**: All work stays in the repository
+- **Create new venv**: NEVER create a new venv — use the existing `./venv/`
+
+If a manifest requests an engine that doesn't exist, **reject** — do not implement inline.
+
+---
+
 ## Credits
 
 - **Avery Rudder** — "Laplace transform IS the state engine" — eigenvalue insight

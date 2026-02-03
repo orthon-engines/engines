@@ -73,14 +73,14 @@ def compute_dfa(y: np.ndarray) -> Dict[str, float]:
 def compute_acf_decay(y: np.ndarray, max_lag: int = 50) -> Dict[str, Any]:
     """
     Compute autocorrelation decay characteristics.
-    
+
     Returns:
         dict with acf_lag1, acf_lag10, acf_half_life
     """
     y = np.asarray(y).flatten()
     y = y[~np.isnan(y)]
     n = len(y)
-    
+
     if n < max_lag:
         max_lag = n // 2
     if max_lag < 2:
@@ -89,16 +89,17 @@ def compute_acf_decay(y: np.ndarray, max_lag: int = 50) -> Dict[str, Any]:
             'acf_lag10': np.nan,
             'acf_half_life': np.nan,
         }
-    
-    acf_vals = autocorrelation(y, max_lag=max_lag)
-    
+
+    # Get all ACF values then slice to max_lag
+    acf_vals = autocorrelation(y)[:max_lag + 1]
+
     # Find half-life (lag where ACF < 0.5)
     half_life = np.nan
     for lag, ac in enumerate(acf_vals):
         if ac < 0.5:
             half_life = float(lag)
             break
-    
+
     return {
         'acf_lag1': float(acf_vals[1]) if len(acf_vals) > 1 else np.nan,
         'acf_lag10': float(acf_vals[10]) if len(acf_vals) > 10 else np.nan,

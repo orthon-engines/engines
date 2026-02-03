@@ -10,6 +10,12 @@ Thin orchestrators that:
 Entry points do NOT contain compute logic - only orchestration.
 """
 
-from .signal_vector import run, run_from_manifest
-
 __all__ = ['run', 'run_from_manifest']
+
+
+def __getattr__(name):
+    """Lazy import to avoid RuntimeWarning when running as __main__."""
+    if name in ('run', 'run_from_manifest'):
+        from .signal_vector import run, run_from_manifest
+        return run if name == 'run' else run_from_manifest
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
