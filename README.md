@@ -107,7 +107,7 @@ observations.parquet (raw signals)
 
 ---
 
-## Input Schema (v2.1)
+## Input Schema (v2.4)
 
 ```
 observations.parquet
@@ -120,6 +120,8 @@ observations.parquet
 **I is canonical.** Sequential integers per (cohort, signal_id). Not timestamps.
 
 **cohort is cargo.** Passes through, has ZERO effect on compute. Unique time series = (cohort, signal_id).
+
+See [MANIFEST_CONTRACT.md](MANIFEST_CONTRACT.md) for complete manifest v2.4 specification.
 
 ---
 

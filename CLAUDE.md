@@ -184,7 +184,7 @@ PRISM executes what the manifest says. No more, no less.
 
 ---
 
-## Input: observations.parquet Schema (v2.0)
+## Input: observations.parquet Schema (v2.4)
 
 ### Required Columns
 | Column | Type | Description |
@@ -196,7 +196,7 @@ PRISM executes what the manifest says. No more, no less.
 ### Optional Columns
 | Column | Type | Description |
 |--------|------|-------------|
-| unit_id | str | Pass-through label (cargo only) |
+| cohort | str | Grouping key (engine_1, pump_A) - cargo only |
 
 ### I is Canonical
 ```

@@ -2,13 +2,14 @@
 Attractor Engine.
 
 Imports from primitives/embedding/ and primitives/dynamical/ (canonical).
+Returns numbers only - ORTHON classifies attractor types.
 """
 
 import numpy as np
 from typing import Dict, Union
 
 
-def compute(y: np.ndarray, embedding_dim: int = None, delay: int = None) -> Dict[str, Union[float, int, str]]:
+def compute(y: np.ndarray, embedding_dim: int = None, delay: int = None) -> Dict[str, Union[float, int]]:
     """
     Compute attractor properties of signal.
 
@@ -18,12 +19,12 @@ def compute(y: np.ndarray, embedding_dim: int = None, delay: int = None) -> Dict
         delay: Time delay (auto-detected if None)
 
     Returns:
-        dict with embedding_dim, correlation_dim, attractor_type, delay
+        dict with embedding_dim, correlation_dim, delay
+        ORTHON interprets correlation_dim to classify attractor type.
     """
     result = {
         'embedding_dim': np.nan,
         'correlation_dim': np.nan,
-        'attractor_type': 'unknown',
         'delay': np.nan
     }
 
@@ -35,7 +36,6 @@ def compute(y: np.ndarray, embedding_dim: int = None, delay: int = None) -> Dict
         return result
 
     if np.std(y) < 1e-10:
-        result['attractor_type'] = 'fixed_point'
         result['correlation_dim'] = 0.0
         return result
 
@@ -58,22 +58,9 @@ def compute(y: np.ndarray, embedding_dim: int = None, delay: int = None) -> Dict
             y, dimension=embedding_dim, delay=delay
         )
 
-        # Classify attractor type
-        if np.isnan(corr_dim):
-            atype = 'unknown'
-        elif corr_dim < 0.5:
-            atype = 'fixed_point'
-        elif corr_dim < 1.5:
-            atype = 'limit_cycle'
-        elif corr_dim < 2.5:
-            atype = 'torus'
-        else:
-            atype = 'strange'
-
         result = {
             'embedding_dim': int(embedding_dim),
             'correlation_dim': float(corr_dim) if not np.isnan(corr_dim) else np.nan,
-            'attractor_type': atype,
             'delay': int(delay)
         }
 
@@ -86,7 +73,7 @@ def compute(y: np.ndarray, embedding_dim: int = None, delay: int = None) -> Dict
     return result
 
 
-def _compute_fallback(y: np.ndarray, embedding_dim: int = None, delay: int = None) -> Dict[str, Union[float, int, str]]:
+def _compute_fallback(y: np.ndarray, embedding_dim: int = None, delay: int = None) -> Dict[str, Union[float, int]]:
     """Fallback computation without primitives."""
     from scipy.spatial.distance import pdist
 
@@ -116,7 +103,6 @@ def _compute_fallback(y: np.ndarray, embedding_dim: int = None, delay: int = Non
         return {
             'embedding_dim': int(embedding_dim),
             'correlation_dim': np.nan,
-            'attractor_type': 'unknown',
             'delay': int(delay)
         }
 
@@ -138,7 +124,6 @@ def _compute_fallback(y: np.ndarray, embedding_dim: int = None, delay: int = Non
         return {
             'embedding_dim': int(embedding_dim),
             'correlation_dim': np.nan,
-            'attractor_type': 'unknown',
             'delay': int(delay)
         }
 
@@ -155,21 +140,8 @@ def _compute_fallback(y: np.ndarray, embedding_dim: int = None, delay: int = Non
     if len(log_r) >= 3:
         corr_dim, _ = np.polyfit(log_r, log_c, 1)
 
-    # Classify
-    if np.isnan(corr_dim):
-        atype = 'unknown'
-    elif corr_dim < 0.5:
-        atype = 'fixed_point'
-    elif corr_dim < 1.5:
-        atype = 'limit_cycle'
-    elif corr_dim < 2.5:
-        atype = 'torus'
-    else:
-        atype = 'strange'
-
     return {
         'embedding_dim': int(embedding_dim),
         'correlation_dim': float(corr_dim) if not np.isnan(corr_dim) else np.nan,
-        'attractor_type': atype,
         'delay': int(delay)
     }

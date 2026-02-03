@@ -104,3 +104,6 @@ htmlcov/
 .claude/
 .pre-commit-config.yaml
 reports/output/
+
+# Legacy/archived docs
+_legacy/
