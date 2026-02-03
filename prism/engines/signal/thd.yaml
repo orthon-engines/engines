@@ -1,0 +1,18 @@
+engine: thd
+version: "1.0"
+
+requirements:
+  base_window: 64
+  min_window: 32
+  max_window: 512
+  scaling: linear
+
+outputs:
+  - thd
+  - thd_db
+
+dependencies: []
+
+metadata:
+  description: Total Harmonic Distortion
+  category: frequency

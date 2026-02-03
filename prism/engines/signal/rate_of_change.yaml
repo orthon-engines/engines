@@ -1,0 +1,19 @@
+engine: rate_of_change
+version: "1.0"
+
+requirements:
+  base_window: 16
+  min_window: 4
+  max_window: 128
+  scaling: linear
+
+outputs:
+  - mean_rate
+  - max_rate
+  - rate_std
+
+dependencies: []
+
+metadata:
+  description: Rate of change statistics
+  category: basic

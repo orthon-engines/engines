@@ -1,0 +1,19 @@
+engine: attractor
+version: "1.0"
+
+requirements:
+  base_window: 64
+  min_window: 32
+  max_window: 512
+  scaling: linear
+
+outputs:
+  - correlation_dim
+  - embedding_dim
+  - attractor_radius
+
+dependencies: []
+
+metadata:
+  description: Attractor reconstruction and dimension
+  category: dynamics

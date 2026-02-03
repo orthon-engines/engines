@@ -1,0 +1,18 @@
+engine: hurst
+version: "1.0"
+
+requirements:
+  base_window: 128
+  min_window: 64
+  max_window: 512
+  scaling: linear
+
+outputs:
+  - hurst
+  - hurst_r2
+
+dependencies: []
+
+metadata:
+  description: Hurst exponent for long-range dependence
+  category: memory

@@ -1,0 +1,19 @@
+engine: statistics
+version: "1.0"
+
+requirements:
+  base_window: 16
+  min_window: 4
+  max_window: 256
+  scaling: linear
+
+outputs:
+  - kurtosis
+  - skewness
+  - crest_factor
+
+dependencies: []
+
+metadata:
+  description: Basic statistical moments
+  category: basic

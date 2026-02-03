@@ -1,0 +1,19 @@
+engine: adf_stat
+version: "1.0"
+
+requirements:
+  base_window: 64
+  min_window: 20
+  max_window: 256
+  scaling: linear
+
+outputs:
+  - adf_stat
+  - adf_pvalue
+  - adf_lags
+
+dependencies: []
+
+metadata:
+  description: Augmented Dickey-Fuller stationarity test
+  category: stationarity

@@ -1,0 +1,19 @@
+engine: lyapunov
+version: "1.0"
+
+requirements:
+  base_window: 128
+  min_window: 64
+  max_window: 512
+  scaling: linear
+
+outputs:
+  - lyapunov_max
+  - lyapunov_mean
+  - chaos_indicator
+
+dependencies: []
+
+metadata:
+  description: Lyapunov exponent for chaos detection
+  category: dynamics

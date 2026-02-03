@@ -1,0 +1,20 @@
+engine: trend
+version: "1.0"
+
+requirements:
+  base_window: 32
+  min_window: 8
+  max_window: 256
+  scaling: linear
+
+outputs:
+  - trend_slope
+  - trend_r2
+  - detrend_std
+  - cusum_max
+
+dependencies: []
+
+metadata:
+  description: Trend detection and detrending
+  category: trend

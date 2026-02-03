@@ -1,0 +1,18 @@
+engine: complexity
+version: "1.0"
+
+requirements:
+  base_window: 64
+  min_window: 32
+  max_window: 256
+  scaling: sqrt
+
+outputs:
+  - sample_entropy
+  - permutation_entropy
+
+dependencies: []
+
+metadata:
+  description: Entropy-based complexity measures
+  category: complexity

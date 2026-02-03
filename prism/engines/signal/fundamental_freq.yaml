@@ -1,0 +1,19 @@
+engine: fundamental_freq
+version: "1.0"
+
+requirements:
+  base_window: 64
+  min_window: 32
+  max_window: 512
+  scaling: linear
+
+outputs:
+  - fundamental_freq
+  - fundamental_power
+  - fundamental_confidence
+
+dependencies: []
+
+metadata:
+  description: Fundamental frequency detection
+  category: frequency

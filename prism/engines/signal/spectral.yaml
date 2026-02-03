@@ -1,0 +1,21 @@
+engine: spectral
+version: "1.0"
+
+requirements:
+  base_window: 64
+  min_window: 32
+  max_window: 512
+  scaling: linear
+
+outputs:
+  - spectral_slope
+  - spectral_entropy
+  - spectral_centroid
+  - spectral_bandwidth
+  - dominant_freq
+
+dependencies: []
+
+metadata:
+  description: Spectral analysis via FFT
+  category: frequency

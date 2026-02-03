@@ -1,0 +1,19 @@
+engine: memory
+version: "1.0"
+
+requirements:
+  base_window: 48
+  min_window: 16
+  max_window: 256
+  scaling: linear
+
+outputs:
+  - acf_lag1
+  - acf_lag10
+  - acf_half_life
+
+dependencies: []
+
+metadata:
+  description: Autocorrelation and memory structure
+  category: memory

@@ -1,0 +1,18 @@
+engine: snr
+version: "1.0"
+
+requirements:
+  base_window: 32
+  min_window: 16
+  max_window: 256
+  scaling: linear
+
+outputs:
+  - snr
+  - snr_db
+
+dependencies: []
+
+metadata:
+  description: Signal-to-Noise Ratio estimation
+  category: quality

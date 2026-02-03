@@ -2,12 +2,10 @@
 ADF Stat Engine.
 
 Augmented Dickey-Fuller test for stationarity.
-Imports from primitives/individual/stationarity.py (canonical).
 """
 
 import numpy as np
 from typing import Dict
-from prism.primitives.individual.stationarity import stationarity_test
 
 
 def compute(y: np.ndarray) -> Dict[str, float]:
@@ -21,6 +19,8 @@ def compute(y: np.ndarray) -> Dict[str, float]:
         dict with:
             adf_stat: Test statistic (more negative = more stationary)
             adf_pvalue: p-value (< 0.05 typically means stationary)
+            adf_lags: Number of lags used in the test
+            adf_nobs: Number of observations used
 
     Notes:
         H0 = unit root (non-stationary)
@@ -29,6 +29,8 @@ def compute(y: np.ndarray) -> Dict[str, float]:
     result = {
         'adf_stat': np.nan,
         'adf_pvalue': np.nan,
+        'adf_lags': np.nan,
+        'adf_nobs': np.nan,
     }
 
     y = np.asarray(y).flatten()
@@ -43,12 +45,18 @@ def compute(y: np.ndarray) -> Dict[str, float]:
         # Constant signal is trivially stationary
         result['adf_stat'] = -np.inf
         result['adf_pvalue'] = 0.0
+        result['adf_lags'] = 0.0
+        result['adf_nobs'] = float(n)
         return result
 
     try:
-        stat, pvalue = stationarity_test(y, test='adf')
-        result['adf_stat'] = stat
-        result['adf_pvalue'] = pvalue
+        from statsmodels.tsa.stattools import adfuller
+        adf_result = adfuller(y, autolag='AIC')
+        # adf_result: (stat, pvalue, lags, nobs, critical_values, icbest)
+        result['adf_stat'] = float(adf_result[0])
+        result['adf_pvalue'] = float(adf_result[1])
+        result['adf_lags'] = float(adf_result[2])
+        result['adf_nobs'] = float(adf_result[3])
     except Exception:
         pass
 

@@ -1,0 +1,24 @@
+engine: frequency_bands
+version: "1.0"
+
+requirements:
+  base_window: 64
+  min_window: 32
+  max_window: 512
+  scaling: linear
+
+outputs:
+  - total_power
+  - band_low
+  - band_low_rel
+  - band_mid
+  - band_mid_rel
+  - band_high
+  - band_high_rel
+  - nyquist
+
+dependencies: []
+
+metadata:
+  description: Frequency band power distribution
+  category: frequency

@@ -12,97 +12,65 @@ Thin orchestrator that:
 Entry point does NOT contain compute logic - only orchestration.
 
 ================================================================================
-WARNING: WINDOW LOGIC BELONGS IN THE MANIFEST - NOT HERE
+WINDOW SIZING
 ================================================================================
-DO NOT add any window size calculation, adaptive windowing, or default window
-values to this file. All windowing parameters MUST come from the manifest.
+Window sizes are determined by:
+1. Engine config (base_window, min_window, max_window) - from engine's .yaml
+2. Signal's window_factor - from typology.parquet
+3. Manifest overrides - optional per-signal/per-engine overrides
 
-If the manifest is missing window_size or stride, this entry point MUST fail.
-No defaults. No fallbacks. No "smart" calculations.
+Effective window = engine.base_window × signal.window_factor
 
-ORTHON determines window parameters. PRISM executes what the manifest says.
-Hardcoding window logic here wrecks everything downstream.
+If typology doesn't have window_factor, defaults to 1.0.
+If manifest has engine_window_overrides, those take precedence.
 ================================================================================
 """
 
 import numpy as np
 import polars as pl
 from pathlib import Path
-from typing import Dict, List, Any, Callable, Tuple, Set
+from typing import Dict, List, Any, Callable, Tuple, Set, Optional
 from collections import defaultdict
 import multiprocessing
 
 from joblib import Parallel, delayed
+
+from prism.engines.registry import get_registry, EngineRegistry
 
 # Hardcoded: always use all available cores
 _N_WORKERS = multiprocessing.cpu_count()
 
 
 # =============================================================================
-# ENGINE REQUIREMENTS
+# ENGINE REQUIREMENTS - NOW LOADED FROM REGISTRY
 # =============================================================================
-# Minimum samples required for each engine to produce valid results.
-# Engines not listed default to 4 (absolute minimum for any computation).
+# Engine requirements (min_samples, base_window, etc.) are now defined in
+# each engine's config.yaml file and loaded via the EngineRegistry.
 #
-# These define the "ideal" window size for accurate results. Engines receiving
-# smaller windows will return NaN for those observations.
+# Legacy fallback dict for engines not yet migrated to config.yaml format.
 # =============================================================================
 
-ENGINE_REQUIREMENTS: Dict[str, Dict[str, Any]] = {
-    # FFT-based engines (need sufficient frequency resolution)
-    'spectral': {'min_samples': 64},
-    'harmonics': {'min_samples': 64},
-    'fundamental_freq': {'min_samples': 64},
-    'thd': {'min_samples': 64},
-    'frequency_bands': {'min_samples': 64},
-    'band_power': {'min_samples': 64},
-
-    # Entropy engines (need sufficient data for pattern detection)
-    'sample_entropy': {'min_samples': 64},
-    'complexity': {'min_samples': 50},
-    'approximate_entropy': {'min_samples': 30},
-    'permutation_entropy': {'min_samples': 20},
-    'perm_entropy': {'min_samples': 20},
-
-    # Fractal/memory engines (need long series for scaling analysis)
-    'hurst': {'min_samples': 128},
-    'dfa': {'min_samples': 20},
-    'memory': {'min_samples': 20},
-    'acf_decay': {'min_samples': 16},
-
-    # Statistical engines (low requirements)
-    'statistics': {'min_samples': 4},
-    'kurtosis': {'min_samples': 4},
-    'skewness': {'min_samples': 4},
-    'crest_factor': {'min_samples': 4},
-
-    # Spectral analysis (moderate requirements)
-    'snr': {'min_samples': 32},
-    'phase_coherence': {'min_samples': 32},
-
-    # Trend engines
-    'trend': {'min_samples': 8},
-    'mann_kendall': {'min_samples': 8},
-    'rate_of_change': {'min_samples': 4},
-
-    # Advanced engines
-    'attractor': {'min_samples': 64},
-    'lyapunov': {'min_samples': 128},
-    'garch': {'min_samples': 64},
-    'dmd': {'min_samples': 32},
-    'envelope': {'min_samples': 16},
-    'variance_growth': {'min_samples': 16},
-
-    # Domain-specific
-    'basin': {'min_samples': 32},
-    'cycle_counting': {'min_samples': 16},
-    'lof': {'min_samples': 20},
-    'pulsation_index': {'min_samples': 8},
-    'time_constant': {'min_samples': 16},
-
-    # Stationarity engines
-    'adf_stat': {'min_samples': 20},
-    'variance_ratio': {'min_samples': 20},
+_LEGACY_ENGINE_REQUIREMENTS: Dict[str, int] = {
+    # Engines without config.yaml fall back to these
+    'band_power': 64,
+    'sample_entropy': 64,
+    'approximate_entropy': 30,
+    'permutation_entropy': 20,
+    'perm_entropy': 20,
+    'dfa': 20,
+    'acf_decay': 16,
+    'kurtosis': 4,
+    'skewness': 4,
+    'crest_factor': 4,
+    'mann_kendall': 8,
+    'garch': 64,
+    'dmd': 32,
+    'envelope': 16,
+    'basin': 32,
+    'cycle_counting': 16,
+    'lof': 20,
+    'pulsation_index': 8,
+    'time_constant': 16,
 }
 
 # Default minimum for unlisted engines
@@ -111,7 +79,34 @@ DEFAULT_MIN_SAMPLES = 4
 
 def get_engine_min_samples(engine_name: str) -> int:
     """Get minimum samples required for an engine."""
-    return ENGINE_REQUIREMENTS.get(engine_name, {}).get('min_samples', DEFAULT_MIN_SAMPLES)
+    registry = get_registry()
+
+    # Try registry first (new config.yaml system)
+    if registry.has_engine(engine_name):
+        return registry.get_min_samples(engine_name)
+
+    # Fall back to legacy dict
+    return _LEGACY_ENGINE_REQUIREMENTS.get(engine_name, DEFAULT_MIN_SAMPLES)
+
+
+def get_engine_window(engine_name: str, window_factor: float = 1.0) -> int:
+    """
+    Get effective window size for engine + signal combination.
+
+    Args:
+        engine_name: Name of the engine
+        window_factor: Signal-specific multiplier from typology (default 1.0)
+
+    Returns:
+        Effective window size
+    """
+    registry = get_registry()
+
+    if registry.has_engine(engine_name):
+        return registry.get_window_for_signal(engine_name, window_factor)
+
+    # Fall back to min_samples for legacy engines
+    return get_engine_min_samples(engine_name)
 
 
 def validate_engine_can_run(engine_name: str, window_size: int) -> bool:
@@ -124,6 +119,7 @@ def group_engines_by_window(
     engines: List[str],
     overrides: Dict[str, int],
     default_window: int,
+    window_factor: float = 1.0,
 ) -> Dict[int, List[str]]:
     """
     Group engines by their required window size.
@@ -132,6 +128,7 @@ def group_engines_by_window(
         engines: List of engine names
         overrides: Dict of {engine_name: window_size} from manifest
         default_window: System default window size
+        window_factor: Signal-specific multiplier from typology
 
     Returns:
         dict: {window_size: [engine_list]}
@@ -139,7 +136,17 @@ def group_engines_by_window(
     groups: Dict[int, List[str]] = {}
 
     for engine in engines:
-        window = overrides.get(engine, default_window)
+        if engine in overrides:
+            # Manifest override takes precedence
+            window = overrides[engine]
+        else:
+            # Use registry-based window with factor
+            window = get_engine_window(engine, window_factor)
+            # Fall back to default if registry doesn't have this engine
+            registry = get_registry()
+            if not registry.has_engine(engine):
+                window = default_window
+
         if window not in groups:
             groups[window] = []
         groups[window].append(engine)
@@ -147,8 +154,13 @@ def group_engines_by_window(
     return groups
 
 
-def _load_engine_registry() -> Dict[str, Callable]:
-    """Load all signal engines. Each engine has a compute() method."""
+def _load_legacy_engine_registry() -> Dict[str, Callable]:
+    """
+    Load legacy engine compute functions.
+
+    This is for engines that don't have config.yaml files yet.
+    New engines should use the EngineRegistry instead.
+    """
     from prism.engines.signal import (
         statistics, memory, complexity, spectral, trend,
         hurst, attractor, lyapunov, garch, dmd,
@@ -232,16 +244,40 @@ def _load_engine_registry() -> Dict[str, Callable]:
     }
 
 
-# Global engine registry (loaded once)
-_ENGINE_REGISTRY: Dict[str, Callable] = None
+# Global legacy engine registry (loaded once)
+_LEGACY_ENGINE_REGISTRY: Dict[str, Callable] = None
 
 
 def _get_engine_registry() -> Dict[str, Callable]:
-    """Get or load the engine registry."""
-    global _ENGINE_REGISTRY
-    if _ENGINE_REGISTRY is None:
-        _ENGINE_REGISTRY = _load_engine_registry()
-    return _ENGINE_REGISTRY
+    """
+    Get combined engine registry (new + legacy).
+
+    Prefers new registry (config.yaml) over legacy.
+    """
+    global _LEGACY_ENGINE_REGISTRY
+    if _LEGACY_ENGINE_REGISTRY is None:
+        _LEGACY_ENGINE_REGISTRY = _load_legacy_engine_registry()
+    return _LEGACY_ENGINE_REGISTRY
+
+
+def get_engine_compute_func(engine_name: str) -> Optional[Callable]:
+    """
+    Get compute function for an engine.
+
+    Tries new registry first, falls back to legacy.
+    """
+    registry = get_registry()
+
+    # Try new registry first
+    if registry.has_engine(engine_name):
+        try:
+            return registry.get_compute_func(engine_name)
+        except ImportError:
+            pass
+
+    # Fall back to legacy
+    legacy = _get_engine_registry()
+    return legacy.get(engine_name)
 
 
 def get_signal_data(
@@ -279,10 +315,10 @@ def run_engine(engine_name: str, window_data: np.ndarray) -> Dict[str, Any]:
     Returns:
         Dict of {output_key: value}
     """
-    registry = _get_engine_registry()
-    if engine_name not in registry:
+    compute_func = get_engine_compute_func(engine_name)
+    if compute_func is None:
         return {}
-    return registry[engine_name](window_data)
+    return compute_func(window_data)
 
 
 def null_output_for_engine(engine_name: str) -> Dict[str, float]:
@@ -319,16 +355,25 @@ def _validate_engines(
 
 def _diagnose_manifest_engines(
     manifest: Dict[str, Any],
-    registry: Dict[str, Callable]
+    legacy_registry: Dict[str, Callable]
 ) -> Dict[str, Any]:
-    """Check all manifest engines against registry."""
+    """Check all manifest engines against registries (new + legacy)."""
     all_engines: Set[str] = set()
     for cohort_signals in manifest.get('cohorts', {}).values():
         for signal_config in cohort_signals.values():
-            all_engines.update(signal_config.get('engines', []))
+            if isinstance(signal_config, dict):
+                all_engines.update(signal_config.get('engines', []))
 
-    available = [e for e in all_engines if e in registry]
-    missing = [e for e in all_engines if e not in registry]
+    new_registry = get_registry()
+    available = []
+    missing = []
+
+    for e in all_engines:
+        if new_registry.has_engine(e) or e in legacy_registry:
+            available.append(e)
+        else:
+            missing.append(e)
+
     coverage = len(available) / len(all_engines) if all_engines else 1.0
 
     return {
@@ -339,12 +384,37 @@ def _diagnose_manifest_engines(
     }
 
 
+def load_window_factors(typology_path: Path) -> Dict[str, float]:
+    """
+    Load window_factor from typology.parquet.
+
+    Args:
+        typology_path: Path to typology.parquet
+
+    Returns:
+        Dict mapping signal_id to window_factor (default 1.0 if not present)
+    """
+    if not typology_path.exists():
+        return {}
+
+    typology = pl.read_parquet(typology_path)
+
+    if 'window_factor' not in typology.columns:
+        return {}
+
+    return dict(zip(
+        typology['signal_id'].to_list(),
+        typology['window_factor'].to_list()
+    ))
+
+
 def _compute_single_signal(
     signal_id: str,
     signal_data: np.ndarray,
     signal_config: Dict[str, Any],
     system_window: int,
     system_stride: int,
+    window_factor: float = 1.0,
 ) -> List[Dict[str, Any]]:
     """
     Compute all windows for one signal.
@@ -357,6 +427,7 @@ def _compute_single_signal(
         signal_config: Config dict for this signal from manifest
         system_window: System window size
         system_stride: System stride
+        window_factor: Signal-specific window multiplier from typology
 
     Returns:
         List of row dicts for this signal
@@ -367,8 +438,8 @@ def _compute_single_signal(
     if not engines or len(signal_data) == 0:
         return []
 
-    # Group engines by window requirement
-    engine_groups = group_engines_by_window(engines, overrides, system_window)
+    # Group engines by window requirement (using window_factor)
+    engine_groups = group_engines_by_window(engines, overrides, system_window, window_factor)
 
     rows = []
 
@@ -407,13 +478,22 @@ def _compute_single_signal(
 def _prepare_signal_tasks(
     observations: pl.DataFrame,
     manifest: Dict[str, Any],
-) -> List[Tuple[str, np.ndarray, Dict[str, Any]]]:
+    window_factors: Dict[str, float] = None,
+) -> List[Tuple[str, np.ndarray, Dict[str, Any], float]]:
     """
-    Prepare (signal_id, signal_data, signal_config) tuples for parallel dispatch.
+    Prepare (signal_id, signal_data, signal_config, window_factor) tuples for parallel dispatch.
+
+    Args:
+        observations: Observations DataFrame
+        manifest: Manifest dict
+        window_factors: Dict mapping signal_id to window_factor (from typology)
 
     Returns:
-        List of (signal_id, signal_data, signal_config) tuples
+        List of (signal_id, signal_data, signal_config, window_factor) tuples
     """
+    if window_factors is None:
+        window_factors = {}
+
     tasks = []
 
     for cohort_name, cohort_config in manifest['cohorts'].items():
@@ -429,7 +509,10 @@ def _prepare_signal_tasks(
             if len(signal_data) == 0:
                 continue
 
-            tasks.append((signal_id, signal_data, signal_config))
+            # Get window factor for this signal (default 1.0)
+            factor = window_factors.get(signal_id, 1.0)
+
+            tasks.append((signal_id, signal_data, signal_config, factor))
 
     return tasks
 
@@ -441,11 +524,13 @@ def compute_signal_vector(
     progress_interval: int = 100,
     output_path: str = None,
     flush_interval: int = 1000,
+    window_factors: Dict[str, float] = None,
 ) -> pl.DataFrame:
     """
     Compute signal vector with per-engine window support.
 
     Automatically parallelizes across signals using all available CPU cores.
+    Uses window_factor from typology to scale engine windows per-signal.
 
     Args:
         observations: Observations DataFrame with signal_id, I, value columns
@@ -454,6 +539,7 @@ def compute_signal_vector(
         progress_interval: Print progress every N windows (ignored in parallel mode)
         output_path: Path to write output (enables streaming mode)
         flush_interval: Flush to disk every N windows (ignored in parallel mode)
+        window_factors: Dict mapping signal_id to window_factor (from typology)
 
     Returns:
         DataFrame with computed features per signal per window
@@ -463,15 +549,15 @@ def compute_signal_vector(
     system_window = manifest['system']['window']
     system_stride = manifest['system']['stride']
 
-    # Prepare signal tasks
-    tasks = _prepare_signal_tasks(observations, manifest)
+    # Prepare signal tasks (now includes window_factor)
+    tasks = _prepare_signal_tasks(observations, manifest, window_factors)
 
     if not tasks:
         return pl.DataFrame()
 
     # Count total windows for progress
     total_windows = 0
-    for signal_id, signal_data, signal_config in tasks:
+    for signal_id, signal_data, signal_config, factor in tasks:
         n_windows = max(0, (len(signal_data) - system_window) // system_stride + 1)
         total_windows += n_windows
 
@@ -481,17 +567,17 @@ def compute_signal_vector(
 
     if len(tasks) == 1:
         # Single signal - no parallelism overhead
-        signal_id, signal_data, signal_config = tasks[0]
+        signal_id, signal_data, signal_config, factor = tasks[0]
         all_rows = _compute_single_signal(
-            signal_id, signal_data, signal_config, system_window, system_stride
+            signal_id, signal_data, signal_config, system_window, system_stride, factor
         )
     else:
         # Parallel across signals - always
         results = Parallel(n_jobs=_N_WORKERS, prefer="processes")(
             delayed(_compute_single_signal)(
-                signal_id, signal_data, signal_config, system_window, system_stride
+                signal_id, signal_data, signal_config, system_window, system_stride, factor
             )
-            for signal_id, signal_data, signal_config in tasks
+            for signal_id, signal_data, signal_config, factor in tasks
         )
 
         # Flatten results
@@ -516,6 +602,7 @@ def run(
     output_path: str,
     manifest: Dict[str, Any],
     verbose: bool = True,
+    typology_path: str = None,
 ) -> pl.DataFrame:
     """
     Run signal vector computation.
@@ -525,6 +612,7 @@ def run(
         output_path: Path to write signal_vector.parquet
         manifest: Manifest dict from ORTHON (REQUIRED)
         verbose: Print progress
+        typology_path: Path to typology.parquet (for window_factor)
 
     Returns:
         DataFrame with computed features
@@ -546,6 +634,13 @@ def run(
         else:
             print(f"All {diagnosis['total_requested']} engines available")
 
+    # Load window factors from typology (if available)
+    window_factors = {}
+    if typology_path:
+        window_factors = load_window_factors(Path(typology_path))
+        if verbose and window_factors:
+            print(f"Loaded window_factors for {len(window_factors)} signals")
+
     # Load observations
     obs = pl.read_parquet(observations_path)
 
@@ -557,8 +652,10 @@ def run(
         print(f"System window={system.get('window')}, stride={system.get('stride')}")
 
     # Compute signal vector using core function
-    # Streaming mode (>1000 windows) writes directly to output_path
-    df = compute_signal_vector(obs, manifest, verbose=verbose, output_path=output_path)
+    df = compute_signal_vector(
+        obs, manifest, verbose=verbose, output_path=output_path,
+        window_factors=window_factors
+    )
 
     # Check if file was already written by streaming mode
     output_exists = Path(output_path).exists()
@@ -658,11 +755,15 @@ def run_from_manifest(
     else:
         out_path = Path(output_dir) / 'signal_vector.parquet'
 
+    # Get typology path for window_factors
+    typology_path = manifest_dir / 'typology.parquet'
+
     return run(
         observations_path=str(obs_path),
         output_path=str(out_path),
         manifest=manifest,
         verbose=verbose,
+        typology_path=str(typology_path) if typology_path.exists() else None,
     )
 
 

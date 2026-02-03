@@ -29,6 +29,11 @@ from . import basin
 from . import lof
 from . import adf_stat
 from . import variance_ratio
+from . import variance_growth
+from . import fundamental_freq
+from . import phase_coherence
+from . import snr
+from . import thd
 
 __all__ = [
     'statistics',
@@ -55,4 +60,9 @@ __all__ = [
     'lof',
     'adf_stat',
     'variance_ratio',
+    'variance_growth',
+    'fundamental_freq',
+    'phase_coherence',
+    'snr',
+    'thd',
 ]

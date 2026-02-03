@@ -1,0 +1,20 @@
+engine: variance_ratio
+version: "1.0"
+
+requirements:
+  base_window: 64
+  min_window: 20
+  max_window: 256
+  scaling: linear
+
+outputs:
+  - variance_ratio
+  - variance_ratio_stat
+  - variance_ratio_4
+  - variance_ratio_8
+
+dependencies: []
+
+metadata:
+  description: Variance ratio test for random walk
+  category: stationarity
