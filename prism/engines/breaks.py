@@ -266,14 +266,26 @@ def _merge_breaks(
     if not candidates:
         return []
 
+    def get_score(c: Dict) -> float:
+        """Get detection score from any detector type."""
+        return max(
+            c.get('cusum_value', 0),
+            c.get('deriv_score', 0),
+            c.get('spike_score', 0),
+        )
+
     # Sort by I
     candidates.sort(key=lambda x: x['I'])
 
     merged = [candidates[0]]
     for c in candidates[1:]:
         if c['I'] - merged[-1]['I'] < min_spacing:
-            # Keep higher scoring one, note multi-detector confirmation
-            merged[-1]['confirmed_by'] = merged[-1].get('confirmed_by', 1) + 1
+            # Keep higher scoring one
+            if get_score(c) > get_score(merged[-1]):
+                c['confirmed_by'] = merged[-1].get('confirmed_by', 1) + 1
+                merged[-1] = c
+            else:
+                merged[-1]['confirmed_by'] = merged[-1].get('confirmed_by', 1) + 1
         else:
             merged.append(c)
 
@@ -291,6 +303,9 @@ def _enrich_break(
 
     Measures magnitude, direction, sharpness, duration, pre/post levels, SNR.
     All values suitable for breaks.parquet schema.
+
+    For step changes: magnitude = post_level - pre_level
+    For impulses: magnitude = peak deviation from local median
     """
     n = len(y)
 
@@ -304,8 +319,23 @@ def _enrich_break(
     pre_level = float(np.median(pre_values)) if len(pre_values) > 0 else float(y[idx])
     post_level = float(np.median(post_values)) if len(post_values) > 0 else float(y[idx])
 
-    # Raw magnitude (signed)
-    raw_magnitude = post_level - pre_level
+    # Local baseline (median excluding the break point)
+    local_baseline = (pre_level + post_level) / 2
+
+    # Raw level change (step magnitude)
+    raw_level_change = post_level - pre_level
+
+    # Peak deviation from baseline (impulse magnitude)
+    peak_deviation = y[idx] - local_baseline
+
+    # Use whichever is larger: level change or peak deviation
+    # This captures both Heaviside steps and Dirac impulses
+    if abs(peak_deviation) > abs(raw_level_change):
+        raw_magnitude = peak_deviation
+        is_impulse = True
+    else:
+        raw_magnitude = raw_level_change
+        is_impulse = False
 
     # MAD-normalize magnitude for cross-signal comparability
     local_noise = noise_floor[idx] if noise_floor[idx] > 1e-10 else 1.0
@@ -318,8 +348,11 @@ def _enrich_break(
         direction = 1 if raw_magnitude > 0 else -1
 
     # Duration: how many consecutive samples are "in transition"
-    # Look for where signal stabilizes after the break
-    duration = _measure_transition_duration(y, idx, local_noise)
+    # For impulses, duration is typically 1-2
+    if is_impulse:
+        duration = 1
+    else:
+        duration = _measure_transition_duration(y, idx, local_noise)
 
     # Sharpness: magnitude per sample of transition
     sharpness = abs(magnitude) / max(duration, 1)

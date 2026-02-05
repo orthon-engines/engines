@@ -45,7 +45,9 @@ class TestBreakDetection:
         assert len(breaks) >= 1, "Should detect the spike"
         spike_break = min(breaks, key=lambda b: abs(b['I'] - 500))
         assert abs(spike_break['I'] - 500) < 5, "Should find spike at index 500"
-        assert spike_break['sharpness'] > 1.0, "Impulse should have high sharpness"
+        # Sharpness is MAD-normalized magnitude / duration
+        # For a spike in noise, SNR should be high
+        assert spike_break['snr'] > 10.0, "Impulse should have high SNR"
 
     def test_stationary_no_breaks(self):
         """Stationary signal should have few or no breaks."""
