@@ -1,43 +1,82 @@
 [build-system]
-requires = ["setuptools>=68.0"]
+requires = ["setuptools>=45", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "prism-local"
-version = "0.1.0"
-description = "PRISM Compute Engine - HTTP service only, NOT a pip package. Use API at localhost:8100"
+name = "prism-signal"
+version = "1.0.0"
+description = "Pure mathematical signal analysis primitives"
+readme = "README.md"
 license = {text = "MIT"}
-requires-python = ">=3.10"
+authors = [
+    {name = "Jason Rudder"}
+]
+keywords = ["signal-processing", "time-series", "eigenvalues", "entropy", "complexity"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Information Analysis",
+    "Topic :: Scientific/Engineering :: Mathematics"
+]
+requires-python = ">=3.8"
 
 dependencies = [
-    "polars>=0.20.0",
-    "pyarrow>=14.0.0",
-    "numpy>=1.24.0",
-    "pandas>=2.0.0",
-    "scipy>=1.10.0",
-    "scikit-learn>=1.3.0",
-    "numba>=0.58.0",
-    "antropy>=0.1.6",
-    "nolds>=0.5.2",
-    "pyrqa>=8.0.0",
-    "arch>=6.0.0",
-    "PyWavelets>=1.4.0",
-    "networkx>=3.0",
-    "statsmodels>=0.14.0",
-    "pyyaml>=6.0",
+    "numpy>=1.20.0",
+    "scipy>=1.7.0"
 ]
 
 [project.optional-dependencies]
-api = [
-    "fastapi>=0.110.0",
-    "uvicorn>=0.27.0",
-    "httpx>=0.27.0",
-    "python-multipart>=0.0.6",
+dev = [
+    "pytest>=6.0",
+    "pytest-cov",
+    "black",
+    "isort",
+    "flake8",
+    "mypy"
 ]
 
-[project.scripts]
-prism-serve = "prism.entry_points.api:main"
+complexity = [
+    "scikit-learn>=1.0.0"
+]
+
+all = [
+    "prism-signal[complexity]"
+]
+
+[project.urls]
+Homepage = "https://github.com/prism-engines/prism"
+Repository = "https://github.com/prism-engines/prism"
+Documentation = "https://prism-engines.github.io/prism"
+"Bug Reports" = "https://github.com/prism-engines/prism/issues"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["prism*", "domains*"]
+include = ["prism*"]
+
+[tool.black]
+line-length = 88
+target-version = ['py38']
+
+[tool.isort]
+profile = "black"
+line_length = 88
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
+python_functions = "test_*"
+addopts = "--cov=prism --cov-report=html --cov-report=term-missing"
+
+[tool.mypy]
+python_version = "3.8"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+ignore_missing_imports = true

@@ -1,0 +1,30 @@
+# PRISM Numerical Thresholds Configuration
+# Default numerical tolerances used across all engines
+#
+# Override hierarchy:
+#   defaults/ < domains/{domain}.yaml < environments/{env}.yaml
+
+# Near-zero thresholds
+numerical:
+  # General near-zero tolerance
+  epsilon: 1e-10
+  # Tolerance for division operations
+  division_epsilon: 1e-10
+  # Tolerance for norm comparisons
+  norm_epsilon: 1e-10
+
+# Numerical stability
+stability:
+  # Maximum condition number before warning
+  max_condition_number: 1e12
+  # Minimum variance for reliable computation
+  min_variance: 1e-10
+
+# NaN/Inf handling
+nan_handling:
+  # Value to replace NaN with
+  nan_fill: 0.0
+  # Value to replace positive infinity with
+  posinf_fill: 0.0
+  # Value to replace negative infinity with
+  neginf_fill: 0.0

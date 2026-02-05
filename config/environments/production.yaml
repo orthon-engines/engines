@@ -1,0 +1,25 @@
+# PRISM Production Environment Configuration
+# Overrides for production deployment
+#
+# Focus: Stability, strict thresholds, reliable results
+
+# Geometry - more conservative
+geometry:
+  eigenvalue:
+    min_signals: 5
+
+# Dynamics - more smoothing for stability
+dynamics:
+  derivatives:
+    smooth_window: 5
+
+  collapse:
+    # More conservative collapse detection
+    min_collapse_length: 10
+
+# Stricter numerical thresholds
+thresholds:
+  numerical:
+    epsilon: 1e-12
+  stability:
+    max_condition_number: 1e10

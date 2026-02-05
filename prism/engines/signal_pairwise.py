@@ -15,6 +15,9 @@ N signals → N²/2 unique pairs per index
 N ≈ 14 → ~91 pairs per index
 TRACTABLE (not the N² across time we avoided)
 
+ARCHITECTURE: This is an ORCHESTRATOR that delegates all compute to PRISM primitives.
+All mathematical operations are performed by prism.* functions.
+
 Pipeline:
     signal_vector + state_vector → signal_pairwise.parquet → dynamics.parquet
 """
@@ -26,20 +29,52 @@ from pathlib import Path
 from typing import List, Dict, Optional, Any, Tuple
 from itertools import combinations
 
+# Import PRISM primitives for all mathematical computation
+import prism
+
+# Import configuration
+import sys
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+from config import get_config
+
 
 # ============================================================
-# DEFAULT ENGINE FEATURE GROUPS - imported from config
+# CONFIGURATION-DRIVEN DEFAULTS
 # ============================================================
 
-try:
-    from prism.engines.geometry.config import DEFAULT_FEATURE_GROUPS
-except ImportError:
-    # Fallback if config not available
-    DEFAULT_FEATURE_GROUPS = {
+def _get_feature_groups() -> Dict[str, List[str]]:
+    """Get feature groups from config."""
+    config = get_config()
+    return config.get('geometry.feature_groups', {
         'shape': ['kurtosis', 'skewness', 'crest_factor'],
         'complexity': ['permutation_entropy', 'hurst', 'acf_lag1'],
         'spectral': ['spectral_entropy', 'spectral_centroid', 'band_low_rel', 'band_mid_rel', 'band_high_rel'],
+    })
+
+
+def _get_pairwise_config() -> Dict[str, Any]:
+    """Get pairwise computation config."""
+    config = get_config()
+    return {
+        'high_correlation_threshold': config.get('pairwise.correlation.high_threshold', 0.8),
+        'moderate_correlation_threshold': config.get('pairwise.correlation.moderate_threshold', 0.5),
+        'min_correlation': config.get('pairwise.coupling.min_correlation', 0.1),
     }
+
+
+def _get_thresholds() -> Dict[str, Any]:
+    """Get numerical thresholds."""
+    config = get_config()
+    epsilon = config.get('thresholds.numerical.epsilon', 1e-10)
+    if isinstance(epsilon, str):
+        epsilon = float(epsilon)
+    return {
+        'epsilon': epsilon,
+    }
+
+
+# Legacy alias for compatibility
+DEFAULT_FEATURE_GROUPS = _get_feature_groups()
 
 
 # ============================================================
@@ -54,6 +89,8 @@ def compute_pairwise_at_index(
     """
     Compute pairwise relationships between all signals at single index.
 
+    ARCHITECTURE: Pure orchestration - delegates all math to PRISM primitives.
+
     Args:
         signal_matrix: N_signals × D_features
         signal_ids: Names of signals
@@ -62,17 +99,22 @@ def compute_pairwise_at_index(
     Returns:
         List of dicts, one per pair
     """
+    # Get config values
+    thresholds = _get_thresholds()
+    epsilon = thresholds['epsilon']
+
     N, D = signal_matrix.shape
     results = []
 
-    # Precompute norms
-    norms = np.linalg.norm(signal_matrix, axis=1)
-
     # Precompute distances to centroid if provided
     if centroid is not None:
-        centroid_distances = np.linalg.norm(signal_matrix - centroid, axis=1)
+        # Use PRISM primitive for each distance
+        centroid_distances = np.array([
+            prism.euclidean_distance(signal_matrix[i], centroid)
+            for i in range(N)
+        ])
         centroid_norm = np.linalg.norm(centroid)
-        if centroid_norm > 1e-10:
+        if centroid_norm > epsilon:
             # Projections onto centroid direction
             projections = (signal_matrix @ centroid) / centroid_norm
         else:
@@ -87,39 +129,28 @@ def compute_pairwise_at_index(
         signal_b = signal_matrix[j]
         name_a = signal_ids[i]
         name_b = signal_ids[j]
-        norm_a = norms[i]
-        norm_b = norms[j]
 
         # Skip if either signal is invalid
         if not (np.isfinite(signal_a).all() and np.isfinite(signal_b).all()):
             continue
 
         # ─────────────────────────────────────────────────
-        # DISTANCE (Euclidean)
+        # DISTANCE (Euclidean) → PRISM PRIMITIVE
         # ─────────────────────────────────────────────────
-        distance = np.linalg.norm(signal_a - signal_b)
+        distance = prism.euclidean_distance(signal_a, signal_b)
 
         # ─────────────────────────────────────────────────
-        # COSINE SIMILARITY
+        # COSINE SIMILARITY → PRISM PRIMITIVE
         # ─────────────────────────────────────────────────
-        if norm_a > 1e-10 and norm_b > 1e-10:
-            cosine_similarity = np.dot(signal_a, signal_b) / (norm_a * norm_b)
-        else:
-            cosine_similarity = 0.0
+        cosine_similarity = prism.cosine_similarity(signal_a, signal_b)
 
         # ─────────────────────────────────────────────────
-        # CORRELATION (Pearson on feature vectors)
+        # CORRELATION → PRISM PRIMITIVE
         # ─────────────────────────────────────────────────
         if D > 1:
-            # Correlation of the two feature vectors
-            mean_a = np.mean(signal_a)
-            mean_b = np.mean(signal_b)
-            std_a = np.std(signal_a)
-            std_b = np.std(signal_b)
-
-            if std_a > 1e-10 and std_b > 1e-10:
-                correlation = np.mean((signal_a - mean_a) * (signal_b - mean_b)) / (std_a * std_b)
-            else:
+            correlation = prism.correlation_coefficient(signal_a, signal_b)
+            # Handle NaN from correlation_coefficient (can happen with constant signals)
+            if np.isnan(correlation):
                 correlation = 0.0
         else:
             correlation = cosine_similarity  # For 1D, same as cosine
@@ -201,8 +232,9 @@ def compute_signal_pairwise(
 
     # Determine feature groups
     if feature_groups is None:
+        default_groups = _get_feature_groups()
         feature_groups = {}
-        for name, features in DEFAULT_FEATURE_GROUPS.items():
+        for name, features in default_groups.items():
             available = [f for f in features if f in all_features]
             if len(available) >= 2:
                 feature_groups[name] = available
@@ -317,12 +349,15 @@ def compute_signal_pairwise(
 
         # Summary
         if len(result) > 0:
+            pairwise_config = _get_pairwise_config()
+            high_threshold = pairwise_config['high_correlation_threshold']
+
             print(f"\nCorrelation stats:")
             print(f"  Mean: {result['correlation'].mean():.3f}")
             print(f"  Std:  {result['correlation'].std():.3f}")
 
-            high_corr = (result['correlation'].abs() > 0.8).sum()
-            print(f"  High correlation pairs (|r|>0.8): {high_corr}")
+            high_corr = (result['correlation'].abs() > high_threshold).sum()
+            print(f"  High correlation pairs (|r|>{high_threshold}): {high_corr}")
 
     return result
 

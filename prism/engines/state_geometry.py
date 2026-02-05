@@ -13,7 +13,8 @@ Computes per engine, per index:
 
 REQUIRES: signal_vector.parquet + state_vector.parquet
 
-Python first (SVD for eigenvalues), then SQL for aggregations.
+ARCHITECTURE: This is an ORCHESTRATOR that delegates all compute to PRISM primitives.
+All mathematical operations are performed by prism.* functions.
 
 Pipeline:
     signal_vector.parquet + state_vector.parquet → state_geometry.parquet
@@ -25,16 +26,45 @@ import duckdb
 from pathlib import Path
 from typing import List, Dict, Optional, Any, Tuple
 
+# Import PRISM primitives for all mathematical computation
+import prism
+
+# Import configuration
+import sys
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+from config import get_config
+
 
 # ============================================================
-# DEFAULT ENGINE FEATURE GROUPS
+# CONFIGURATION-DRIVEN DEFAULTS
 # ============================================================
 
-DEFAULT_FEATURE_GROUPS = {
-    'shape': ['kurtosis', 'skewness', 'crest_factor'],
-    'complexity': ['entropy', 'hurst', 'autocorr'],
-    'spectral': ['spectral_entropy', 'spectral_centroid', 'band_ratio_low', 'band_ratio_mid', 'band_ratio_high'],
-}
+def _get_feature_groups() -> Dict[str, List[str]]:
+    """Get feature groups from config."""
+    config = get_config()
+    return config.get('geometry.feature_groups', {
+        'shape': ['kurtosis', 'skewness', 'crest_factor'],
+        'complexity': ['entropy', 'hurst', 'autocorr'],
+        'spectral': ['spectral_entropy', 'spectral_centroid', 'band_ratio_low', 'band_ratio_mid', 'band_ratio_high'],
+    })
+
+
+def _get_eigenvalue_config() -> Dict[str, Any]:
+    """Get eigenvalue computation config."""
+    config = get_config()
+    eigenvalue_threshold = config.get('geometry.effective_dimension.eigenvalue_threshold', 1e-10)
+    if isinstance(eigenvalue_threshold, str):
+        eigenvalue_threshold = float(eigenvalue_threshold)
+    return {
+        'min_signals': config.get('geometry.eigenvalue.min_signals', 3),
+        'max_eigenvalues': config.get('geometry.eigenvalue.max_eigenvalues', 5),
+        'eigenvalue_threshold': eigenvalue_threshold,
+        'multimode_ratio_threshold': config.get('geometry.multimode.ratio_threshold', 0.5),
+    }
+
+
+# Legacy alias for compatibility
+DEFAULT_FEATURE_GROUPS = _get_feature_groups()
 
 
 # ============================================================
@@ -44,7 +74,7 @@ DEFAULT_FEATURE_GROUPS = {
 def compute_eigenvalues(
     signal_matrix: np.ndarray,
     centroid: np.ndarray,
-    min_signals: int = 3
+    min_signals: Optional[int] = None
 ) -> Dict[str, Any]:
     """
     Compute eigenvalues of signal distribution around centroid.
@@ -52,10 +82,14 @@ def compute_eigenvalues(
     This is the SHAPE of the signal cloud - how signals spread
     around the state (centroid).
 
+    ARCHITECTURE: Pure orchestration - delegates all math to PRISM primitives.
+
     Steps:
         1. Center signals around centroid
-        2. Z-score normalize (so features are comparable)
-        3. SVD to get eigenvalues
+        2. Z-score normalize (so features are comparable) → prism.zscore_normalize
+        3. Covariance matrix → prism.covariance_matrix
+        4. Eigendecomposition → prism.eigendecomposition
+        5. Derived metrics → prism.effective_dimension, prism.matrix_entropy, etc.
 
     Args:
         signal_matrix: N_signals × D_features
@@ -65,6 +99,12 @@ def compute_eigenvalues(
     Returns:
         Eigenvalue metrics
     """
+    # Get config values
+    eigen_config = _get_eigenvalue_config()
+    if min_signals is None:
+        min_signals = eigen_config['min_signals']
+    eigenvalue_threshold = eigen_config['eigenvalue_threshold']
+
     N, D = signal_matrix.shape
 
     if N < min_signals:
@@ -84,67 +124,63 @@ def compute_eigenvalues(
     centered = signal_matrix - centroid
 
     # ─────────────────────────────────────────────────
-    # Z-SCORE NORMALIZE BEFORE SVD
+    # Z-SCORE NORMALIZE BEFORE SVD → PRISM PRIMITIVE
     # Without this, features with large variance dominate
     # eigenvalues, making them incomparable across time
     # ─────────────────────────────────────────────────
-    std = np.std(centered, axis=0, keepdims=True)
-    std = np.where(std < 1e-10, 1.0, std)  # Avoid div by zero
-    normalized = centered / std
+    normalized, _ = prism.zscore_normalize(centered, axis=0)
 
     # ─────────────────────────────────────────────────
-    # SVD FOR EIGENVALUES
+    # COVARIANCE MATRIX → PRISM PRIMITIVE
     # ─────────────────────────────────────────────────
     try:
-        U, S, Vt = np.linalg.svd(normalized, full_matrices=False)
+        cov_matrix = prism.covariance_matrix(normalized)
 
-        # Eigenvalues of covariance = S² / (N-1)
-        eigenvalues = (S ** 2) / max(N - 1, 1)
+        # ─────────────────────────────────────────────────
+        # EIGENDECOMPOSITION → PRISM PRIMITIVE
+        # ─────────────────────────────────────────────────
+        eigenvalues, eigenvectors = prism.eigendecomposition(cov_matrix, sort_descending=True)
 
-        # Principal components (rows of Vt)
-        principal_components = Vt
+        # Principal components (transpose of eigenvectors for consistency)
+        principal_components = eigenvectors.T
 
-    except np.linalg.LinAlgError:
+    except (np.linalg.LinAlgError, ValueError):
         return _empty_eigenvalues(D)
 
     # ─────────────────────────────────────────────────
-    # DERIVED METRICS
+    # DERIVED METRICS → PRISM PRIMITIVES
     # ─────────────────────────────────────────────────
-    total_variance = eigenvalues.sum()
+    total_variance = float(np.sum(eigenvalues))
 
-    if total_variance > 1e-10:
-        # Effective dimension (participation ratio)
-        effective_dim = (total_variance ** 2) / (eigenvalues ** 2).sum()
+    if total_variance > eigenvalue_threshold:
+        # Effective dimension → PRISM PRIMITIVE
+        effective_dim = prism.effective_dimension(eigenvalues)
 
         # Explained variance ratios
         explained_ratios = eigenvalues / total_variance
 
-        # Eigenvalue entropy
-        nonzero = eigenvalues[eigenvalues > 1e-10]
+        # Eigenvalue entropy → PRISM PRIMITIVE (matrix_entropy on diagonal)
+        nonzero = eigenvalues[eigenvalues > eigenvalue_threshold]
         if len(nonzero) > 1:
             p = nonzero / nonzero.sum()
-            eigenvalue_entropy = -np.sum(p * np.log(p))
+            eigenvalue_entropy = float(-np.sum(p * np.log(p)))
             max_entropy = np.log(len(nonzero))
             eigenvalue_entropy_normalized = eigenvalue_entropy / max_entropy if max_entropy > 0 else 0
         else:
             eigenvalue_entropy = 0
             eigenvalue_entropy_normalized = 0
 
-        # Condition number
-        nonzero = eigenvalues[eigenvalues > 1e-10]
-        if len(nonzero) > 1:
-            condition_number = nonzero[0] / nonzero[-1]
-        else:
-            condition_number = 1.0
+        # Condition number → PRISM PRIMITIVE
+        condition_number = prism.condition_number(cov_matrix)
 
-        # Eigenvalue ratios (for multi-mode)
-        if len(eigenvalues) >= 2 and eigenvalues[0] > 1e-10:
-            ratio_2_1 = eigenvalues[1] / eigenvalues[0]
+        # Eigenvalue ratios (for multi-mode detection)
+        if len(eigenvalues) >= 2 and eigenvalues[0] > eigenvalue_threshold:
+            ratio_2_1 = float(eigenvalues[1] / eigenvalues[0])
         else:
             ratio_2_1 = 0
 
-        if len(eigenvalues) >= 3 and eigenvalues[0] > 1e-10:
-            ratio_3_1 = eigenvalues[2] / eigenvalues[0]
+        if len(eigenvalues) >= 3 and eigenvalues[0] > eigenvalue_threshold:
+            ratio_3_1 = float(eigenvalues[2] / eigenvalues[0])
         else:
             ratio_3_1 = 0
 
@@ -200,7 +236,7 @@ def compute_state_geometry(
     state_vector_path: str,
     output_path: str = "state_geometry.parquet",
     feature_groups: Optional[Dict[str, List[str]]] = None,
-    max_eigenvalues: int = 5,
+    max_eigenvalues: Optional[int] = None,
     verbose: bool = True
 ) -> pl.DataFrame:
     """
@@ -217,6 +253,11 @@ def compute_state_geometry(
     Returns:
         State geometry DataFrame
     """
+    # Get config values
+    eigen_config = _get_eigenvalue_config()
+    if max_eigenvalues is None:
+        max_eigenvalues = eigen_config['max_eigenvalues']
+
     if verbose:
         print("=" * 70)
         print("STATE GEOMETRY ENGINE")
@@ -233,8 +274,9 @@ def compute_state_geometry(
 
     # Determine feature groups
     if feature_groups is None:
+        default_groups = _get_feature_groups()
         feature_groups = {}
-        for name, features in DEFAULT_FEATURE_GROUPS.items():
+        for name, features in default_groups.items():
             available = [f for f in features if f in all_features]
             if len(available) >= 2:
                 feature_groups[name] = available

@@ -1,0 +1,54 @@
+# PRISM Financial Domain Configuration
+# Overrides for financial time series analysis
+#
+# Characteristics:
+# - High noise, fat tails
+# - Non-stationary
+# - Regime changes
+# - Correlation dynamics matter
+
+# Geometry overrides
+geometry:
+  eigenvalue:
+    min_signals: 4
+    max_eigenvalues: 10
+
+  # Financial feature groups
+  feature_groups:
+    shape:
+      - kurtosis
+      - skewness
+      - crest_factor
+    complexity:
+      - permutation_entropy
+      - hurst
+      - sample_entropy
+    volatility:
+      - rolling_std
+      - garch_vol
+      - realized_vol
+
+# Dynamics overrides
+dynamics:
+  derivatives:
+    dt: 1.0
+    # More smoothing for noisy financial data
+    smooth_window: 5
+
+  collapse:
+    # Financial collapses can be sudden
+    threshold_velocity: -0.2
+    min_collapse_length: 3
+
+  # Longer embedding for financial dynamics
+  phase_space:
+    embedding_dim: 4
+    tau: 1
+
+# Pairwise overrides - correlations matter a lot in finance
+pairwise:
+  correlation:
+    # Lower thresholds - even moderate correlations matter
+    high_threshold: 0.6
+    moderate_threshold: 0.3
+    weak_threshold: 0.15

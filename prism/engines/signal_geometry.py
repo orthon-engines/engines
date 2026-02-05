@@ -12,7 +12,8 @@ Computes per signal, per engine, per index:
 
 REQUIRES: signal_vector.parquet + state_vector.parquet + state_geometry.parquet
 
-Python first (for PC projections), SQL for basic vector math.
+ARCHITECTURE: This is an ORCHESTRATOR that delegates all compute to PRISM primitives.
+All mathematical operations are performed by prism.* functions.
 
 Pipeline:
     signal_vector + state_vector + state_geometry → signal_geometry.parquet → dynamics.parquet
@@ -22,34 +23,58 @@ import numpy as np
 import polars as pl
 import duckdb
 from pathlib import Path
-from typing import List, Dict, Optional, Any
+from typing import List, Dict, Optional, Any, Set
+
+# Import PRISM primitives for all mathematical computation
+import prism
+
+# Import configuration
+import sys
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+from config import get_config
 
 
 # ============================================================
-# DEFAULT ENGINE FEATURE GROUPS - imported from config
+# CONFIGURATION-DRIVEN DEFAULTS
 # ============================================================
 
-try:
-    from prism.engines.geometry.config import DEFAULT_FEATURE_GROUPS
-except ImportError:
-    # Fallback if config not available
-    DEFAULT_FEATURE_GROUPS = {
+def _get_feature_groups() -> Dict[str, List[str]]:
+    """Get feature groups from config."""
+    config = get_config()
+    return config.get('geometry.feature_groups', {
         'shape': ['kurtosis', 'skewness', 'crest_factor'],
         'complexity': ['permutation_entropy', 'hurst', 'acf_lag1'],
         'spectral': ['spectral_entropy', 'spectral_centroid', 'band_low_rel', 'band_mid_rel', 'band_high_rel'],
+    })
+
+
+def _get_svd_exclude_features() -> Set[str]:
+    """Get features to exclude from SVD."""
+    config = get_config()
+    return set(config.get('geometry.svd.exclude_features', ['cv', 'range_ratio', 'window_size']))
+
+
+def _get_alignment_config() -> Dict[str, Any]:
+    """Get alignment config."""
+    config = get_config()
+    min_norm = config.get('geometry.alignment.min_norm', 1e-10)
+    if isinstance(min_norm, str):
+        min_norm = float(min_norm)
+    return {
+        'min_norm': min_norm,
     }
 
-# ============================================================
-# SVD NORMALIZATION
-# ============================================================
-# Features to exclude from SVD (unbounded when mean→0)
 
-SVD_EXCLUDE_FEATURES = {'cv', 'range_ratio', 'window_size'}
+# Legacy aliases for compatibility
+DEFAULT_FEATURE_GROUPS = _get_feature_groups()
+SVD_EXCLUDE_FEATURES = _get_svd_exclude_features()
 
 
 def normalize_for_svd(matrix: np.ndarray, feature_names: List[str]) -> np.ndarray:
     """
     Z-score normalize features before SVD.
+
+    ARCHITECTURE: Delegates normalization to PRISM primitive.
 
     Excludes unbounded features (cv, range_ratio) that explode
     when signals oscillate around zero.
@@ -61,19 +86,19 @@ def normalize_for_svd(matrix: np.ndarray, feature_names: List[str]) -> np.ndarra
     Returns:
         Normalized matrix for SVD
     """
-    # Exclude problematic features
-    keep_idx = [i for i, f in enumerate(feature_names) if f not in SVD_EXCLUDE_FEATURES]
+    # Exclude problematic features (preprocessing logic)
+    svd_exclude = _get_svd_exclude_features()
+    keep_idx = [i for i, f in enumerate(feature_names) if f not in svd_exclude]
     if not keep_idx:
         keep_idx = list(range(len(feature_names)))
 
     matrix = matrix[:, keep_idx]
 
-    # Z-score: (x - mean) / std
-    mean = np.nanmean(matrix, axis=0, keepdims=True)
-    std = np.nanstd(matrix, axis=0, keepdims=True)
-    std = np.where(std < 1e-10, 1.0, std)
+    # ─────────────────────────────────────────────────
+    # Z-SCORE NORMALIZE → PRISM PRIMITIVE
+    # ─────────────────────────────────────────────────
+    normalized, _ = prism.zscore_normalize(matrix, axis=0)
 
-    normalized = (matrix - mean) / std
     return np.nan_to_num(normalized, nan=0.0, posinf=0.0, neginf=0.0)
 
 
@@ -90,6 +115,8 @@ def compute_signal_geometry_at_index(
     """
     Compute geometry for all signals at single index.
 
+    ARCHITECTURE: Pure orchestration - delegates all math to PRISM primitives.
+
     Args:
         signal_matrix: N_signals × D_features
         signal_ids: Names of signals
@@ -99,6 +126,10 @@ def compute_signal_geometry_at_index(
     Returns:
         List of dicts, one per signal
     """
+    # Get config values
+    alignment_config = _get_alignment_config()
+    min_norm = alignment_config['min_norm']
+
     N, D = signal_matrix.shape
     results = []
 
@@ -131,20 +162,21 @@ def compute_signal_geometry_at_index(
         signal_norm = np.linalg.norm(signal)
 
         # ─────────────────────────────────────────────────
-        # DISTANCE to centroid
+        # DISTANCE to centroid → PRISM PRIMITIVE
         # ─────────────────────────────────────────────────
-        distance = np.linalg.norm(signal - centroid)
+        distance = prism.euclidean_distance(signal, centroid)
 
         # ─────────────────────────────────────────────────
-        # COHERENCE to PC1 (or centroid direction)
+        # COHERENCE to PC1 (or centroid direction) → PRISM PRIMITIVE
         # How aligned is this signal with the dominant direction?
         # ─────────────────────────────────────────────────
-        if signal_norm > 1e-10 and pc1_norm > 1e-10:
+        if signal_norm > min_norm and pc1_norm > min_norm:
             # Center signal first for coherence
             centered = signal - centroid
             centered_norm = np.linalg.norm(centered)
-            if centered_norm > 1e-10:
-                coherence = np.dot(centered, pc1) / (centered_norm * pc1_norm)
+            if centered_norm > min_norm:
+                # Use PRISM cosine_similarity for coherence
+                coherence = prism.cosine_similarity(centered, pc1)
             else:
                 coherence = 0.0
         else:
@@ -154,7 +186,7 @@ def compute_signal_geometry_at_index(
         # CONTRIBUTION (projection onto centroid direction)
         # How much does this signal contribute to the state?
         # ─────────────────────────────────────────────────
-        if centroid_norm > 1e-10:
+        if centroid_norm > min_norm:
             contribution = np.dot(signal, centroid) / centroid_norm
         else:
             contribution = 0.0
@@ -163,7 +195,7 @@ def compute_signal_geometry_at_index(
         # RESIDUAL (component orthogonal to centroid)
         # What part of signal is NOT explained by state?
         # ─────────────────────────────────────────────────
-        if centroid_norm > 1e-10:
+        if centroid_norm > min_norm:
             projection_on_centroid = (np.dot(signal, centroid) / (centroid_norm ** 2)) * centroid
             residual_vector = signal - projection_on_centroid
             residual = np.linalg.norm(residual_vector)
@@ -224,8 +256,9 @@ def compute_signal_geometry(
 
     # Determine feature groups
     if feature_groups is None:
+        default_groups = _get_feature_groups()
         feature_groups = {}
-        for name, features in DEFAULT_FEATURE_GROUPS.items():
+        for name, features in default_groups.items():
             available = [f for f in features if f in all_features]
             if len(available) >= 2:
                 feature_groups[name] = available
@@ -307,12 +340,17 @@ def compute_signal_geometry(
             valid_mask = np.isfinite(matrix).all(axis=1)
             if valid_mask.sum() >= 2:
                 valid_matrix = matrix[valid_mask]
-                # Normalize before SVD to prevent cv/range_ratio from dominating
+                # Normalize before eigendecomposition to prevent cv/range_ratio from dominating
                 normalized = normalize_for_svd(valid_matrix, available)
                 try:
-                    U, S, Vt = np.linalg.svd(normalized, full_matrices=False)
-                    principal_components = Vt
-                except:
+                    # ─────────────────────────────────────────────────
+                    # EIGENDECOMPOSITION → PRISM PRIMITIVE
+                    # ─────────────────────────────────────────────────
+                    cov_matrix = prism.covariance_matrix(normalized)
+                    eigenvalues, eigenvectors = prism.eigendecomposition(cov_matrix, sort_descending=True)
+                    # Principal components are rows (transpose eigenvectors)
+                    principal_components = eigenvectors.T
+                except (np.linalg.LinAlgError, ValueError):
                     principal_components = None
             else:
                 principal_components = None

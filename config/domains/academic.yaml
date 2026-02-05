@@ -1,0 +1,59 @@
+# PRISM Academic Domain Configuration
+# Overrides for academic/research use
+#
+# Characteristics:
+# - Focus on reproducibility
+# - Standard parameter choices
+# - Well-documented thresholds
+# - Publication-ready defaults
+
+# Geometry overrides - use standard settings
+geometry:
+  eigenvalue:
+    min_signals: 3
+    max_eigenvalues: 5
+
+  # Standard academic feature groups
+  feature_groups:
+    shape:
+      - kurtosis
+      - skewness
+      - crest_factor
+    complexity:
+      - permutation_entropy
+      - hurst
+      - acf_lag1
+    spectral:
+      - spectral_entropy
+      - spectral_centroid
+
+# Dynamics overrides
+dynamics:
+  derivatives:
+    dt: 1.0
+    smooth_window: 3
+    method: central
+
+  collapse:
+    # Standard thresholds
+    threshold_velocity: -0.1
+    sustained_fraction: 0.3
+    min_collapse_length: 5
+
+  # Takens standard
+  phase_space:
+    embedding_dim: 2
+    tau: 1
+
+# Pairwise overrides
+pairwise:
+  correlation:
+    # Standard correlation thresholds
+    high_threshold: 0.8
+    moderate_threshold: 0.5
+    weak_threshold: 0.3
+
+# Numerical precision
+thresholds:
+  numerical:
+    epsilon: 1e-10

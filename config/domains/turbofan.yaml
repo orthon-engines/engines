@@ -1,0 +1,58 @@
+# PRISM Turbofan Domain Configuration
+# Overrides for aerospace turbofan degradation analysis (C-MAPSS style)
+#
+# Characteristics:
+# - High signal count (21+ sensors)
+# - Degradation trajectories
+# - Multi-regime operation
+# - Run-to-failure data
+
+# Geometry overrides
+geometry:
+  eigenvalue:
+    # Turbofan has many sensors, can require more for stable eigenvalues
+    min_signals: 5
+    # More eigenvalues to capture complex dynamics
+    max_eigenvalues: 8
+
+  # Custom feature groups for turbofan sensors
+  feature_groups:
+    shape:
+      - kurtosis
+      - skewness
+      - crest_factor
+    complexity:
+      - permutation_entropy
+      - hurst
+      - acf_lag1
+    spectral:
+      - spectral_entropy
+      - spectral_centroid
+      - band_low_rel
+      - band_mid_rel
+      - band_high_rel
+    # Turbofan-specific: operational parameters
+    operational:
+      - altitude_ratio
+      - mach_ratio
+      - throttle_ratio
+
+# Dynamics overrides
+dynamics:
+  # Turbofan cycles may have larger time steps
+  derivatives:
+    dt: 1.0
+    smooth_window: 5
+
+  # Collapse detection tuned for degradation
+  collapse:
+    # More sensitive to degradation trends
+    threshold_velocity: -0.05
+    # Longer sustained period for real degradation
+    min_collapse_length: 10
+
+# Pairwise overrides
+pairwise:
+  correlation:
+    # Higher threshold for meaningful correlations in noisy sensor data
+    high_threshold: 0.85

@@ -1,0 +1,26 @@
+# PRISM Pairwise Analysis Configuration
+# Default parameters for signal_pairwise engine
+#
+# Override hierarchy:
+#   defaults/ < domains/{domain}.yaml < environments/{env}.yaml
+
+# Correlation thresholds
+correlation:
+  # Threshold for "high correlation" classification
+  high_threshold: 0.8
+  # Threshold for "moderate correlation"
+  moderate_threshold: 0.5
+  # Threshold for "weak correlation"
+  weak_threshold: 0.3
+
+# Distance normalization
+distance:
+  # Whether to normalize distances by feature count
+  normalize_by_features: false
+
+# Coupling analysis
+coupling:
+  # Minimum absolute correlation for coupling detection
+  min_correlation: 0.1
+  # Window for coupling velocity calculation
+  velocity_window: 3

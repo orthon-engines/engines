@@ -1,0 +1,44 @@
+# PRISM Dynamics Configuration
+# Default parameters for geometry_dynamics engine
+#
+# Override hierarchy:
+#   defaults/ < domains/{domain}.yaml < environments/{env}.yaml
+
+# Derivative computation settings
+derivatives:
+  # Default time step between observations
+  dt: 1.0
+  # Smoothing window size for noise reduction (set to 1 to disable)
+  smooth_window: 3
+  # Method for derivative computation: 'central', 'forward', 'backward'
+  method: central
+
+# Collapse detection settings
+collapse:
+  # Velocity threshold below which effective_dim is considered collapsing
+  threshold_velocity: -0.1
+  # Fraction of points that must be collapsing for detection
+  sustained_fraction: 0.3
+  # Minimum consecutive points for collapse event
+  min_collapse_length: 5
+
+# Phase space reconstruction settings (Takens embedding)
+phase_space:
+  # Default embedding dimension
+  embedding_dim: 2
+  # Default time delay (in samples)
+  tau: 1
+
+# Lyapunov exponent settings
+lyapunov:
+  # Maximum iterations for Lyapunov computation
+  max_iterations: 1000
+  # Minimum trajectory length
+  min_trajectory_length: 100
+
+# Stability detection thresholds
+stability:
+  # Low velocity threshold for "stable" classification
+  velocity_threshold: 0.05
+  # Low acceleration threshold for "stable" classification
+  acceleration_threshold: 0.02

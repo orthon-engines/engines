@@ -1,262 +1,220 @@
-# PRISM
+# PRISM: Pure Mathematical Signal Analysis Primitives
 
-**Pure Relational Inference & Structural Measurement**
+**Domain-agnostic signal analysis functions that take numbers in, return numbers out.**
 
-A behavioral geometry engine for signal topology analysis. PRISM transforms raw observations into eigenvalue-based state representations that capture the SHAPE of signal distributions.
-
-**PRISM computes numbers. ORTHON classifies.**
-
----
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 
 ## Quick Start
 
-```bash
-# Run full pipeline
-python -m prism data/cmapss
+```python
+import prism
+import numpy as np
 
-# Run individual stages
-python -m prism signal-vector-temporal data/cmapss
-python -m prism state-vector data/cmapss
-python -m prism geometry data/cmapss
-python -m prism geometry-dynamics data/cmapss
-python -m prism lyapunov data/cmapss
-python -m prism dynamics data/cmapss
-python -m prism sql data/cmapss
+# Generate test signal
+signal = np.sin(2 * np.pi * 10 * np.linspace(0, 1, 1000)) + 0.1 * np.random.randn(1000)
+
+# Spectral analysis
+dom_freq = prism.dominant_frequency(signal, sample_rate=1000)  # Should be ~10 Hz
+spec_flat = prism.spectral_flatness(signal)  # Low for tonal signals
+
+# Complexity measures
+perm_ent = prism.permutation_entropy(signal)
+samp_ent = prism.sample_entropy(signal)
+
+# Statistics
+kurt = prism.kurtosis(signal)
+skew = prism.skewness(signal)
+
+# Eigenstructure (for multivariate signals)
+multivariate = np.column_stack([signal, np.roll(signal, 10)])
+cov = prism.covariance_matrix(multivariate)
+eigenvals, eigenvecs = prism.eigendecomposition(cov)
+eff_dim = prism.effective_dimension(eigenvals)
 ```
 
-**Note:** PRISM expects `typology.parquet` to exist (created by ORTHON).
+## What This Is
 
----
+PRISM provides **pure mathematical functions** for signal analysis. Every function:
+
+- Takes numpy arrays as input
+- Returns numbers or arrays as output
+- Has zero dependencies on file I/O, configuration files, or data schemas
+- Is stateless and deterministic
+- Can be used in any signal processing pipeline
+
+## What This Is Not
+
+PRISM is **not** a complete signal processing framework. It doesn't handle:
+
+- Data loading or file I/O
+- Pipeline orchestration
+- Windowing or segmentation
+- Classification or interpretation
+- Plotting or visualization
+
+For a complete framework that uses PRISM primitives, see [ORTHON](https://github.com/prism-engines/orthon).
 
 ## Architecture
 
 ```
-observations.parquet (raw signals)
-        │
-        ▼
-┌─────────────────────────────────────────────┐
-│            TYPOLOGY (ORTHON)                │
-│  Signal classification from raw observations │
-│  Creates: typology.parquet + manifest.yaml  │
-│  ORTHON's only computation                  │
-└─────────────────────────────────────────────┘
-        │
-        ▼
-┌─────────────────────────────────────────────┐
-│        SIGNAL_VECTOR (PRISM)                │
-│  Per-signal features at each I              │
-│  (kurtosis, skewness, entropy, hurst, etc.) │
-│  Scale-invariant only                       │
-│  Output: signal_vector.parquet              │
-└─────────────────────────────────────────────┘
-        │
-        ▼
-┌─────────────────────────────────────────────┐
-│         STATE_VECTOR (PRISM)                │
-│  Centroid = mean position in feature space  │
-│  WHERE the system is                        │
-│  NO eigenvalues here                        │
-│  Output: state_vector.parquet               │
-└─────────────────────────────────────────────┘
-        │
-        ▼
-┌─────────────────────────────────────────────┐
-│        STATE_GEOMETRY (PRISM)               │
-│  SVD → eigenvalues, effective_dim           │
-│  SHAPE of signal cloud                      │
-│  This is where eigenvalues live             │
-│  Output: state_geometry.parquet             │
-└─────────────────────────────────────────────┘
-        │
-        ▼
-┌─────────────────────────────────────────────┐
-│  SIGNAL_GEOMETRY + PAIRWISE (PRISM)         │
-│  Signal-to-centroid distances               │
-│  Signal-to-signal relationships             │
-│  Output: signal_geometry.parquet            │
-│          signal_pairwise.parquet            │
-└─────────────────────────────────────────────┘
-        │
-        ▼
-┌─────────────────────────────────────────────┐
-│      GEOMETRY_DYNAMICS (PRISM)              │
-│  Derivatives: velocity, acceleration, jerk  │
-│  Output: geometry_dynamics.parquet          │
-│          signal_dynamics.parquet            │
-│          pairwise_dynamics.parquet          │
-└─────────────────────────────────────────────┘
-        │
-        ▼
-┌─────────────────────────────────────────────┐
-│         DYNAMICS LAYER (PRISM)              │
-│  Lyapunov exponents, RQA, transfer entropy  │
-│  Output: lyapunov.parquet                   │
-│          dynamics.parquet                   │
-│          information_flow.parquet           │
-└─────────────────────────────────────────────┘
-        │
-        ▼
-┌─────────────────────────────────────────────┐
-│          SQL LAYER (PRISM)                  │
-│  Aggregations and normalization             │
-│  Output: zscore.parquet                     │
-│          statistics.parquet                 │
-│          correlation.parquet                │
-└─────────────────────────────────────────────┘
+PRISM = Pure computation (MIT License)
+ORTHON = Pipeline + interpretation (PolyForm Noncommercial)
 ```
 
----
+PRISM provides the math. ORTHON provides the workflow.
 
-## Input Schema (v2.4)
+## Function Categories
 
+### Spectral Analysis
+- `power_spectral_density()` - FFT-based power spectrum
+- `dominant_frequency()` - Peak frequency detection
+- `spectral_flatness()` - Noise vs. tonal content (Wiener entropy)
+- `spectral_entropy()` - Shannon entropy of spectrum
+- `total_harmonic_distortion()` - THD measurement
+- `laplace_transform()` - S-domain analysis
+
+### Time Domain Statistics
+- `mean()`, `variance()`, `skewness()`, `kurtosis()` - Moment statistics
+- `crest_factor()` - Peak-to-RMS ratio
+- `zero_crossings()` - Rate of sign changes
+- `turning_points()` - Local extrema count
+
+### Complexity & Entropy
+- `permutation_entropy()` - Ordinal pattern complexity
+- `sample_entropy()` - Self-similarity measure
+- `approximate_entropy()` - Pattern repeatability
+- `lempel_ziv_complexity()` - Algorithmic complexity
+- `fractal_dimension()` - Box-counting dimension
+
+### Memory & Correlation
+- `hurst_exponent()` - Long-range dependence
+- `autocorrelation()` - Temporal self-similarity
+- `detrended_fluctuation_analysis()` - Scaling behavior
+
+### Eigenstructure & Geometry
+- `covariance_matrix()` - Cross-variable relationships
+- `eigendecomposition()` - Principal components
+- `effective_dimension()` - Participation ratio
+- `condition_number()` - Matrix conditioning
+
+### Dynamical Systems
+- `lyapunov_exponent()` - Chaos measurement
+- `attractor_reconstruction()` - Phase space embedding
+- `recurrence_analysis()` - RQA metrics
+
+### Information Theory
+- `transfer_entropy()` - Directed information flow
+- `granger_causality()` - Predictive causality
+- `mutual_information()` - Shared information
+
+### Normalization
+- `zscore_normalize()` - Mean/std normalization
+- `robust_normalize()` - Median/IQR normalization
+- `mad_normalize()` - Median absolute deviation
+
+## Installation
+
+```bash
+pip install prism-signal
 ```
-observations.parquet
-├── cohort     (str)     # Optional: grouping key (engine_1, pump_A) - cargo only
-├── signal_id  (str)     # Required: signal name (temp, pressure, sensor_01)
-├── I          (UInt32)  # Required: sequential index 0,1,2... per (cohort, signal_id)
-├── value      (Float64) # Required: measurement
+
+For development:
+```bash
+git clone https://github.com/prism-engines/prism
+cd prism
+pip install -e .[dev]
+pytest
 ```
 
-**I is canonical.** Sequential integers per (cohort, signal_id). Not timestamps.
+## Citation
 
-**cohort is cargo.** Passes through, has ZERO effect on compute. Unique time series = (cohort, signal_id).
+If you use PRISM in academic research, please cite:
 
-See [MANIFEST_CONTRACT.md](MANIFEST_CONTRACT.md) for complete manifest v2.4 specification.
+```bibtex
+@software{rudder_prism_2026,
+  title = {PRISM: Pure Mathematical Signal Analysis Primitives},
+  author = {Rudder, Jason},
+  year = {2026},
+  license = {MIT},
+  url = {https://github.com/prism-engines/prism}
+}
+```
 
----
+## License
 
-## Output Files (14 total)
+MIT License. Use freely in academic and commercial projects.
 
-### From ORTHON (input to PRISM)
-| File | Description |
-|------|-------------|
-| `typology.parquet` | Signal characterization |
-| `manifest.yaml` | Engine selection per signal |
+## Relationship to ORTHON
 
-### Feature Layer (PRISM)
-| File | Description |
-|------|-------------|
-| `signal_vector.parquet` | Per-signal features with I |
+PRISM is the computational engine. [ORTHON](https://github.com/prism-engines/orthon) is the interpretation framework that:
 
-### State Layer (PRISM)
-| File | Description |
-|------|-------------|
-| `state_vector.parquet` | Centroid (position) per I |
+- Loads data and creates manifests
+- Orchestrates PRISM functions in pipelines
+- Classifies signals and systems
+- Generates diagnostic reports
+- Provides browser-based exploration
 
-### Geometry Layer (PRISM)
-| File | Description |
-|------|-------------|
-| `state_geometry.parquet` | Eigenvalues, effective_dim per I |
-| `signal_geometry.parquet` | Signal-to-centroid distances |
-| `signal_pairwise.parquet` | Pairwise signal relationships |
+Think of it as: **PRISM = Calculator, ORTHON = Engineer**
 
-### Geometry Dynamics (PRISM)
-| File | Description |
-|------|-------------|
-| `geometry_dynamics.parquet` | State trajectory derivatives |
-| `signal_dynamics.parquet` | Per-signal trajectories |
-| `pairwise_dynamics.parquet` | Pairwise trajectories |
+## Examples
 
-### Dynamics Layer (PRISM)
-| File | Description |
-|------|-------------|
-| `lyapunov.parquet` | Lyapunov exponents |
-| `dynamics.parquet` | RQA, attractor metrics |
-| `information_flow.parquet` | Transfer entropy, Granger |
-
-### SQL Layer (PRISM)
-| File | Description |
-|------|-------------|
-| `zscore.parquet` | Z-score normalized |
-| `statistics.parquet` | Summary statistics |
-| `correlation.parquet` | Correlation matrix |
-
----
-
-## Key Concepts
-
-### Typology (Lives in ORTHON)
-
-**Typology is the ONLY computation in ORTHON.** It classifies signals and creates manifest.yaml specifying which engines PRISM should run.
-
-### State Vector vs State Geometry
-
-| File | Computes | Analogy |
-|------|----------|---------|
-| state_vector | Centroid (mean position) | WHERE the system is |
-| state_geometry | Eigenvalues (SVD) | SHAPE of signal cloud |
-
-### Scale-Invariant Features Only
-
-All features are ratios, entropy, or shape metrics. Deprecated: rms, peak, mean, std.
-
-### Eigenvalue-Based Geometry
-
+### Turbofan Engine Analysis
 ```python
-# In state_geometry.py:
-U, S, Vt = svd(signal_matrix - centroid)
-eigenvalues = S² / (N - 1)
-effective_dim = (Σλ)² / Σλ²
+import prism
+
+# Per-sensor analysis
+for sensor_data in engine_sensors:
+    spectral_entropy = prism.spectral_entropy(sensor_data)
+    sample_entropy = prism.sample_entropy(sensor_data)
+    lyapunov = prism.lyapunov_exponent(sensor_data)
+
+# Cross-sensor eigenstructure
+sensor_matrix = np.column_stack(engine_sensors)
+cov = prism.covariance_matrix(sensor_matrix)
+eigenvals, _ = prism.eigendecomposition(cov)
+eff_dim = prism.effective_dimension(eigenvals)  # Dimensional collapse = failure approaching
 ```
 
-### Geometry Dynamics
+### Financial Time Series
+```python
+import prism
 
-Differential geometry on state evolution:
-- **velocity** = dx/dt
-- **acceleration** = d²x/dt²
-- **jerk** = d³x/dt³
+# Price analysis
+returns = np.diff(np.log(prices))
+hurst = prism.hurst_exponent(returns)  # Market efficiency measure
+perm_ent = prism.permutation_entropy(returns)  # Market complexity
 
-**PRISM computes derivatives. ORTHON interprets trajectories.**
-
----
-
-## Directory Structure
-
-```
-prism/
-├── prism/
-│   ├── cli.py
-│   ├── signal_vector_temporal.py
-│   ├── sql_runner.py
-│   │
-│   └── engines/
-│       ├── state_vector.py       # Centroid only
-│       ├── state_geometry.py     # Eigenvalues here
-│       ├── signal_geometry.py
-│       ├── signal_pairwise.py
-│       ├── geometry_dynamics.py
-│       ├── lyapunov_engine.py
-│       ├── dynamics_runner.py
-│       ├── information_flow_runner.py
-│       ├── signal/               # Per-signal engines
-│       ├── rolling/              # Rolling window engines
-│       └── sql/                  # SQL engines
-│
-└── data/
+# Multi-asset analysis
+asset_matrix = np.column_stack([asset1_returns, asset2_returns, asset3_returns])
+corr = prism.correlation_matrix(asset_matrix)
+eigenvals, _ = prism.eigendecomposition(corr)
+participation = prism.participation_ratio(eigenvals)  # Diversification measure
 ```
 
----
+### Ecological Networks
+```python
+import prism
 
-## Rules
+# Population time series analysis
+for species in species_data:
+    coeffs, r2 = prism.trend_fit(species)
+    turning_pts = prism.turning_points(species)
 
-1. **PRISM computes, ORTHON classifies** - no labels, no thresholds in PRISM
-2. **Typology lives in ORTHON** - PRISM receives manifest.yaml
-3. **state_vector = centroid, state_geometry = eigenvalues** - separate concerns
-4. **Scale-invariant features only** - no absolute values
-5. **I is canonical** - sequential per (cohort, signal_id), not timestamps
-6. **cohort is cargo** - never in groupby, unique series = (cohort, signal_id)
+# Community-level analysis
+community_matrix = np.column_stack(all_species_data)
+eigenvals, _ = prism.eigendecomposition(prism.covariance_matrix(community_matrix))
+eff_dim = prism.effective_dimension(eigenvals)  # Functional diversity
+```
 
----
+The math is the same. The interpretation changes based on domain.
 
-## Do NOT
+## Contributing
 
-- Put classification logic in PRISM
-- Compute eigenvalues in state_vector (they belong in state_geometry)
-- Use deprecated scale-dependent engines
-- Include cohort in groupby operations
-- Create typology in PRISM (ORTHON's job)
-
----
+1. All functions must be pure (no side effects, no file I/O)
+2. All functions must have type hints and docstrings
+3. All functions must have unit tests with >95% coverage
+4. No dependencies beyond numpy and scipy (optional: scikit-learn for complexity measures)
 
 ## Credits
 

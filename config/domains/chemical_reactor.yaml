@@ -1,0 +1,54 @@
+# PRISM Chemical Reactor Domain Configuration
+# Overrides for chemical process monitoring (TEP style)
+#
+# Characteristics:
+# - Continuous process
+# - Multiple fault modes
+# - Strong correlations between variables
+# - Strict operating constraints
+
+# Geometry overrides
+geometry:
+  eigenvalue:
+    min_signals: 3
+    max_eigenvalues: 6
+
+  # Chemical process feature groups
+  feature_groups:
+    shape:
+      - kurtosis
+      - skewness
+      - crest_factor
+    complexity:
+      - permutation_entropy
+      - sample_entropy
+      - acf_lag1
+    spectral:
+      - spectral_entropy
+      - spectral_flatness
+      - band_low_rel
+
+# Dynamics overrides
+dynamics:
+  derivatives:
+    # Chemical processes often sampled at regular intervals
+    dt: 1.0
+    # Less smoothing - chemical signals often cleaner
+    smooth_window: 3
+
+  collapse:
+    # Chemical processes may show faster degradation
+    threshold_velocity: -0.15
+    min_collapse_length: 3
+
+  # Phase space for process dynamics
+  phase_space:
+    embedding_dim: 3
+    tau: 2
+
+# Pairwise overrides
+pairwise:
+  correlation:
+    # Chemical processes have strong physical correlations
+    high_threshold: 0.75
+    moderate_threshold: 0.4

@@ -1,0 +1,53 @@
+# PRISM Geometry Configuration
+# Default parameters for state_geometry and signal_geometry engines
+#
+# Override hierarchy:
+#   defaults/ < domains/{domain}.yaml < environments/{env}.yaml
+
+# Feature groups for geometry engines
+# Each group defines which features are analyzed together
+feature_groups:
+  shape:
+    - kurtosis
+    - skewness
+    - crest_factor
+  complexity:
+    - permutation_entropy
+    - hurst
+    - acf_lag1
+  spectral:
+    - spectral_entropy
+    - spectral_centroid
+    - band_low_rel
+    - band_mid_rel
+    - band_high_rel
+
+# Eigenvalue computation settings
+eigenvalue:
+  # Minimum signals required for reliable eigenvalue computation
+  min_signals: 3
+  # Maximum eigenvalues to store in output
+  max_eigenvalues: 5
+
+# Effective dimension settings
+effective_dimension:
+  # Threshold for considering eigenvalue significant
+  eigenvalue_threshold: 1e-10
+
+# Multimode detection
+multimode:
+  # Ratio threshold (lambda_2/lambda_1) above which multimode is indicated
+  ratio_threshold: 0.5
+
+# SVD normalization settings
+svd:
+  # Features to exclude from SVD (unbounded when mean approaches 0)
+  exclude_features:
+    - cv
+    - range_ratio
+    - window_size
+
+# Signal geometry alignment settings
+alignment:
+  # Minimum norm for valid centroid/PC1 direction
+  min_norm: 1e-10

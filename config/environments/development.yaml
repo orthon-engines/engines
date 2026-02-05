@@ -1,0 +1,22 @@
+# PRISM Development Environment Configuration
+# Overrides for development/testing
+#
+# Focus: Fast iteration, verbose output, lenient thresholds
+
+# Geometry - faster with less data
+geometry:
+  eigenvalue:
+    min_signals: 2
+
+# Dynamics - faster computation
+dynamics:
+  derivatives:
+    smooth_window: 1
+
+  collapse:
+    min_collapse_length: 3
+
+# Less strict thresholds for development
+thresholds:
+  numerical:
+    epsilon: 1e-8

@@ -18,6 +18,9 @@ Computes:
 NOTE: PRISM computes, never classifies. All classification logic
 has been removed. ORTHON interprets the computed values.
 
+ARCHITECTURE: This is an ORCHESTRATOR that delegates all compute to PRISM primitives.
+All mathematical operations are performed by prism.* functions.
+
 INPUT:
 - state_geometry.parquet (eigenvalues over time)
 - signal_geometry.parquet (signal positions over time)
@@ -34,6 +37,47 @@ import polars as pl
 from pathlib import Path
 from typing import List, Dict, Optional, Any, Tuple
 
+# Import PRISM primitives for all mathematical computation
+import prism
+
+# Import configuration
+import sys
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+from config import get_config
+
+
+# ============================================================
+# CONFIGURATION-DRIVEN DEFAULTS
+# ============================================================
+
+def _get_dynamics_config() -> Dict[str, Any]:
+    """Get dynamics computation config."""
+    config = get_config()
+    return {
+        'dt': config.get('dynamics.derivatives.dt', 1.0),
+        'smooth_window': config.get('dynamics.derivatives.smooth_window', 3),
+        'method': config.get('dynamics.derivatives.method', 'central'),
+    }
+
+
+def _get_collapse_config() -> Dict[str, Any]:
+    """Get collapse detection config."""
+    config = get_config()
+    return {
+        'threshold_velocity': config.get('dynamics.collapse.threshold_velocity', -0.1),
+        'sustained_fraction': config.get('dynamics.collapse.sustained_fraction', 0.3),
+        'min_collapse_length': config.get('dynamics.collapse.min_collapse_length', 5),
+    }
+
+
+def _get_phase_space_config() -> Dict[str, Any]:
+    """Get phase space config."""
+    config = get_config()
+    return {
+        'embedding_dim': config.get('dynamics.phase_space.embedding_dim', 2),
+        'tau': config.get('dynamics.phase_space.tau', 1),
+    }
+
 
 # ============================================================
 # DERIVATIVE COMPUTATION
@@ -41,20 +85,29 @@ from typing import List, Dict, Optional, Any, Tuple
 
 def compute_derivatives(
     x: np.ndarray,
-    dt: float = 1.0,
-    smooth_window: int = 3
+    dt: Optional[float] = None,
+    smooth_window: Optional[int] = None
 ) -> Dict[str, np.ndarray]:
     """
     Compute derivatives up to third order with optional smoothing.
 
+    ARCHITECTURE: Pure orchestration - delegates all math to PRISM primitives.
+
     Args:
         x: Time series values
-        dt: Time step
-        smooth_window: Smoothing window for noise reduction
+        dt: Time step (from config if not provided)
+        smooth_window: Smoothing window for noise reduction (from config if not provided)
 
     Returns:
         Dict with velocity, acceleration, jerk, curvature, speed
     """
+    # Get config values
+    dynamics_config = _get_dynamics_config()
+    if dt is None:
+        dt = dynamics_config['dt']
+    if smooth_window is None:
+        smooth_window = dynamics_config['smooth_window']
+
     n = len(x)
 
     if n < 3:
@@ -66,33 +119,31 @@ def compute_derivatives(
             'speed': np.zeros(n),
         }
 
-    # Optional smoothing
+    # Optional smoothing (preprocessing, not math)
     if smooth_window > 1 and n > smooth_window:
         kernel = np.ones(smooth_window) / smooth_window
         x_smooth = np.convolve(x, kernel, mode='same')
     else:
         x_smooth = x
 
-    # First derivative (central difference)
-    dx = np.zeros(n)
-    dx[1:-1] = (x_smooth[2:] - x_smooth[:-2]) / (2 * dt)
-    dx[0] = (x_smooth[1] - x_smooth[0]) / dt if n > 1 else 0
-    dx[-1] = (x_smooth[-1] - x_smooth[-2]) / dt if n > 1 else 0
+    # ─────────────────────────────────────────────────
+    # DERIVATIVES → PRISM PRIMITIVES
+    # ─────────────────────────────────────────────────
 
-    # Second derivative
-    d2x = np.zeros(n)
-    if n > 2:
-        d2x[1:-1] = (x_smooth[2:] - 2*x_smooth[1:-1] + x_smooth[:-2]) / (dt**2)
-        d2x[0] = d2x[1] if n > 2 else 0
-        d2x[-1] = d2x[-2] if n > 2 else 0
+    # First derivative (velocity) → PRISM PRIMITIVE
+    dx = prism.first_derivative(x_smooth, dt=dt, method='central')
 
-    # Third derivative (jerk)
-    d3x = np.zeros(n)
-    if n > 3:
-        d3x[2:-1] = (d2x[2:] - d2x[:-2])[:-1] / (2 * dt)
+    # Second derivative (acceleration) → PRISM PRIMITIVE
+    d2x = prism.second_derivative(x_smooth, dt=dt, method='central')
 
-    # Curvature: κ = |d²x/dt²| / (1 + (dx/dt)²)^(3/2)
-    curvature = np.zeros(n)
+    # Third derivative (jerk) → PRISM PRIMITIVE
+    d3x = prism.jerk(x_smooth, dt=dt)
+
+    # ─────────────────────────────────────────────────
+    # 1D CURVATURE: κ = |d²x/dt²| / (1 + (dx/dt)²)^(3/2)
+    # Note: prism.curvature is for 2D trajectories (x, y)
+    # For 1D time series, we compute curvature directly
+    # ─────────────────────────────────────────────────
     denom = (1 + dx**2)**1.5
     curvature = np.where(denom > 1e-10, np.abs(d2x) / denom, 0)
 
@@ -110,37 +161,35 @@ def compute_derivatives(
 
 def compute_phase_space(
     x: np.ndarray,
-    embedding_dim: int = 2,
-    tau: int = 1
+    embedding_dim: Optional[int] = None,
+    tau: Optional[int] = None
 ) -> np.ndarray:
     """
     Reconstruct phase space using time-delay embedding.
+
+    ARCHITECTURE: Pure orchestration - delegates to PRISM primitive.
 
     Takens' theorem: The attractor can be reconstructed from
     a single time series using delay coordinates.
 
     Args:
         x: Time series
-        embedding_dim: Number of dimensions
-        tau: Time delay
+        embedding_dim: Number of dimensions (from config if not provided)
+        tau: Time delay (from config if not provided)
 
     Returns:
         Phase space coordinates (n_points × embedding_dim)
     """
-    n = len(x)
-    n_vectors = n - (embedding_dim - 1) * tau
-
-    if n_vectors < 1:
-        return np.array([])
-
-    phase_space = np.zeros((n_vectors, embedding_dim))
-
-    for i in range(embedding_dim):
-        start = i * tau
-        end = start + n_vectors
-        phase_space[:, i] = x[start:end]
-
-    return phase_space
+    # Get config values
+    phase_config = _get_phase_space_config()
+    if embedding_dim is None:
+        embedding_dim = phase_config['embedding_dim']
+    if tau is None:
+        tau = phase_config['tau']
+    # ─────────────────────────────────────────────────
+    # ATTRACTOR RECONSTRUCTION → PRISM PRIMITIVE
+    # ─────────────────────────────────────────────────
+    return prism.attractor_reconstruction(x, embed_dim=embedding_dim, tau=tau)
 
 
 # ============================================================
@@ -149,9 +198,9 @@ def compute_phase_space(
 
 def detect_collapse(
     effective_dim: np.ndarray,
-    threshold_velocity: float = -0.1,
-    sustained_fraction: float = 0.3,
-    min_collapse_length: int = 5
+    threshold_velocity: Optional[float] = None,
+    sustained_fraction: Optional[float] = None,
+    min_collapse_length: Optional[int] = None
 ) -> Dict[str, Any]:
     """
     Detect dimensional collapse in effective_dim time series.
@@ -161,13 +210,22 @@ def detect_collapse(
 
     Args:
         effective_dim: Effective dimension over time
-        threshold_velocity: Velocity below this = collapsing
-        sustained_fraction: Fraction of points that must be collapsing
-        min_collapse_length: Minimum consecutive points for collapse
+        threshold_velocity: Velocity below this = collapsing (from config if not provided)
+        sustained_fraction: Fraction of points that must be collapsing (from config if not provided)
+        min_collapse_length: Minimum consecutive points for collapse (from config if not provided)
 
     Returns:
         Collapse detection results
     """
+    # Get config values
+    collapse_config = _get_collapse_config()
+    if threshold_velocity is None:
+        threshold_velocity = collapse_config['threshold_velocity']
+    if sustained_fraction is None:
+        sustained_fraction = collapse_config['sustained_fraction']
+    if min_collapse_length is None:
+        min_collapse_length = collapse_config['min_collapse_length']
+
     n = len(effective_dim)
 
     # Return computed values only - no boolean classification
@@ -230,8 +288,8 @@ def detect_collapse(
 def compute_geometry_dynamics(
     state_geometry_path: str,
     output_path: str = "geometry_dynamics.parquet",
-    dt: float = 1.0,
-    smooth_window: int = 3,
+    dt: Optional[float] = None,
+    smooth_window: Optional[int] = None,
     verbose: bool = True
 ) -> pl.DataFrame:
     """
@@ -245,13 +303,20 @@ def compute_geometry_dynamics(
     Args:
         state_geometry_path: Path to state_geometry.parquet
         output_path: Output path
-        dt: Time step
-        smooth_window: Smoothing window
+        dt: Time step (from config if not provided)
+        smooth_window: Smoothing window (from config if not provided)
         verbose: Print progress
 
     Returns:
         Geometry dynamics DataFrame
     """
+    # Get config values
+    dynamics_config = _get_dynamics_config()
+    if dt is None:
+        dt = dynamics_config['dt']
+    if smooth_window is None:
+        smooth_window = dynamics_config['smooth_window']
+
     if verbose:
         print("=" * 70)
         print("GEOMETRY DYNAMICS ENGINE")
