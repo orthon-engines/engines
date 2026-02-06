@@ -1,15 +1,13 @@
 """
-PRISM State Vector Engine
+02: State Vector Entry Point
+============================
 
-Computes the CENTROID (mean position) of signals in feature space.
-This is the "where" - the average position of all signals at each I.
+Pure orchestration - calls centroid engine from engines/state/centroid.py.
+Computes WHERE the system is (centroid = mean position in feature space).
 
-Eigenvalues (the "shape") are computed in state_geometry.py.
+Stages: signal_vector.parquet → state_vector.parquet
 
-Pipeline:
-    signal_vector.parquet → state_vector.parquet → state_geometry.parquet
-
-Credit: Avery Rudder - insight that Laplace transform IS the state engine.
+The SHAPE (eigenvalues, effective_dim) is computed in 03_state_geometry.py.
 """
 
 import numpy as np
@@ -17,12 +15,14 @@ import polars as pl
 from pathlib import Path
 from typing import List, Dict, Optional, Any
 
+# Import the actual computation from engine
+from prism.engines.state.centroid import compute as compute_centroid_engine
 
-# Feature groups for per-engine centroids - imported from config
+
+# Feature groups for per-engine centroids
 try:
     from prism.engines.geometry.config import DEFAULT_FEATURE_GROUPS, FALLBACK_FEATURES
 except ImportError:
-    # Fallback if config not available
     DEFAULT_FEATURE_GROUPS = {
         'shape': ['kurtosis', 'skewness', 'crest_factor'],
         'complexity': ['permutation_entropy', 'hurst', 'acf_lag1'],
@@ -37,10 +37,7 @@ def compute_centroid(
     min_signals: int = 2
 ) -> Dict[str, Any]:
     """
-    Compute centroid (mean position) of signals in feature space.
-
-    This is WHERE the system is - the average of all signals.
-    The SHAPE (eigenvalues) is computed separately in state_geometry.
+    Wrapper - delegates entirely to engine.
 
     Args:
         signal_matrix: N_signals × D_features matrix
@@ -48,47 +45,9 @@ def compute_centroid(
         min_signals: Minimum signals required
 
     Returns:
-        Dict with centroid and basic statistics
+        Dict with centroid and distance statistics
     """
-    N, D = signal_matrix.shape
-
-    if N < min_signals:
-        return {
-            'centroid': np.full(D, np.nan),
-            'n_signals': 0,
-            'mean_distance': np.nan,
-            'max_distance': np.nan,
-            'std_distance': np.nan,
-        }
-
-    # Remove NaN/Inf rows
-    valid_mask = np.isfinite(signal_matrix).all(axis=1)
-    if valid_mask.sum() < min_signals:
-        return {
-            'centroid': np.full(D, np.nan),
-            'n_signals': 0,
-            'mean_distance': np.nan,
-            'max_distance': np.nan,
-            'std_distance': np.nan,
-        }
-
-    signal_matrix = signal_matrix[valid_mask]
-    N = len(signal_matrix)
-
-    # Centroid = mean position
-    centroid = np.mean(signal_matrix, axis=0)
-
-    # Distance from each signal to centroid
-    centered = signal_matrix - centroid
-    distances = np.linalg.norm(centered, axis=1)
-
-    return {
-        'centroid': centroid,
-        'n_signals': N,
-        'mean_distance': float(np.mean(distances)),
-        'max_distance': float(np.max(distances)),
-        'std_distance': float(np.std(distances)),
-    }
+    return compute_centroid_engine(signal_matrix, min_signals=min_signals)
 
 
 def compute_state_vector(
@@ -103,7 +62,7 @@ def compute_state_vector(
     Compute state vector (centroids) from signal vector.
 
     The state vector captures WHERE the system is in feature space.
-    The SHAPE (eigenvalues, effective_dim) is computed in state_geometry.
+    The SHAPE (eigenvalues, effective_dim) is computed in 03_state_geometry.py.
 
     Args:
         signal_vector_path: Path to signal_vector.parquet
@@ -118,9 +77,7 @@ def compute_state_vector(
     """
     if verbose:
         print("=" * 70)
-        print("STATE VECTOR ENGINE")
-        print("Computing centroids (position in feature space)")
-        print("Eigenvalues computed separately in state_geometry")
+        print("02: STATE VECTOR - Centroids (position in feature space)")
         print("=" * 70)
 
     # Load data
@@ -128,7 +85,6 @@ def compute_state_vector(
     typology = pl.read_parquet(typology_path)
 
     # Get active signals (non-constant)
-    # Check which column identifies constant signals
     if 'is_constant' in typology.columns:
         active_signals = (
             typology
@@ -146,7 +102,6 @@ def compute_state_vector(
             .to_list()
         )
     else:
-        # No filter available, include all
         active_signals = typology['signal_id'].unique().to_list()
 
     # Filter to active signals
@@ -154,7 +109,7 @@ def compute_state_vector(
     signal_vector = signal_vector.filter(pl.col(signal_col).is_in(active_signals))
 
     # Identify features
-    meta_cols = ['unit_id', 'I', 'signal_id', 'signal_name', 'n_samples', 'window_size']
+    meta_cols = ['unit_id', 'I', 'signal_id', 'signal_name', 'n_samples', 'window_size', 'cohort']
     all_features = [c for c in signal_vector.columns if c not in meta_cols]
 
     if verbose:
@@ -189,21 +144,17 @@ def compute_state_vector(
     if 'I' not in signal_vector.columns:
         raise ValueError("Missing required column 'I'. Use temporal signal_vector.")
 
-    # Determine grouping columns - include cohort if present for per-unit analysis
+    # Determine grouping columns
     has_cohort = 'cohort' in signal_vector.columns
     group_cols = ['cohort', 'I'] if has_cohort else ['I']
 
-    # Process each group (cohort, I) or just (I)
+    # Process each group
     results = []
     groups = signal_vector.group_by(group_cols, maintain_order=True)
     n_groups = signal_vector.select(group_cols).unique().height
 
     if verbose:
-        if has_cohort:
-            n_cohorts = signal_vector['cohort'].n_unique()
-            print(f"Processing {n_groups} (cohort, I) groups across {n_cohorts} cohorts...")
-        else:
-            print(f"Processing {n_groups} time points...")
+        print(f"Processing {n_groups} groups...")
 
     for i, (group_key, group) in enumerate(groups):
         if has_cohort:
@@ -226,22 +177,21 @@ def compute_state_vector(
             'I': I,
             'n_signals': state['n_signals'],
         }
-        # Include cohort if available (for per-unit grouping in downstream stages)
         if cohort:
             row['cohort'] = cohort
         if unit_id:
             row['unit_id'] = unit_id
 
-        # Centroid (per feature) - use state_ prefix for consistency
+        # Centroid per feature
         for j, feat in enumerate(available_composite):
             row[f'state_{feat}'] = state['centroid'][j]
 
-        # Dispersion (how spread out are signals around centroid)
+        # Dispersion metrics
         row['mean_distance'] = state['mean_distance']
         row['max_distance'] = state['max_distance']
         row['std_distance'] = state['std_distance']
 
-        # Per-engine centroids (use state_ prefix for consistency with state_geometry)
+        # Per-engine centroids
         if compute_per_engine:
             for engine_name, features in feature_groups.items():
                 available = [f for f in features if f in group.columns]
@@ -263,9 +213,6 @@ def compute_state_vector(
     if verbose:
         print(f"\nSaved: {output_path}")
         print(f"Shape: {result.shape}")
-        print()
-        print("Columns: state_*, mean_distance, max_distance, std_distance")
-        print("NOTE: Eigenvalues computed in state_geometry.py")
 
     return result
 
@@ -273,21 +220,8 @@ def compute_state_vector(
 def main():
     import sys
 
-    usage = """
-State Vector Engine - Centroids (position in feature space)
-
-Usage:
-    python state_vector.py <signal_vector.parquet> <typology.parquet> [output.parquet]
-
-Computes WHERE the system is (centroid = mean of signals).
-The SHAPE (eigenvalues, effective_dim) is computed in state_geometry.py.
-
-Pipeline:
-    signal_vector → state_vector (centroid) → state_geometry (eigenvalues)
-"""
-
     if len(sys.argv) < 3:
-        print(usage)
+        print("Usage: python 02_state_vector.py <signal_vector.parquet> <typology.parquet> [output.parquet]")
         sys.exit(1)
 
     signal_path = sys.argv[1]

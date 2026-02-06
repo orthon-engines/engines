@@ -1,38 +1,57 @@
-# PRISM Stream Compute - Full Dependencies
-
-# Core scientific stack
-numpy>=1.24.0
-scipy>=1.10.0
-pandas>=2.0.0
-
-# Machine learning
-scikit-learn>=1.2.0
-
-# Parquet I/O (using Polars for speed)
-polars>=0.20.0
-pyarrow>=12.0.0
-
-# SQL engine
-duckdb>=0.9.0
-
-# Time series analysis
-nolds>=0.5.0           # Lyapunov, correlation dimension
-arch>=6.0.0            # GARCH volatility
-PyWavelets>=1.4.0      # Wavelet transforms
-statsmodels>=0.14.0    # Cointegration, time series
-
-# Server
-fastapi>=0.100.0
-uvicorn>=0.23.0
-
-# YAML manifest support
-pyyaml>=6.0.0
-
-# RAM monitoring
-psutil>=5.9.0
-
-# Parallel processing
-joblib>=1.3.0
-
-# Optional (for extended features)
-# umap-learn>=0.5.0    # UMAP dimensionality reduction
+annotated-doc==0.0.4
+annotated-types==0.7.0
+anyio==4.12.1
+arch==8.0.0
+beautifulsoup4==4.14.3
+certifi==2026.1.4
+charset-normalizer==3.4.4
+click==8.3.1
+contourpy==1.3.3
+cycler==0.12.1
+duckdb==1.4.4
+fastapi==0.128.0
+filelock==3.20.3
+fonttools==4.61.1
+future==1.0.0
+gdown==5.2.1
+h11==0.16.0
+h5py==3.15.1
+idna==3.11
+iniconfig==2.3.0
+joblib==1.5.3
+kiwisolver==1.4.9
+matplotlib==3.10.8
+nolds==0.6.3
+numpy==2.4.2
+packaging==26.0
+pandas==3.0.0
+patsy==1.0.2
+pillow==12.1.0
+pluggy==1.6.0
+polars==1.37.1
+polars-runtime-32==1.37.1
+-e git+https://github.com/prism-engines/prism.git@52e6982d092d846dc2b9a80ce1560d5b89daa7d0#egg=prism_signal
+pyarrow==23.0.0
+pydantic==2.12.5
+pydantic_core==2.41.5
+Pygments==2.19.2
+pyparsing==3.3.2
+PySocks==1.7.1
+pytest==9.0.2
+python-dateutil==2.9.0.post0
+PyWavelets==1.9.0
+PyYAML==6.0.3
+requests==2.32.5
+scikit-learn==1.8.0
+scipy==1.17.0
+setuptools==80.10.2
+six==1.17.0
+soupsieve==2.8.3
+starlette==0.50.0
+statsmodels==0.14.6
+threadpoolctl==3.6.0
+tqdm==4.67.3
+typing-inspection==0.4.2
+typing_extensions==4.15.0
+urllib3==2.6.3
+uvicorn==0.40.0

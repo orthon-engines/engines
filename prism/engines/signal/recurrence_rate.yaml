@@ -1,0 +1,17 @@
+engine: recurrence_rate
+version: "1.0"
+
+requirements:
+  base_window: 64
+  min_window: 32
+  max_window: 256
+  scaling: linear
+
+outputs:
+  - recurrence_rate
+
+dependencies: []
+
+metadata:
+  description: Recurrence rate from RQA
+  category: dynamics

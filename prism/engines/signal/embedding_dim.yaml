@@ -1,0 +1,17 @@
+engine: embedding_dim
+version: "1.0"
+
+requirements:
+  base_window: 128
+  min_window: 64
+  max_window: 512
+  scaling: linear
+
+outputs:
+  - embedding_dim
+
+dependencies: []
+
+metadata:
+  description: Optimal embedding dimension (FNN method)
+  category: dynamics

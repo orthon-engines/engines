@@ -1,0 +1,17 @@
+engine: correlation_dimension
+version: "1.0"
+
+requirements:
+  base_window: 128
+  min_window: 64
+  max_window: 512
+  scaling: linear
+
+outputs:
+  - correlation_dimension
+
+dependencies: []
+
+metadata:
+  description: Correlation dimension (Grassberger-Procaccia)
+  category: dynamics

@@ -37,7 +37,7 @@ def compute_centroid(
     min_signals: int = 2
 ) -> Dict[str, Any]:
     """
-    Wrapper around centroid engine - adds distance metrics.
+    Wrapper - delegates entirely to engine.
 
     Args:
         signal_matrix: N_signals × D_features matrix
@@ -47,46 +47,7 @@ def compute_centroid(
     Returns:
         Dict with centroid and distance statistics
     """
-    N, D = signal_matrix.shape
-
-    if N < min_signals:
-        return {
-            'centroid': np.full(D, np.nan),
-            'n_signals': 0,
-            'mean_distance': np.nan,
-            'max_distance': np.nan,
-            'std_distance': np.nan,
-        }
-
-    # Remove NaN/Inf rows
-    valid_mask = np.isfinite(signal_matrix).all(axis=1)
-    if valid_mask.sum() < min_signals:
-        return {
-            'centroid': np.full(D, np.nan),
-            'n_signals': 0,
-            'mean_distance': np.nan,
-            'max_distance': np.nan,
-            'std_distance': np.nan,
-        }
-
-    signal_matrix = signal_matrix[valid_mask]
-    N = len(signal_matrix)
-
-    # Call engine for centroid computation
-    engine_result = compute_centroid_engine(signal_matrix)
-    centroid = engine_result['centroid']
-
-    # Compute distance metrics (orchestration-level aggregation)
-    centered = signal_matrix - centroid
-    distances = np.linalg.norm(centered, axis=1)
-
-    return {
-        'centroid': centroid,
-        'n_signals': N,
-        'mean_distance': float(np.mean(distances)),
-        'max_distance': float(np.max(distances)),
-        'std_distance': float(np.std(distances)),
-    }
+    return compute_centroid_engine(signal_matrix, min_signals=min_signals)
 
 
 def compute_state_vector(
@@ -250,8 +211,11 @@ def compute_state_vector(
     result.write_parquet(output_path)
 
     if verbose:
-        print(f"\nSaved: {output_path}")
-        print(f"Shape: {result.shape}")
+        print(f"\nShape: {result.shape}")
+        print()
+        print("─" * 50)
+        print(f"✓ {Path(output_path).absolute()}")
+        print("─" * 50)
 
     return result
 

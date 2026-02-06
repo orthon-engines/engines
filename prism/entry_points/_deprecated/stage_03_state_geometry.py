@@ -223,11 +223,8 @@ def compute_state_geometry(
     result.write_parquet(output_path)
 
     if verbose:
-        print(f"\nShape: {result.shape}")
-        print()
-        print("─" * 50)
-        print(f"✓ {Path(output_path).absolute()}")
-        print("─" * 50)
+        print(f"\nSaved: {output_path}")
+        print(f"Shape: {result.shape}")
 
         # Summary per engine
         for engine_name in feature_groups.keys():

@@ -29,6 +29,7 @@ from datetime import datetime
 # Import our engines
 from prism.engines.dynamics.lyapunov import compute as compute_lyapunov
 from prism.engines.dynamics.critical_slowing_down import compute as compute_csd
+from prism.engines.state.eigendecomp import compute as compute_eigenvalues
 from prism.engines.dynamics.formal_definitions import (
     GeometryMetrics, MassMetrics, EarlyWarningSignals,
     FormalAssessment, AttractorType, StabilityType,
@@ -93,53 +94,43 @@ def compute_cross_signal_geometry(
 
         window = window[:, valid_cols]
 
-        # Center
-        centered = window - np.mean(window, axis=0)
+        # Use eigendecomp engine (handles centering, SVD, all derived metrics)
+        eigen_result = compute_eigenvalues(window, norm_method="none")
 
-        # SVD for eigenvalues
-        try:
-            U, S, Vt = np.linalg.svd(centered, full_matrices=False)
-            eigenvalues = (S ** 2) / (window.shape[0] - 1)
-
-            total_var = eigenvalues.sum()
-            if total_var > 0:
-                eff_dim = (total_var ** 2) / (eigenvalues ** 2).sum()
-                explained_1 = eigenvalues[0] / total_var
-            else:
-                eff_dim = 0
-                explained_1 = 0
-
-            # Alignment = dominance of PC1
-            alignment = explained_1
-
-            # Correlation statistics
-            corr_matrix = np.corrcoef(window.T)
-            np.fill_diagonal(corr_matrix, 0)
-            mean_abs_corr = np.nanmean(np.abs(corr_matrix))
-            max_abs_corr = np.nanmax(np.abs(corr_matrix))
-
-            # Coupling fraction (|corr| > 0.5)
-            coupling_fraction = np.mean(np.abs(corr_matrix) > 0.5)
-
-            # Condition number
-            nonzero = eigenvalues[eigenvalues > 1e-10]
-            condition_number = nonzero[0] / nonzero[-1] if len(nonzero) > 1 else 1.0
-
-            results.append({
-                'window_start': window_start,
-                'window_end': window_end,
-                'eff_dim': float(eff_dim),
-                'alignment': float(alignment),
-                'total_variance': float(total_var),
-                'mean_abs_correlation': float(mean_abs_corr),
-                'max_abs_correlation': float(max_abs_corr),
-                'coupling_fraction': float(coupling_fraction),
-                'condition_number': float(condition_number),
-                'n_signals': int(valid_cols.sum()),
-            })
-
-        except np.linalg.LinAlgError:
+        # Skip if insufficient data
+        if eigen_result['n_signals'] < 2:
             continue
+
+        eff_dim = eigen_result['effective_dim']
+        total_var = eigen_result['total_variance']
+        explained_ratio = eigen_result['explained_ratio']
+        explained_1 = explained_ratio[0] if len(explained_ratio) > 0 else 0
+        condition_number = eigen_result['condition_number']
+
+        # Alignment = dominance of PC1
+        alignment = explained_1
+
+        # Correlation statistics (cross-signal specific, not in engine)
+        corr_matrix = np.corrcoef(window.T)
+        np.fill_diagonal(corr_matrix, 0)
+        mean_abs_corr = np.nanmean(np.abs(corr_matrix))
+        max_abs_corr = np.nanmax(np.abs(corr_matrix))
+
+        # Coupling fraction (|corr| > 0.5)
+        coupling_fraction = np.mean(np.abs(corr_matrix) > 0.5)
+
+        results.append({
+            'window_start': window_start,
+            'window_end': window_end,
+            'eff_dim': float(eff_dim),
+            'alignment': float(alignment),
+            'total_variance': float(total_var),
+            'mean_abs_correlation': float(mean_abs_corr),
+            'max_abs_correlation': float(max_abs_corr),
+            'coupling_fraction': float(coupling_fraction),
+            'condition_number': float(condition_number),
+            'n_signals': int(valid_cols.sum()),
+        })
 
     return pl.DataFrame(results)
 

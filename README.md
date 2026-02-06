@@ -1,8 +1,6 @@
 # PRISM
 
-**Geometry leads — signals follow.**
-
-PRISM computes signal geometry for industrial diagnostics and research discovery. It extracts the mathematical structure that predicts system behavior.
+**PRISM**
 
 ```bash
 pip install prism-signal
@@ -12,23 +10,18 @@ pip install prism-signal
 
 ## What It Does
 
-PRISM transforms raw observations into geometric features that reveal system health:
+PRISM transforms raw observations into computed primitives and mathematical calculations. For use with Orthon Data Interpreter.
 
 ```
-observations.parquet     Raw sensor data
+observations.parquet     Raw measurements
        ↓
-signal_vector.parquet    Per-signal metrics (36 features)
+signal_vector.parquet    Per-signal metrics
        ↓
-state_vector.parquet     System centroid (WHERE)
+state_vector.parquet     System centroid (position)
        ↓
-state_geometry.parquet   Eigenstructure (SHAPE)
-       ↓
-effective_dim            The number that predicts failure
+state_geometry.parquet   Eigenstructure (shape)
 ```
 
-**The key insight:** Systems lose dimensionality before failure. Signals that once varied independently begin to move together. This "dimensional collapse" appears in the eigenvalue spectrum before physical symptoms emerge.
-
-`effective_dim` shows 63% importance in predicting remaining useful life (RUL).
 
 ---
 
@@ -74,7 +67,7 @@ df = run(
 └─────────────────────────────────────────────────────────────┘
 ```
 
-PRISM computes. It does not interpret. For classification and visualization, see [ORTHON](https://github.com/prism-engines/orthon).
+PRISM produces data. For classification and visualization, see [ORTHON](https://github.com/prism-engines/orthon).
 
 ---
 
@@ -90,14 +83,14 @@ PRISM computes. It does not interpret. For classification and visualization, see
 **Cross-signal (stage_02, stage_03):**
 - State vector: centroid position in feature space
 - Eigenvalues: variance distribution across principal components
-- Effective dimension: participation ratio of eigenvalues
-- Condition number: ratio of largest to smallest eigenvalue
+- Effective dimension: participation ratio
+- Condition number: spectral spread
 
 ---
 
 ## Input Format
 
-PRISM expects `observations.parquet` with columns:
+PRISM expects `observations.parquet`:
 
 | Column | Type | Description |
 |--------|------|-------------|
@@ -120,11 +113,9 @@ Plus a `manifest.yaml` specifying window size, stride, and engines per signal.
 
 ## Citation
 
-If PRISM helps your research, please cite:
-
-```
+```bibtex
 @software{prism2026,
-  title = {PRISM: Signal Geometry for Industrial Diagnostics},
+  title = {PRISM: Signal Computation},
   author = {Rudder, Jason and Rudder, Avery},
   year = {2026},
   url = {https://github.com/prism-engines/prism}
@@ -136,11 +127,3 @@ If PRISM helps your research, please cite:
 ## License
 
 MIT
-
----
-
-## Acknowledgments
-
-The dimensional collapse insight that makes this work came from Avery Rudder, who identified that `effective_dim` dominates RUL prediction. Systems lose coherence before they lose function.
-
-*geometry leads — ørthon*

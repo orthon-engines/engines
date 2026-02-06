@@ -58,11 +58,24 @@ from prism.engines.normalization import (
 )
 
 # Legacy flat files (for backwards compatibility)
-# Note: state_vector and state_geometry moved to entry_points
-from prism.entry_points.state_vector import compute_state_vector, compute_centroid
-from prism.entry_points.state_geometry import compute_state_geometry, compute_eigenvalues
+# Note: compute functions come from the actual engine implementations
+from prism.engines.state.centroid import compute as compute_centroid
+from prism.engines.state.eigendecomp import compute as compute_eigenvalues
 from prism.engines.signal_geometry import compute_signal_geometry
 from prism.engines.signal_pairwise import compute_signal_pairwise
+
+# Lazy import to avoid circular dependency
+def compute_state_vector(*args, **kwargs):
+    """Lazy wrapper - imports from entry_points on first call."""
+    import importlib
+    ep = importlib.import_module('prism.entry_points.02_state_vector')
+    return ep.compute_state_vector(*args, **kwargs)
+
+def compute_state_geometry(*args, **kwargs):
+    """Lazy wrapper - imports from entry_points on first call."""
+    import importlib
+    ep = importlib.import_module('prism.entry_points.03_state_geometry')
+    return ep.compute_state_geometry(*args, **kwargs)
 from prism.engines.geometry_dynamics import (
     compute_geometry_dynamics,
     compute_signal_dynamics,

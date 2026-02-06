@@ -10,7 +10,6 @@ Stages: state_vector.parquet + state_geometry.parquet → cohorts.parquet
 
 import numpy as np
 import polars as pl
-from pathlib import Path
 from typing import Dict, List, Optional
 from scipy import stats
 
@@ -261,10 +260,7 @@ def main():
     print(f"Cohorts: {len(cohorts)}")
 
     cohorts.write_parquet(args.output)
-    print()
-    print("─" * 50)
-    print(f"✓ {Path(args.output).absolute()}")
-    print("─" * 50)
+    print(f"Saved: {args.output}")
 
     # Interpretations
     if len(cohorts) > 0:
