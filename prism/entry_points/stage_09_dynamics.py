@@ -1,20 +1,18 @@
 """
-Stage 08: Lyapunov Entry Point
+Stage 09: Dynamics Entry Point
 ==============================
 
-Pure orchestration - calls engines/dynamics/lyapunov.py for computation.
+TODO: This stage is currently redundant with stage_08_ftle.
+It should be refactored to compute attractor metrics, RQA,
+correlation dimension, etc. - "everything else" in dynamics.
+
+For now, it computes FTLE-based stability classification.
 
 Inputs:
     - observations.parquet
 
 Output:
-    - lyapunov.parquet
-
-Computes per-signal Lyapunov exponents:
-    - lyapunov_exp: Largest Lyapunov exponent
-    - stability: Classification (stable/marginal/unstable/chaotic)
-    - embedding_dim, embedding_tau: Phase space parameters
-    - confidence: Estimation quality
+    - dynamics.parquet
 """
 
 import argparse
@@ -23,13 +21,13 @@ import numpy as np
 from pathlib import Path
 from typing import Optional
 
-from prism.engines.dynamics.lyapunov import compute as compute_lyapunov
+from prism.engines.dynamics.ftle import compute as compute_ftle
 from prism.engines.dynamics.formal_definitions import classify_stability
 
 
 def run(
     observations_path: str,
-    output_path: str = "lyapunov.parquet",
+    output_path: str = "dynamics.parquet",
     signal_column: str = 'signal_id',
     value_column: str = 'value',
     index_column: str = 'I',
@@ -37,24 +35,24 @@ def run(
     verbose: bool = True,
 ) -> pl.DataFrame:
     """
-    Run Lyapunov exponent computation for all signals.
+    Run dynamics computation for all signals.
 
     Args:
         observations_path: Path to observations.parquet
-        output_path: Output path for lyapunov.parquet
+        output_path: Output path for dynamics.parquet
         signal_column: Column with signal IDs
         value_column: Column with values
         index_column: Column with time index
-        min_samples: Minimum samples for Lyapunov computation
+        min_samples: Minimum samples for computation
         verbose: Print progress
 
     Returns:
-        Lyapunov DataFrame
+        Dynamics DataFrame
     """
     if verbose:
         print("=" * 70)
-        print("STAGE 08: LYAPUNOV")
-        print("Per-signal stability measurement")
+        print("STAGE 09: DYNAMICS")
+        print("Per-signal stability classification")
         print("=" * 70)
 
     # Load observations
@@ -71,18 +69,18 @@ def run(
         signal_data = obs.filter(pl.col(signal_column) == signal).sort(index_column)
         values = signal_data[value_column].to_numpy()
 
-        # Compute Lyapunov
-        result = compute_lyapunov(values, min_samples=min_samples)
+        # Compute FTLE
+        result = compute_ftle(values, min_samples=min_samples)
 
-        # Add stability classification
-        lyap_val = result.get('lyapunov')
-        if lyap_val is not None:
-            stability = classify_stability(lyap_val)
+        # Add stability classification based on FTLE
+        ftle_val = result.get('ftle')
+        if ftle_val is not None:
+            stability = classify_stability(ftle_val)
             result['stability'] = stability.value
-            result['lyapunov_exp'] = lyap_val
+            result['ftle'] = ftle_val
         else:
             result['stability'] = 'unknown'
-            result['lyapunov_exp'] = np.nan
+            result['ftle'] = np.nan
 
         result['signal_id'] = signal
         result['n_samples'] = len(values)
@@ -114,24 +112,24 @@ def run(
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Stage 08: Lyapunov",
+        description="Stage 09: Dynamics",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-Computes per-signal Lyapunov exponents:
-  - lyapunov_exp: Largest Lyapunov exponent
+Computes per-signal dynamics metrics:
+  - ftle: Finite-Time Lyapunov Exponent
   - stability: stable/marginal/unstable/chaotic
   - embedding_dim, embedding_tau: Phase space parameters
 
 Example:
-  python -m prism.entry_points.stage_08_lyapunov \\
-      observations.parquet -o lyapunov.parquet
+  python -m prism.entry_points.stage_09_dynamics \\
+      observations.parquet -o dynamics.parquet
 """
     )
     parser.add_argument('observations', help='Path to observations.parquet')
-    parser.add_argument('-o', '--output', default='lyapunov.parquet',
-                        help='Output path (default: lyapunov.parquet)')
+    parser.add_argument('-o', '--output', default='dynamics.parquet',
+                        help='Output path (default: dynamics.parquet)')
     parser.add_argument('--min-samples', type=int, default=200,
-                        help='Minimum samples for Lyapunov (default: 200)')
+                        help='Minimum samples for computation (default: 200)')
     parser.add_argument('-q', '--quiet', action='store_true', help='Suppress output')
 
     args = parser.parse_args()

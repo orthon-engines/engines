@@ -2,12 +2,13 @@
 -- Statistics Engine (SQL)
 -- =============================================================================
 -- Computes basic statistics for each signal.
--- Input: observations table with (unit_id, signal_id, I, value)
+-- Input: observations table with (cohort, signal_id, I, value)
+-- Note: cohort is optional - uses COALESCE to handle NULL
 -- Output: signal-level statistics
 -- =============================================================================
 
 SELECT
-    unit_id,
+    COALESCE(cohort, '_default') AS cohort,
     signal_id,
     COUNT(*) AS n_points,
     AVG(value) AS mean,
@@ -22,5 +23,5 @@ SELECT
     VARIANCE(value) AS variance,
     STDDEV_SAMP(value) / NULLIF(ABS(AVG(value)), 0) AS cv
 FROM observations
-GROUP BY unit_id, signal_id
-ORDER BY unit_id, signal_id;
+GROUP BY COALESCE(cohort, '_default'), signal_id
+ORDER BY cohort, signal_id;

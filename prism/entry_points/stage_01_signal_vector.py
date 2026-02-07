@@ -169,7 +169,10 @@ def _load_legacy_engine_registry() -> Dict[str, Callable]:
         rate_of_change, variance_growth,
         fundamental_freq, phase_coherence, snr, thd,
         adf_stat, variance_ratio,
+        # Discrete/state engines (PR: Missing Discrete Engines)
+        dwell_times, level_count, level_histogram, transition_matrix,
     )
+    from prism.engines.signal import entropy as discrete_entropy
 
     return {
         # Core engines
@@ -241,6 +244,13 @@ def _load_legacy_engine_registry() -> Dict[str, Callable]:
         # Stationarity engines
         'adf_stat': adf_stat.compute,
         'variance_ratio': variance_ratio.compute,
+
+        # Discrete/state engines (for DISCRETE, BINARY, STEP, EVENT signals)
+        'dwell_times': dwell_times.compute,
+        'level_count': level_count.compute,
+        'level_histogram': level_histogram.compute,
+        'transition_matrix': transition_matrix.compute,
+        'entropy': discrete_entropy.compute,
     }
 
 

@@ -129,16 +129,20 @@ def run(
             continue
 
         try:
-            causality = compute_causality(x, y)
+            # Compute A → B direction
+            causality_ab = compute_causality(x, y)
+            # Compute B → A direction
+            causality_ba = compute_causality(y, x)
 
             results.append({
                 'signal_a': signal_a,
                 'signal_b': signal_b,
-                'granger_a_to_b': causality.get('granger_x_to_y'),
-                'granger_b_to_a': causality.get('granger_y_to_x'),
-                'transfer_entropy_a_to_b': causality.get('transfer_entropy_x_to_y'),
-                'transfer_entropy_b_to_a': causality.get('transfer_entropy_y_to_x'),
-                'mutual_info': causality.get('mutual_info'),
+                'granger_f_a_to_b': causality_ab.get('granger_f'),
+                'granger_p_a_to_b': causality_ab.get('granger_p'),
+                'granger_f_b_to_a': causality_ba.get('granger_f'),
+                'granger_p_b_to_a': causality_ba.get('granger_p'),
+                'transfer_entropy_a_to_b': causality_ab.get('transfer_entropy'),
+                'transfer_entropy_b_to_a': causality_ba.get('transfer_entropy'),
                 'n_samples': min_len,
             })
         except Exception as e:
@@ -158,8 +162,8 @@ def run(
         print(f"\nSaved: {output_path}")
         print(f"Shape: {result.shape}")
 
-        if len(result) > 0 and 'granger_a_to_b' in result.columns:
-            valid_granger = result.filter(pl.col('granger_a_to_b').is_not_null())
+        if len(result) > 0 and 'granger_f_a_to_b' in result.columns:
+            valid_granger = result.filter(pl.col('granger_f_a_to_b').is_not_null())
             if len(valid_granger) > 0:
                 print(f"\nGranger causality computed: {len(valid_granger)} pairs")
 

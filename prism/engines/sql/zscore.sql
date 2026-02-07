@@ -2,21 +2,22 @@
 -- Z-Score Engine (SQL)
 -- =============================================================================
 -- Computes z-score for each observation within its signal.
--- Input: observations table with (unit_id, signal_id, I, value)
+-- Input: observations table with (cohort, signal_id, I, value)
+-- Note: cohort is optional - uses COALESCE to handle NULL
 -- Output: enriched observations with z_score and is_anomaly columns
 -- =============================================================================
 
 WITH signal_stats AS (
     SELECT
-        unit_id,
+        COALESCE(cohort, '_default') AS cohort,
         signal_id,
         AVG(value) AS mean_value,
         STDDEV_SAMP(value) AS std_value
     FROM observations
-    GROUP BY unit_id, signal_id
+    GROUP BY COALESCE(cohort, '_default'), signal_id
 )
 SELECT
-    o.unit_id,
+    COALESCE(o.cohort, '_default') AS cohort,
     o.signal_id,
     o.I,
     o.value,
@@ -30,6 +31,6 @@ SELECT
     END AS is_anomaly
 FROM observations o
 INNER JOIN signal_stats s
-    ON o.unit_id = s.unit_id
+    ON COALESCE(o.cohort, '_default') = s.cohort
     AND o.signal_id = s.signal_id
-ORDER BY o.unit_id, o.signal_id, o.I;
+ORDER BY cohort, o.signal_id, o.I;

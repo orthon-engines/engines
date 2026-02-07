@@ -28,13 +28,27 @@ CORE_STAGES = [
     'stage_05_signal_geometry',
     'stage_06_signal_pairwise',
     'stage_07_geometry_dynamics',
-    'stage_08_lyapunov',
+    'stage_08_ftle',
     'stage_09_dynamics',
     'stage_10_information_flow',
     'stage_11_topology',
     'stage_12_zscore',
     'stage_13_statistics',
     'stage_14_correlation',
+    # stage_15_ftle_field is OPTIONAL - requires --stages 15 to run
+]
+
+# Advanced/optional stages (not run by default)
+ADVANCED_STAGES = [
+    'stage_15_ftle_field',         # Local FTLE fields around centroids (LCS detection)
+    'stage_16_break_sequence',     # Break propagation order (requires breaks.parquet)
+    'stage_17_ftle_backward',      # Backward FTLE (attracting structures)
+    'stage_18_segment_comparison', # Per-segment geometry deltas
+    'stage_19_info_flow_delta',    # Per-segment Granger deltas
+    'stage_20_geometry_full',      # Expanding window eigendecomp trajectory
+    'stage_21_velocity_field',     # State-space velocity: direction, speed, curvature
+    'stage_22_ftle_rolling',       # FTLE at each timestep
+    'stage_23_ridge_proximity',    # Urgency = velocity toward FTLE ridge
 ]
 
 # Stage dependencies for validation
@@ -47,13 +61,22 @@ STAGE_DEPS = {
     'stage_05_signal_geometry': ['signal_vector.parquet', 'state_vector.parquet'],
     'stage_06_signal_pairwise': ['signal_vector.parquet', 'state_vector.parquet'],
     'stage_07_geometry_dynamics': ['state_geometry.parquet'],
-    'stage_08_lyapunov': ['observations.parquet'],
-    'stage_09_dynamics': ['lyapunov.parquet'],
+    'stage_08_ftle': ['observations.parquet'],
+    'stage_09_dynamics': ['ftle.parquet'],
     'stage_10_information_flow': ['signal_pairwise.parquet'],
     'stage_11_topology': ['state_geometry.parquet', 'dynamics.parquet'],
     'stage_12_zscore': [],  # Reads from output_dir
     'stage_13_statistics': [],  # Reads from output_dir
     'stage_14_correlation': ['signal_vector.parquet'],
+    'stage_15_ftle_field': ['state_vector.parquet', 'state_geometry.parquet'],
+    'stage_16_break_sequence': ['breaks.parquet'],
+    'stage_17_ftle_backward': ['observations.parquet'],
+    'stage_18_segment_comparison': ['observations.parquet'],
+    'stage_19_info_flow_delta': ['observations.parquet'],
+    'stage_20_geometry_full': ['observations.parquet'],
+    'stage_21_velocity_field': ['observations.parquet'],
+    'stage_22_ftle_rolling': ['observations.parquet'],
+    'stage_23_ridge_proximity': ['ftle_rolling.parquet', 'velocity_field.parquet'],
 }
 
 
@@ -94,13 +117,15 @@ def run(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Determine which stages to run
+    # Include advanced stages only when explicitly requested
+    all_stages = CORE_STAGES + ADVANCED_STAGES
     if stages:
         run_stages = [
-            s for s in CORE_STAGES
+            s for s in all_stages
             if get_stage_number(s) in stages
         ]
     else:
-        run_stages = CORE_STAGES.copy()
+        run_stages = CORE_STAGES.copy()  # Default excludes advanced stages
 
     # Apply skip filter
     if skip:
@@ -210,9 +235,15 @@ def run(
                 )
 
             elif stage_num == '08':
-                # Lyapunov
+                # FTLE (Finite-Time Lyapunov Exponents)
                 obs_path = manifest_path.parent / manifest['paths']['observations']
-                module.run(str(obs_path), str(output_dir / 'lyapunov.parquet'), verbose=verbose)
+                intervention = manifest.get('intervention')
+                module.run(
+                    str(obs_path),
+                    str(output_dir / 'ftle.parquet'),
+                    verbose=verbose,
+                    intervention=intervention,
+                )
 
             elif stage_num == '09':
                 # Dynamics - reads observations (like Lyapunov)
@@ -256,6 +287,124 @@ def run(
                     verbose=verbose,
                 )
 
+            elif stage_num == '15':
+                # FTLE Field - Local FTLE around centroids (LCS detection)
+                module.run(
+                    str(output_dir / 'state_vector.parquet'),
+                    str(output_dir / 'state_geometry.parquet'),
+                    str(output_dir / 'ftle_field.parquet'),
+                    verbose=verbose,
+                )
+
+            elif stage_num == '16':
+                # Break Sequence - propagation order
+                intervention = manifest.get('intervention')
+                ref_index = intervention.get('event_index', 0) if intervention else None
+                module.run(
+                    str(output_dir / 'breaks.parquet'),
+                    str(output_dir / 'break_sequence.parquet'),
+                    reference_index=ref_index,
+                    verbose=verbose,
+                )
+
+            elif stage_num == '17':
+                # Backward FTLE - attracting structures
+                obs_path = manifest_path.parent / manifest['paths']['observations']
+                intervention = manifest.get('intervention')
+                module.run(
+                    str(obs_path),
+                    str(output_dir / 'ftle_backward.parquet'),
+                    verbose=verbose,
+                    intervention=intervention,
+                    direction='backward',
+                )
+
+            elif stage_num == '18':
+                # Segment comparison - per-segment geometry
+                obs_path = manifest_path.parent / manifest['paths']['observations']
+                intervention = manifest.get('intervention')
+                segments_config = manifest.get('segments')
+
+                # Build segments from intervention or manifest config
+                if segments_config:
+                    segments = segments_config
+                elif intervention and intervention.get('enabled'):
+                    event_idx = intervention.get('event_index', 20)
+                    segments = [
+                        {'name': 'pre', 'range': [0, event_idx - 1]},
+                        {'name': 'post', 'range': [event_idx, None]},
+                    ]
+                else:
+                    segments = None  # Use default
+
+                module.run(
+                    str(obs_path),
+                    str(output_dir / 'segment_comparison.parquet'),
+                    segments=segments,
+                    verbose=verbose,
+                )
+
+            elif stage_num == '19':
+                # Information flow delta - per-segment Granger
+                obs_path = manifest_path.parent / manifest['paths']['observations']
+                intervention = manifest.get('intervention')
+                segments_config = manifest.get('segments')
+
+                if segments_config:
+                    segments = segments_config
+                elif intervention and intervention.get('enabled'):
+                    event_idx = intervention.get('event_index', 20)
+                    segments = [
+                        {'name': 'pre', 'range': [0, event_idx - 1]},
+                        {'name': 'post', 'range': [event_idx, None]},
+                    ]
+                else:
+                    segments = None
+
+                module.run(
+                    str(obs_path),
+                    str(output_dir / 'info_flow_delta.parquet'),
+                    segments=segments,
+                    verbose=verbose,
+                )
+
+            elif stage_num == '20':
+                # Full-span geometry - expanding window eigendecomp
+                obs_path = manifest_path.parent / manifest['paths']['observations']
+                module.run(
+                    str(obs_path),
+                    str(output_dir / 'geometry_full.parquet'),
+                    verbose=verbose,
+                )
+
+            elif stage_num == '21':
+                # Velocity field - state-space motion
+                obs_path = manifest_path.parent / manifest['paths']['observations']
+                module.run(
+                    str(obs_path),
+                    str(output_dir / 'velocity_field.parquet'),
+                    verbose=verbose,
+                )
+
+            elif stage_num == '22':
+                # Rolling FTLE - stability evolution
+                obs_path = manifest_path.parent / manifest['paths']['observations']
+                module.run(
+                    str(obs_path),
+                    str(output_dir / 'ftle_rolling.parquet'),
+                    verbose=verbose,
+                )
+
+            elif stage_num == '23':
+                # Ridge proximity - urgency metric
+                # Requires ftle_rolling and velocity_field
+                module.run(
+                    str(output_dir / 'ftle_rolling.parquet'),
+                    str(output_dir / 'velocity_field.parquet'),
+                    str(output_dir / 'ridge_proximity.parquet'),
+                    verbose=verbose,
+                )
+
             else:
                 if verbose:
                     print(f"  Warning: Unknown stage number {stage_num}")
@@ -290,13 +439,20 @@ Stage Order:
   05: signal_geometry  - Signal-to-state relationships
   06: signal_pairwise  - Pairwise with PC gating
   07: geometry_dynamics - d1/d2/d3 of geometry
-  08: lyapunov         - Per-signal Lyapunov
+  08: ftle             - Per-signal FTLE (Finite-Time Lyapunov)
   09: dynamics         - Full dynamics
   10: information_flow - Granger causality
   11: topology         - Topological features
   12: zscore           - Normalization
   13: statistics       - Summary stats
   14: correlation      - Correlation matrix
+
+Advanced (opt-in via --stages 15,16,17,18,19):
+  15: ftle_field         - Local FTLE fields (LCS detection)
+  16: break_sequence     - Propagation order (uses intervention.event_index)
+  17: ftle_backward      - Backward FTLE (attracting structures)
+  18: segment_comparison - Per-segment geometry with deltas
+  19: info_flow_delta    - Per-segment Granger with link changes
 
 Examples:
   python -m prism.entry_points.run_pipeline manifest.yaml

@@ -51,6 +51,8 @@ def lyapunov_rosenstein(
     3. Track divergence over time
     4. Fit slope to log(divergence) vs time
     """
+    from scipy.spatial import KDTree
+
     signal = np.asarray(signal).flatten()
     n = len(signal)
 
@@ -71,23 +73,25 @@ def lyapunov_rosenstein(
     if n_points < min_tsep + max_iter + 10:
         return np.nan, np.array([]), np.array([])
 
-    # Find nearest neighbors (excluding temporal neighbors)
-    nn_indices = np.zeros(n_points, dtype=int)
+    # Find nearest neighbors using KDTree (O(n log n) instead of O(n²))
+    # Query enough neighbors to find one outside temporal exclusion zone
+    tree = KDTree(embedded)
+    k_query = min(min_tsep + 10, n_points)  # Query enough to find valid neighbor
+
+    nn_indices = np.full(n_points, -1, dtype=int)
     nn_dists = np.full(n_points, np.inf)
 
+    # Query all points at once for efficiency
+    dists_all, indices_all = tree.query(embedded, k=k_query)
+
     for i in range(n_points):
-        min_dist = np.inf
-        min_idx = -1
-
-        for j in range(n_points):
-            if abs(i - j) >= min_tsep:
-                dist = np.linalg.norm(embedded[i] - embedded[j])
-                if dist < min_dist and dist > 0:
-                    min_dist = dist
-                    min_idx = j
-
-        nn_indices[i] = min_idx
-        nn_dists[i] = min_dist
+        # Find first neighbor outside temporal exclusion zone
+        for k in range(k_query):
+            j = indices_all[i, k]
+            if abs(i - j) >= min_tsep and dists_all[i, k] > 0:
+                nn_indices[i] = j
+                nn_dists[i] = dists_all[i, k]
+                break
 
     # Track divergence
     divergence = np.zeros(max_iter)

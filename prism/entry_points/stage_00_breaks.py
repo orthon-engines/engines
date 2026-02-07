@@ -50,65 +50,92 @@ def run(
         print("=" * 70)
 
     obs = pl.read_parquet(observations_path)
+    has_cohort = 'cohort' in obs.columns
 
     # Get unique signal_ids
     signal_ids = obs['signal_id'].unique().sort().to_list()
     if verbose:
         print(f"Signals: {len(signal_ids)}")
+        if has_cohort:
+            n_cohorts = obs['cohort'].n_unique()
+            print(f"Cohorts: {n_cohorts}")
 
     all_breaks = []
     summaries = {}
 
     for sig_id in signal_ids:
-        # Extract signal values ordered by I
-        signal_data = (
-            obs
-            .filter(pl.col('signal_id') == sig_id)
-            .sort('I')
-        )
-        y = signal_data['value'].to_numpy()
+        sig_data = obs.filter(pl.col('signal_id') == sig_id)
 
-        # Detect breaks
-        breaks = compute(
-            y,
-            signal_id=sig_id,
-            sensitivity=sensitivity,
-            min_spacing=min_spacing,
-            context_window=context_window,
-        )
+        if has_cohort:
+            # Process per cohort
+            cohorts = sig_data['cohort'].unique().to_list()
+            for cohort in cohorts:
+                cohort_data = sig_data.filter(pl.col('cohort') == cohort).sort('I')
+                y = cohort_data['value'].to_numpy()
 
-        all_breaks.extend(breaks)
-        summaries[sig_id] = summarize_breaks(breaks)
+                # Detect breaks
+                breaks = compute(
+                    y,
+                    signal_id=sig_id,
+                    sensitivity=sensitivity,
+                    min_spacing=min_spacing,
+                    context_window=context_window,
+                )
 
-        if verbose and breaks:
-            print(f"  {sig_id}: {len(breaks)} breaks detected")
+                # Add cohort to each break
+                for brk in breaks:
+                    brk['cohort'] = cohort
 
-    # Build output DataFrame
-    if all_breaks:
-        breaks_df = pl.DataFrame(all_breaks, schema={
-            'signal_id': pl.Utf8,
-            'I': pl.UInt32,
-            'magnitude': pl.Float64,
-            'direction': pl.Int8,
-            'sharpness': pl.Float64,
-            'duration': pl.UInt32,
-            'pre_level': pl.Float64,
-            'post_level': pl.Float64,
-            'snr': pl.Float64,
-        })
+                all_breaks.extend(breaks)
+                key = f"{cohort}/{sig_id}"
+                summaries[key] = summarize_breaks(breaks)
+
+                if verbose and breaks:
+                    print(f"  {cohort}/{sig_id}: {len(breaks)} breaks")
+        else:
+            # No cohort - original behavior
+            signal_data = sig_data.sort('I')
+            y = signal_data['value'].to_numpy()
+
+            # Detect breaks
+            breaks = compute(
+                y,
+                signal_id=sig_id,
+                sensitivity=sensitivity,
+                min_spacing=min_spacing,
+                context_window=context_window,
+            )
+
+            all_breaks.extend(breaks)
+            summaries[sig_id] = summarize_breaks(breaks)
+
+            if verbose and breaks:
+                print(f"  {sig_id}: {len(breaks)} breaks detected")
+
+    # Build output DataFrame with appropriate schema
+    base_schema = {
+        'signal_id': pl.Utf8,
+        'I': pl.UInt32,
+        'magnitude': pl.Float64,
+        'direction': pl.Int8,
+        'sharpness': pl.Float64,
+        'duration': pl.UInt32,
+        'pre_level': pl.Float64,
+        'post_level': pl.Float64,
+        'snr': pl.Float64,
+    }
+
+    if has_cohort:
+        # Insert cohort after signal_id
+        schema = {'signal_id': pl.Utf8, 'cohort': pl.Utf8}
+        schema.update({k: v for k, v in base_schema.items() if k != 'signal_id'})
     else:
-        # Empty with correct schema
-        breaks_df = pl.DataFrame(schema={
-            'signal_id': pl.Utf8,
-            'I': pl.UInt32,
-            'magnitude': pl.Float64,
-            'direction': pl.Int8,
-            'sharpness': pl.Float64,
-            'duration': pl.UInt32,
-            'pre_level': pl.Float64,
-            'post_level': pl.Float64,
-            'snr': pl.Float64,
-        })
+        schema = base_schema
+
+    if all_breaks:
+        breaks_df = pl.DataFrame(all_breaks, schema=schema)
+    else:
+        breaks_df = pl.DataFrame(schema=schema)
 
     # Write
     breaks_df.write_parquet(output_path)
