@@ -1,0 +1,23 @@
+engine: hmm
+version: "1.0"
+
+requirements:
+  base_window: 128
+  min_window: 30
+  max_window: 1024
+  scaling: linear
+
+outputs:
+  - hmm_n_states
+  - hmm_current_state
+  - hmm_current_state_prob
+  - hmm_state_entropy
+  - hmm_transition_rate
+  - hmm_bic
+  - hmm_log_likelihood
+
+dependencies: []
+
+metadata:
+  description: Hidden Markov Model for probabilistic regime detection
+  category: dynamics

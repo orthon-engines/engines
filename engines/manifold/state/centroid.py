@@ -31,11 +31,11 @@ def compute(signal_matrix: np.ndarray, min_signals: int = 2) -> Dict[str, Any]:
 
     N, D = signal_matrix.shape
 
-    # Remove NaN/Inf rows
-    valid_mask = np.isfinite(signal_matrix).all(axis=1)
-    n_valid = valid_mask.sum()
+    # Count signals with at least 1 valid (finite) feature
+    any_valid = np.isfinite(signal_matrix).any(axis=1)
+    n_contributing = int(any_valid.sum())
 
-    if n_valid < min_signals:
+    if n_contributing < min_signals:
         return {
             'centroid': np.full(D, np.nan),
             'n_signals': 0,
@@ -45,22 +45,28 @@ def compute(signal_matrix: np.ndarray, min_signals: int = 2) -> Dict[str, Any]:
             'std_distance': np.nan,
         }
 
-    signal_matrix = signal_matrix[valid_mask]
+    # Centroid = nanmean across signals with any valid feature
+    centroid = np.nanmean(signal_matrix[any_valid], axis=0)
 
-    # Centroid = mean position
-    centroid = np.mean(signal_matrix, axis=0)
-
-    # Distance metrics (dispersion around centroid)
-    centered = signal_matrix - centroid
-    distances = np.linalg.norm(centered, axis=1)
+    # Distance metrics from fully-valid rows only (no NaN imputation for distances)
+    all_valid = np.isfinite(signal_matrix).all(axis=1)
+    if all_valid.sum() >= 2:
+        distances = np.linalg.norm(signal_matrix[all_valid] - centroid, axis=1)
+        mean_distance = float(np.mean(distances))
+        max_distance = float(np.max(distances))
+        std_distance = float(np.std(distances))
+    else:
+        mean_distance = np.nan
+        max_distance = np.nan
+        std_distance = np.nan
 
     return {
         'centroid': centroid,
-        'n_signals': int(n_valid),
+        'n_signals': n_contributing,
         'n_features': D,
-        'mean_distance': float(np.mean(distances)),
-        'max_distance': float(np.max(distances)),
-        'std_distance': float(np.std(distances)),
+        'mean_distance': mean_distance,
+        'max_distance': max_distance,
+        'std_distance': std_distance,
     }
 
 

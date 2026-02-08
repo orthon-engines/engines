@@ -22,6 +22,10 @@ from pathlib import Path
 from typing import Dict, Any, List, Optional
 
 from engines.manifold.pairwise.causality import compute_all as compute_causality
+from engines.primitives.pairwise.distance import dynamic_time_warping
+from engines.manifold.pairwise.correlation import compute_mutual_info
+from engines.primitives.information.divergence import kl_divergence, js_divergence
+from engines.manifold.pairwise import cointegration, copula
 
 
 def run(
@@ -128,26 +132,84 @@ def run(
         if len(x) < min_samples:
             continue
 
-        try:
-            # Compute A → B direction
-            causality_ab = compute_causality(x, y)
-            # Compute B → A direction
-            causality_ba = compute_causality(y, x)
+        row = {
+            'signal_a': signal_a,
+            'signal_b': signal_b,
+            'n_samples': min_len,
+        }
 
-            results.append({
-                'signal_a': signal_a,
-                'signal_b': signal_b,
-                'granger_f_a_to_b': causality_ab.get('granger_f'),
-                'granger_p_a_to_b': causality_ab.get('granger_p'),
-                'granger_f_b_to_a': causality_ba.get('granger_f'),
-                'granger_p_b_to_a': causality_ba.get('granger_p'),
-                'transfer_entropy_a_to_b': causality_ab.get('transfer_entropy'),
-                'transfer_entropy_b_to_a': causality_ba.get('transfer_entropy'),
-                'n_samples': min_len,
-            })
+        # Granger causality + transfer entropy
+        try:
+            causality_ab = compute_causality(x, y)
+            causality_ba = compute_causality(y, x)
+            row['granger_f_a_to_b'] = causality_ab.get('granger_f')
+            row['granger_p_a_to_b'] = causality_ab.get('granger_p')
+            row['granger_f_b_to_a'] = causality_ba.get('granger_f')
+            row['granger_p_b_to_a'] = causality_ba.get('granger_p')
+            row['transfer_entropy_a_to_b'] = causality_ab.get('transfer_entropy')
+            row['transfer_entropy_b_to_a'] = causality_ba.get('transfer_entropy')
         except Exception as e:
             if verbose:
-                print(f"  Warning: {signal_a}->{signal_b}: {e}")
+                print(f"  Warning: Granger {signal_a}->{signal_b}: {e}")
+
+        # DTW distance
+        try:
+            row['dtw_distance'] = dynamic_time_warping(x, y)
+        except Exception:
+            row['dtw_distance'] = np.nan
+
+        # Mutual information
+        try:
+            mi_result = compute_mutual_info(x, y)
+            row['mutual_info'] = mi_result.get('mutual_info', np.nan)
+            row['normalized_mi'] = mi_result.get('normalized_mi', np.nan)
+        except Exception:
+            row['mutual_info'] = np.nan
+            row['normalized_mi'] = np.nan
+
+        # KL + JS divergence
+        try:
+            row['kl_divergence_a_to_b'] = kl_divergence(x, y)
+            row['kl_divergence_b_to_a'] = kl_divergence(y, x)
+            row['js_divergence'] = js_divergence(x, y)
+        except Exception:
+            row['kl_divergence_a_to_b'] = np.nan
+            row['kl_divergence_b_to_a'] = np.nan
+            row['js_divergence'] = np.nan
+
+        # Cointegration
+        try:
+            coint = cointegration.compute(x, y)
+            row['is_cointegrated'] = coint.get('is_cointegrated', False)
+            row['hedge_ratio'] = coint.get('hedge_ratio', np.nan)
+            row['half_life'] = coint.get('half_life', np.nan)
+            row['spread_zscore'] = coint.get('spread_zscore', np.nan)
+        except Exception:
+            empty_coint = cointegration._empty_result(len(x))
+            row['is_cointegrated'] = empty_coint['is_cointegrated']
+            row['hedge_ratio'] = empty_coint['hedge_ratio']
+            row['half_life'] = empty_coint['half_life']
+            row['spread_zscore'] = empty_coint['spread_zscore']
+
+        # Copula
+        try:
+            cop = copula.compute(x, y)
+            row['copula_best_family'] = cop.get('best_family')
+            row['kendall_tau'] = cop.get('kendall_tau', np.nan)
+            row['spearman_rho'] = cop.get('spearman_rho', np.nan)
+            row['lower_tail_dependence'] = cop.get('lower_tail_dependence', np.nan)
+            row['upper_tail_dependence'] = cop.get('upper_tail_dependence', np.nan)
+            row['tail_asymmetry'] = cop.get('tail_asymmetry', np.nan)
+        except Exception:
+            empty_cop = copula._empty_result(len(x))
+            row['copula_best_family'] = empty_cop['best_family']
+            row['kendall_tau'] = empty_cop['kendall_tau']
+            row['spearman_rho'] = empty_cop['spearman_rho']
+            row['lower_tail_dependence'] = empty_cop['lower_tail_dependence']
+            row['upper_tail_dependence'] = empty_cop['upper_tail_dependence']
+            row['tail_asymmetry'] = empty_cop['tail_asymmetry']
+
+        results.append(row)
 
         if verbose and (i + 1) % 100 == 0:
             print(f"  Processed {i + 1}/{n_granger} pairs...")

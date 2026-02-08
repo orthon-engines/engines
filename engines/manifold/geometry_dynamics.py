@@ -370,6 +370,21 @@ def compute_geometry_dynamics(
         # Detect collapse (computed values only, no classification)
         collapse = detect_collapse(effective_dim)
 
+        if verbose and collapse['collapse_onset_idx'] is None:
+            vel = eff_dim_deriv['velocity']
+            min_v = float(np.min(vel))
+            cfg = _get_collapse_config()
+            below = vel < cfg['threshold_velocity']
+            if below.any():
+                # Count longest run below threshold for diagnostics
+                changes = np.concatenate(([below[0]], below[:-1] != below[1:], [True]))
+                run_lengths = np.diff(np.where(changes)[0])
+                below_runs = run_lengths[::2] if below[0] else run_lengths[1::2]
+                max_run = int(max(below_runs)) if len(below_runs) > 0 else 0
+            else:
+                max_run = 0
+            print(f"    {engine}: no collapse (min_vel={min_v:.3f}, longest_run={max_run}, need={cfg['min_collapse_length']})")
+
         # Build result rows - computed values only, NO classification
         for i in range(n):
             row = {

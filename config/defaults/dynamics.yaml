@@ -16,11 +16,11 @@ derivatives:
 # Collapse detection settings
 collapse:
   # Velocity threshold below which effective_dim is considered collapsing
-  threshold_velocity: -0.1
+  threshold_velocity: -0.05
   # Fraction of points that must be collapsing for detection
   sustained_fraction: 0.3
   # Minimum consecutive points for collapse event
-  min_collapse_length: 5
+  min_collapse_length: 3
 
 # Phase space reconstruction settings (Takens embedding)
 phase_space:

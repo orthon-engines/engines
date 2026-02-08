@@ -62,8 +62,12 @@ topology = [
     "persim>=0.3",
 ]
 
+hmm = [
+    "hmmlearn>=0.3.0",
+]
+
 all = [
-    "orthon-engines[dynamics,ml,topology]"
+    "orthon-engines[dynamics,ml,topology,hmm]"
 ]
 
 [project.urls]

@@ -147,8 +147,8 @@ def compute_signal_geometry_at_index(
     for i, signal_id in enumerate(signal_ids):
         signal = signal_matrix[i]
 
-        # Skip invalid signals
-        if not np.isfinite(signal).all():
+        # Skip only if ALL features are NaN (no usable data)
+        if not np.isfinite(signal).any():
             results.append({
                 'signal_id': signal_id,
                 'distance': np.nan,
@@ -159,12 +159,14 @@ def compute_signal_geometry_at_index(
             })
             continue
 
-        signal_norm = np.linalg.norm(signal)
+        # Impute NaN features with centroid values (signal is "at the centroid" for missing features)
+        signal_clean = np.where(np.isfinite(signal), signal, centroid)
+        signal_norm = np.linalg.norm(signal_clean)
 
         # ─────────────────────────────────────────────────
         # DISTANCE to centroid → ENGINES PRIMITIVE
         # ─────────────────────────────────────────────────
-        distance = engines.euclidean_distance(signal, centroid)
+        distance = engines.euclidean_distance(signal_clean, centroid)
 
         # ─────────────────────────────────────────────────
         # COHERENCE to PC1 (or centroid direction) → ENGINES PRIMITIVE
@@ -172,7 +174,7 @@ def compute_signal_geometry_at_index(
         # ─────────────────────────────────────────────────
         if signal_norm > min_norm and pc1_norm > min_norm:
             # Center signal first for coherence
-            centered = signal - centroid
+            centered = signal_clean - centroid
             centered_norm = np.linalg.norm(centered)
             if centered_norm > min_norm:
                 # Use ENGINES cosine_similarity for coherence
@@ -187,7 +189,7 @@ def compute_signal_geometry_at_index(
         # How much does this signal contribute to the state?
         # ─────────────────────────────────────────────────
         if centroid_norm > min_norm:
-            contribution = np.dot(signal, centroid) / centroid_norm
+            contribution = np.dot(signal_clean, centroid) / centroid_norm
         else:
             contribution = 0.0
 
@@ -196,8 +198,8 @@ def compute_signal_geometry_at_index(
         # What part of signal is NOT explained by state?
         # ─────────────────────────────────────────────────
         if centroid_norm > min_norm:
-            projection_on_centroid = (np.dot(signal, centroid) / (centroid_norm ** 2)) * centroid
-            residual_vector = signal - projection_on_centroid
+            projection_on_centroid = (np.dot(signal_clean, centroid) / (centroid_norm ** 2)) * centroid
+            residual_vector = signal_clean - projection_on_centroid
             residual = np.linalg.norm(residual_vector)
         else:
             residual = signal_norm

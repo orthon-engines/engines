@@ -9,6 +9,7 @@ Thin wrapper over primitives/individual/fractal.py and correlation.py.
 Primitives handle min_samples via config - no redundant checks here.
 """
 
+import warnings
 import numpy as np
 from typing import Dict, Any
 
@@ -74,6 +75,11 @@ def compute_acf_decay(y: np.ndarray, max_lag: int = 50) -> Dict[str, Any]:
 
     if n < max_lag:
         max_lag = n // 2
+    if max_lag < 11:
+        warnings.warn(
+            f"acf_decay: max_lag={max_lag} < 11, acf_lag10 will be NaN "
+            f"(need >= 22 samples, got {n})"
+        )
     if max_lag < 2:
         return {
             'acf_lag1': np.nan,

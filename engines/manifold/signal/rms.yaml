@@ -1,0 +1,17 @@
+engine: rms
+version: "1.0"
+
+requirements:
+  base_window: 4
+  min_window: 2
+  max_window: 1024
+  scaling: linear
+
+outputs:
+  - rms
+
+dependencies: []
+
+metadata:
+  description: Root Mean Square amplitude
+  category: statistics

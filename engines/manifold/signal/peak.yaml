@@ -1,0 +1,18 @@
+engine: peak
+version: "1.0"
+
+requirements:
+  base_window: 4
+  min_window: 2
+  max_window: 1024
+  scaling: linear
+
+outputs:
+  - peak
+  - peak_to_peak
+
+dependencies: []
+
+metadata:
+  description: Peak and peak-to-peak amplitude
+  category: statistics

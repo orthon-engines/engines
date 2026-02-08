@@ -58,7 +58,7 @@ _LEGACY_ENGINE_REQUIREMENTS: Dict[str, int] = {
     'permutation_entropy': 20,
     'perm_entropy': 20,
     'dfa': 20,
-    'acf_decay': 16,
+    'acf_decay': 22,
     'kurtosis': 4,
     'skewness': 4,
     'crest_factor': 4,
@@ -71,6 +71,14 @@ _LEGACY_ENGINE_REQUIREMENTS: Dict[str, int] = {
     'lof': 20,
     'pulsation_index': 8,
     'time_constant': 16,
+    'rqa': 50,
+    'peak': 2,
+    'rms': 2,
+    'correlation_dimension': 64,
+    'determinism': 32,
+    'embedding_dim': 64,
+    'recurrence_rate': 32,
+    'hmm': 128,
 }
 
 # Default minimum for unlisted engines
@@ -142,10 +150,10 @@ def group_engines_by_window(
         else:
             # Use registry-based window with factor
             window = get_engine_window(engine, window_factor)
-            # Fall back to default if registry doesn't have this engine
+            # Legacy engines not in registry: use their own min_samples, not default_window
             registry = get_registry()
             if not registry.has_engine(engine):
-                window = default_window
+                window = get_engine_min_samples(engine)
 
         if window not in groups:
             groups[window] = []
@@ -171,6 +179,11 @@ def _load_legacy_engine_registry() -> Dict[str, Callable]:
         adf_stat, variance_ratio,
         # Discrete/state engines (PR: Missing Discrete Engines)
         dwell_times, level_count, level_histogram, transition_matrix,
+        # RQA + amplitude engines
+        rqa, peak, rms,
+        correlation_dimension, determinism, embedding_dim, recurrence_rate,
+        # HMM regime detection
+        hmm,
     )
     from engines.manifold.signal import entropy as discrete_entropy
 
@@ -251,6 +264,18 @@ def _load_legacy_engine_registry() -> Dict[str, Callable]:
         'level_histogram': level_histogram.compute,
         'transition_matrix': transition_matrix.compute,
         'entropy': discrete_entropy.compute,
+
+        # RQA engines (full + individual)
+        'rqa': rqa.compute,
+        'peak': peak.compute,
+        'rms': rms.compute,
+        'correlation_dimension': correlation_dimension.compute,
+        'determinism': determinism.compute,
+        'embedding_dim': embedding_dim.compute,
+        'recurrence_rate': recurrence_rate.compute,
+
+        # HMM regime detection
+        'hmm': hmm.compute,
     }
 
 
@@ -663,6 +688,21 @@ def run(
 
     # Load observations
     obs = pl.read_parquet(observations_path)
+
+    # Validate obs signals vs typology signals
+    if typology_path:
+        typology_file = Path(typology_path)
+        if typology_file.exists():
+            typology_df = pl.read_parquet(typology_file)
+            obs_signals = set(obs['signal_id'].unique().to_list())
+            typo_signals = set(typology_df['signal_id'].unique().to_list())
+            missing_from_typology = obs_signals - typo_signals
+            if missing_from_typology:
+                print(f"\n  WARNING: {len(missing_from_typology)} signals in observations NOT in typology:")
+                for sig in sorted(missing_from_typology):
+                    n = obs.filter(pl.col('signal_id') == sig).height
+                    print(f"    {sig} ({n} observations)")
+                print("  Re-run Orthon typology pipeline to include them.\n")
 
     if verbose:
         n_signals = obs['signal_id'].n_unique()

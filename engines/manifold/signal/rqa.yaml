@@ -1,0 +1,20 @@
+engine: rqa
+version: "1.0"
+
+requirements:
+  base_window: 64
+  min_window: 50
+  max_window: 512
+  scaling: linear
+
+outputs:
+  - recurrence_rate
+  - determinism
+  - correlation_dimension
+  - embedding_dim
+
+dependencies: []
+
+metadata:
+  description: Recurrence Quantification Analysis
+  category: dynamics

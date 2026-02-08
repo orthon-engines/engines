@@ -42,7 +42,7 @@ def run(
     output_path: str = "info_flow_delta.parquet",
     segments: List[Dict[str, Any]] = None,
     max_lag: int = 5,
-    min_samples: int = 50,
+    min_samples: int = None,
     p_threshold: float = 0.05,
     verbose: bool = True,
 ) -> pl.DataFrame:
@@ -61,11 +61,16 @@ def run(
     Returns:
         info_flow_delta DataFrame
     """
+    # Adaptive min_samples: Granger at max_lag needs ~3*lag+5 observations minimum
+    if min_samples is None:
+        min_samples = max(3 * max_lag + 5, 15)
+
     if verbose:
         print("=" * 70)
         print("STAGE 19: INFORMATION FLOW DELTA")
         print("Per-segment Granger causality with link change classification")
         print("=" * 70)
+        print(f"  min_samples={min_samples} (adaptive from max_lag={max_lag})")
 
     if segments is None or len(segments) < 2:
         if verbose:
@@ -121,12 +126,7 @@ def run(
                 (pl.col('I') >= start_i) & (pl.col('I') <= end_i)
             )
 
-            n_per_signal = len(seg_data) // len(signals) if len(signals) > 0 else 0
-
-            if n_per_signal < min_samples:
-                continue
-
-            # Pivot to wide format
+            # Pivot to wide format (rows = I values, columns = signals)
             try:
                 wide = seg_data.pivot(
                     values='value',
@@ -137,6 +137,9 @@ def run(
                 continue
 
             if wide is None or len(wide) < min_samples:
+                if verbose:
+                    n_wide = 0 if wide is None else len(wide)
+                    print(f"    Skipping segment '{seg_name}': {n_wide} I values < min_samples={min_samples}")
                 continue
 
             # Compute pairwise Granger
@@ -309,8 +312,8 @@ Example:
                         help='I value to split at (default: 20)')
     parser.add_argument('--max-lag', type=int, default=5,
                         help='Maximum lag for Granger test (default: 5)')
-    parser.add_argument('--min-samples', type=int, default=50,
-                        help='Minimum samples per segment (default: 50)')
+    parser.add_argument('--min-samples', type=int, default=None,
+                        help='Minimum samples per segment (default: adaptive from max_lag)')
     parser.add_argument('-q', '--quiet', action='store_true', help='Suppress output')
 
     args = parser.parse_args()

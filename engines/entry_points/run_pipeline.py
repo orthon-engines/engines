@@ -48,6 +48,7 @@ ADVANCED_STAGES = [
     'stage_21_velocity_field',     # State-space velocity: direction, speed, curvature
     'stage_22_ftle_rolling',       # FTLE at each timestep
     'stage_23_ridge_proximity',    # Urgency = velocity toward FTLE ridge
+    'stage_24_gaussian_fingerprint',  # Gaussian fingerprints + pairwise similarity
 ]
 
 # Stage dependencies for validation
@@ -75,6 +76,7 @@ STAGE_DEPS = {
     'stage_21_velocity_field': ['observations.parquet'],
     'stage_22_ftle_rolling': ['observations.parquet'],
     'stage_23_ridge_proximity': ['ftle_rolling.parquet', 'velocity_field.parquet'],
+    'stage_24_gaussian_fingerprint': ['signal_vector.parquet'],
 }
 
 
@@ -391,6 +393,15 @@ def run(
                     str(output_dir / 'ftle_rolling.parquet'),
                     str(output_dir / 'velocity_field.parquet'),
                     str(output_dir / 'ridge_proximity.parquet'),
+                    verbose=verbose,
+                )
+
+            elif stage_num == '24':
+                # Gaussian fingerprint + similarity
+                module.run(
+                    str(output_dir / 'signal_vector.parquet'),
+                    str(output_dir / 'gaussian_fingerprint.parquet'),
+                    str(output_dir / 'gaussian_similarity.parquet'),
                     verbose=verbose,
                 )
 
