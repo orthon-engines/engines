@@ -189,7 +189,8 @@ def run(
                 )
                 print("\nMost stability-variable signals:")
                 for r in var_by_signal.iter_rows(named=True):
-                    print(f"  {r['signal_id']}: std={r['ftle_variability']:.4f}")
+                    v = r['ftle_variability']
+                    print(f"  {r['signal_id']}: std={v:.4f}" if v is not None else f"  {r['signal_id']}: std=N/A")
 
         print()
         print("─" * 50)
