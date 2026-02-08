@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import List, Dict, Optional, Any
 
 # Import the actual computation from engine
-from engines.engines.state.eigendecomp import (
+from engines.manifold.state.eigendecomp import (
     compute as compute_eigenvalues_engine,
     enforce_eigenvector_continuity,
     bootstrap_effective_dim,
@@ -25,7 +25,7 @@ from engines.engines.state.eigendecomp import (
 
 # Feature groups
 try:
-    from engines.engines.geometry.config import DEFAULT_FEATURE_GROUPS
+    from engines.manifold.geometry.config import DEFAULT_FEATURE_GROUPS
 except ImportError:
     DEFAULT_FEATURE_GROUPS = {
         'shape': ['kurtosis', 'skewness', 'crest_factor'],

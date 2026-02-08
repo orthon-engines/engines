@@ -16,12 +16,12 @@ from pathlib import Path
 from typing import List, Dict, Optional, Any
 
 # Import the actual computation from engine
-from engines.engines.state.centroid import compute as compute_centroid_engine
+from engines.manifold.state.centroid import compute as compute_centroid_engine
 
 
 # Feature groups for per-engine centroids
 try:
-    from engines.engines.geometry.config import DEFAULT_FEATURE_GROUPS, FALLBACK_FEATURES
+    from engines.manifold.geometry.config import DEFAULT_FEATURE_GROUPS, FALLBACK_FEATURES
 except ImportError:
     DEFAULT_FEATURE_GROUPS = {
         'shape': ['kurtosis', 'skewness', 'crest_factor'],

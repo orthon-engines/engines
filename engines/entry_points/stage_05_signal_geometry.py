@@ -24,7 +24,7 @@ import polars as pl
 from pathlib import Path
 from typing import Optional
 
-from engines.engines.signal_geometry import compute_signal_geometry
+from engines.manifold.signal_geometry import compute_signal_geometry
 
 
 def run(

@@ -20,7 +20,7 @@ import os
 
 def _process_entity(entity_id: str, obs: pl.DataFrame, params: Dict[str, Any]) -> List[Dict]:
     """Process a single entity - designed for parallel execution."""
-    from engines.engines.signal import transfer_entropy, granger
+    from engines.manifold.signal import transfer_entropy, granger
 
     min_samples = params.get('min_samples', 50)
     te_lag = params.get('te_lag', 1)

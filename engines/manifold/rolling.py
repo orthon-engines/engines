@@ -38,7 +38,7 @@ def compute(
         dict with rolling_{key} arrays for each output key
         
     Example:
-        from engines.engines.signal import memory
+        from engines.manifold.signal import memory
         rolling_hurst = compute(memory.compute, values, window=200, stride=50)
         # Returns {'rolling_hurst': array, 'rolling_hurst_r2': array}
     """
@@ -128,31 +128,31 @@ def compute_multi(
 
 def rolling_statistics(values: np.ndarray, window: int, stride: int) -> Dict[str, np.ndarray]:
     """Rolling statistics (kurtosis, skewness, crest_factor)."""
-    from engines.engines.signal.statistics import compute as stats_compute
+    from engines.manifold.signal.statistics import compute as stats_compute
     return compute(stats_compute, values, window, stride)
 
 
 def rolling_memory(values: np.ndarray, window: int, stride: int) -> Dict[str, np.ndarray]:
     """Rolling memory (hurst, hurst_r2)."""
-    from engines.engines.signal.memory import compute as memory_compute
+    from engines.manifold.signal.memory import compute as memory_compute
     return compute(memory_compute, values, window, stride)
 
 
 def rolling_complexity(values: np.ndarray, window: int, stride: int) -> Dict[str, np.ndarray]:
     """Rolling complexity (entropies)."""
-    from engines.engines.signal.complexity import compute as complexity_compute
+    from engines.manifold.signal.complexity import compute as complexity_compute
     return compute(complexity_compute, values, window, stride)
 
 
 def rolling_spectral(values: np.ndarray, window: int, stride: int, fs: float = 1.0) -> Dict[str, np.ndarray]:
     """Rolling spectral analysis."""
-    from engines.engines.signal.spectral import compute as spectral_compute
+    from engines.manifold.signal.spectral import compute as spectral_compute
     return compute(spectral_compute, values, window, stride, {'fs': fs})
 
 
 def rolling_trend(values: np.ndarray, window: int, stride: int) -> Dict[str, np.ndarray]:
     """Rolling trend analysis."""
-    from engines.engines.signal.trend import compute as trend_compute
+    from engines.manifold.signal.trend import compute as trend_compute
     return compute(trend_compute, values, window, stride)
 
 

@@ -6,7 +6,7 @@ Tests the Heaviside (step) and Dirac (impulse) detection.
 
 import numpy as np
 import pytest
-from engines.engines.breaks import compute, summarize_breaks
+from engines.manifold.breaks import compute, summarize_breaks
 
 
 class TestBreakDetection:

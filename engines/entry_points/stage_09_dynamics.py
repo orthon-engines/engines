@@ -21,8 +21,8 @@ import numpy as np
 from pathlib import Path
 from typing import Optional
 
-from engines.engines.dynamics.ftle import compute as compute_ftle
-from engines.engines.dynamics.formal_definitions import classify_stability
+from engines.manifold.dynamics.ftle import compute as compute_ftle
+from engines.manifold.dynamics.formal_definitions import classify_stability
 
 
 def run(

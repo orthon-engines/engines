@@ -27,7 +27,7 @@ import polars as pl
 from pathlib import Path
 from typing import Optional
 
-from engines.engines.state.eigendecomp import (
+from engines.manifold.state.eigendecomp import (
     compute as compute_eigendecomp,
     enforce_eigenvector_continuity,
     bootstrap_effective_dim,

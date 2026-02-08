@@ -28,7 +28,7 @@ import polars as pl
 from pathlib import Path
 from typing import Optional
 
-from engines.engines.dynamics.lyapunov import compute as compute_lyapunov
+from engines.manifold.dynamics.lyapunov import compute as compute_lyapunov
 
 
 def run(

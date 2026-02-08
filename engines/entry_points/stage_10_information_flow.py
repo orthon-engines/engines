@@ -21,7 +21,7 @@ import numpy as np
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 
-from engines.engines.pairwise.causality import compute_all as compute_causality
+from engines.manifold.pairwise.causality import compute_all as compute_causality
 
 
 def run(

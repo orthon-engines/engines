@@ -27,7 +27,7 @@ import polars as pl
 from pathlib import Path
 from typing import Optional
 
-from engines.engines.dynamics.ftle import compute as compute_ftle
+from engines.manifold.dynamics.ftle import compute as compute_ftle
 
 
 def run(

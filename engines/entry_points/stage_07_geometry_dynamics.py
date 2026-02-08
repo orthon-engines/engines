@@ -23,7 +23,7 @@ import polars as pl
 from pathlib import Path
 from typing import Optional
 
-from engines.engines.geometry_dynamics import compute_geometry_dynamics
+from engines.manifold.geometry_dynamics import compute_geometry_dynamics
 
 
 def run(

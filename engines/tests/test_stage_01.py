@@ -78,7 +78,7 @@ def test_stage_01_smoke():
 
 def test_engine_registry():
     """Verify engine registry works."""
-    from engines.engines.registry import get_registry
+    from engines.manifold.registry import get_registry
 
     r = get_registry()
     engines = r.list_engines()
@@ -93,7 +93,7 @@ def test_engine_registry():
 
 def test_core_engine_imports():
     """Verify core engines import without error."""
-    from engines.engines.signal import (
+    from engines.manifold.signal import (
         statistics,
         memory,
         complexity,

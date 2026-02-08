@@ -18,7 +18,7 @@ import polars as pl
 from pathlib import Path
 from typing import Dict, Any, Optional
 
-from engines.engines.breaks import compute, summarize_breaks
+from engines.manifold.breaks import compute, summarize_breaks
 
 
 def run(

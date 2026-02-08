@@ -193,12 +193,12 @@ velocity = run("observations.parquet", "velocity_field.parquet")
 
 ```python
 # Direct eigendecomposition
-from engines.engines.state.eigendecomp import compute
+from engines.manifold.state.eigendecomp import compute
 result = compute(signal_matrix, centroid=centroid)
 # result: eigenvalues, explained_ratio, effective_dim, principal_components, signal_loadings
 
 # Direct FTLE
-from engines.engines.dynamics.ftle import compute as compute_ftle
+from engines.manifold.dynamics.ftle import compute as compute_ftle
 result = compute_ftle(time_series, min_samples=200)
 # result: ftle, ftle_std, embedding_dim, embedding_tau, is_deterministic
 

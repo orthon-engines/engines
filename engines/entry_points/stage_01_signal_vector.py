@@ -35,7 +35,7 @@ import multiprocessing
 
 from joblib import Parallel, delayed
 
-from engines.engines.registry import get_registry, EngineRegistry
+from engines.manifold.registry import get_registry, EngineRegistry
 
 # Hardcoded: always use all available cores
 _N_WORKERS = multiprocessing.cpu_count()
@@ -161,7 +161,7 @@ def _load_legacy_engine_registry() -> Dict[str, Callable]:
     This is for engines that don't have config.yaml files yet.
     New engines should use the EngineRegistry instead.
     """
-    from engines.engines.signal import (
+    from engines.manifold.signal import (
         statistics, memory, complexity, spectral, trend,
         hurst, attractor, lyapunov, garch, dmd,
         envelope, frequency_bands, harmonics,
@@ -172,7 +172,7 @@ def _load_legacy_engine_registry() -> Dict[str, Callable]:
         # Discrete/state engines (PR: Missing Discrete Engines)
         dwell_times, level_count, level_histogram, transition_matrix,
     )
-    from engines.engines.signal import entropy as discrete_entropy
+    from engines.manifold.signal import entropy as discrete_entropy
 
     return {
         # Core engines

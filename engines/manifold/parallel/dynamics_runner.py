@@ -19,7 +19,7 @@ import os
 
 def _process_entity(entity_id: str, obs: pl.DataFrame, params: Dict[str, Any]) -> List[Dict]:
     """Process a single entity - designed for parallel execution."""
-    from engines.engines.signal import lyapunov, attractor
+    from engines.manifold.signal import lyapunov, attractor
     from engines.primitives.dynamical.rqa import rqa_metrics
 
     min_samples = params.get('min_samples', 100)

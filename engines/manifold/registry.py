@@ -86,7 +86,7 @@ class EngineRegistry:
             try:
                 import importlib
                 module = importlib.import_module(
-                    f"engines.engines.signal.{engine_name}"
+                    f"engines.manifold.signal.{engine_name}"
                 )
                 self._compute_funcs[engine_name] = module.compute
             except (ImportError, AttributeError) as e:

@@ -24,7 +24,7 @@ import polars as pl
 from pathlib import Path
 from typing import Optional
 
-from engines.engines.signal_pairwise import compute_signal_pairwise
+from engines.manifold.signal_pairwise import compute_signal_pairwise
 
 
 def run(

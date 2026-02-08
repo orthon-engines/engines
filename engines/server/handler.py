@@ -17,7 +17,7 @@ from engines.stream import (
     WorkOrder,
     parse_work_order
 )
-from engines.engines import core
+from engines.manifold import core
 
 
 def compute_signal(signal_id: str, y: np.ndarray, work_order: WorkOrder) -> Dict[str, Any]:

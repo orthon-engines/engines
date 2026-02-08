@@ -30,7 +30,7 @@ import polars as pl
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 
-from engines.engines.state.eigendecomp import compute as compute_eigendecomp
+from engines.manifold.state.eigendecomp import compute as compute_eigendecomp
 
 
 def run(

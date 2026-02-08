@@ -1,6 +1,6 @@
 """
-ENGINES Engines
-=============
+ENGINES Manifold
+================
 
 Self-describing compute engines with configuration.
 ENGINES computes, ORTHON classifies.
@@ -33,20 +33,20 @@ Legacy (flat files, to be consolidated):
 """
 
 # Registry (new architecture)
-from engines.engines.registry import get_registry, EngineRegistry
-from engines.engines.base import BaseEngine, EngineConfig, EngineRequirements
+from engines.manifold.registry import get_registry, EngineRegistry
+from engines.manifold.base import BaseEngine, EngineConfig, EngineRequirements
 
 # Submodules
-from engines.engines import signal
-from engines.engines import state
-from engines.engines import pairwise
-from engines.engines import dynamics
+from engines.manifold import signal
+from engines.manifold import state
+from engines.manifold import pairwise
+from engines.manifold import dynamics
 
 # Rolling wrapper
-from engines.engines.rolling import compute as rolling_compute
+from engines.manifold.rolling import compute as rolling_compute
 
 # Normalization engine
-from engines.engines.normalization import (
+from engines.manifold.normalization import (
     normalize,
     compute_zscore,
     compute_robust,
@@ -59,10 +59,10 @@ from engines.engines.normalization import (
 
 # Legacy flat files (for backwards compatibility)
 # Note: compute functions come from the actual engine implementations
-from engines.engines.state.centroid import compute as compute_centroid
-from engines.engines.state.eigendecomp import compute as compute_eigenvalues
-from engines.engines.signal_geometry import compute_signal_geometry
-from engines.engines.signal_pairwise import compute_signal_pairwise
+from engines.manifold.state.centroid import compute as compute_centroid
+from engines.manifold.state.eigendecomp import compute as compute_eigenvalues
+from engines.manifold.signal_geometry import compute_signal_geometry
+from engines.manifold.signal_pairwise import compute_signal_pairwise
 
 # Lazy import to avoid circular dependency
 def compute_state_vector(*args, **kwargs):
@@ -76,7 +76,7 @@ def compute_state_geometry(*args, **kwargs):
     import importlib
     ep = importlib.import_module('engines.entry_points.03_state_geometry')
     return ep.compute_state_geometry(*args, **kwargs)
-from engines.engines.geometry_dynamics import (
+from engines.manifold.geometry_dynamics import (
     compute_geometry_dynamics,
     compute_signal_dynamics,
     compute_pairwise_dynamics,

@@ -22,7 +22,7 @@ import duckdb
 from pathlib import Path
 from typing import Optional
 
-from engines.engines.sql import get_sql
+from engines.manifold.sql import get_sql
 
 
 def run(

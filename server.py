@@ -133,7 +133,7 @@ def run_pipeline(obs: pd.DataFrame, out: Path) -> dict:
     Run Orthon pipeline. Currently placeholder outputs.
 
     TODO: Replace with actual engine imports:
-        from engines.engines import eigendecomp, lyapunov, granger, breaks
+        from engines.manifold import eigendecomp, lyapunov, granger, breaks
     """
     signals = obs["signal_id"].unique().tolist()
     cohorts = obs["cohort"].unique().tolist()

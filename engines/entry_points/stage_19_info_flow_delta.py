@@ -34,7 +34,7 @@ import polars as pl
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple
 
-from engines.engines.pairwise.causality import compute_granger
+from engines.manifold.pairwise.causality import compute_granger
 
 
 def run(
