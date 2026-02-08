@@ -107,6 +107,14 @@ any warranty or condition, and the licensor will not be liable
 to you for any damages arising out of these terms or the use
 or nature of the software, under any kind of legal claim.***
 
+## Additional Condition: Citation Requirement
+
+Any publication, thesis, report, or presentation
+using results produced by this software must cite:
+
+> Rudder, J. (2026). Orthon Engines: Domain-Agnostic
+> Dynamical Systems Analysis. https://orthon.io
+
 ---
 
 For commercial licensing: https://orthon.io/licensing

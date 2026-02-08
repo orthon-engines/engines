@@ -1,9 +1,9 @@
 """
-ENGINES - Domain-Agnostic Dynamical Systems Analysis
+ENGINES — Dynamical systems computation engines.
 
-MIT Licensed computation engine providing domain-agnostic signal analysis functions.
+Part of the Orthon Engines platform. Domain-agnostic signal analysis functions.
 Every function takes numpy arrays and returns numbers or arrays. No file I/O,
-no configuration, no orchestration - just math.
+no configuration, no orchestration — just math.
 
 Usage:
     import engines
@@ -216,7 +216,7 @@ from .primitives.individual.calculus import (
 
 __version__ = "1.0.0"
 __author__ = "Jason Rudder"
-__license__ = "MIT"
+__license__ = "PolyForm-Noncommercial-1.0.0"
 
 __all__ = [
     # Spectral

@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "orthon-engines"
 version = "1.0.0"
-description = "Domain-agnostic dynamical systems analysis — eigendecomposition, FTLE, velocity fields, and urgency metrics"
+description = "Dynamical systems computation engines — eigendecomposition, FTLE, velocity fields, and urgency metrics"
 readme = "README.md"
 license = {text = "PolyForm-Noncommercial-1.0.0"}
 authors = [
@@ -15,7 +15,7 @@ keywords = ["dynamical-systems", "diagnostics", "eigendecomposition", "lyapunov"
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: MIT License",
+    "License :: Other/Proprietary License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",

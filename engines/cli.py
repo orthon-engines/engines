@@ -515,7 +515,7 @@ def cmd_atlas(args):
 
     if verbose:
         print("=" * 60)
-        print("ENGINES DYNAMICAL ATLAS")
+        print("DYNAMICAL ATLAS")
         print("=" * 60)
         print(f"Data:   {data_dir}")
         print(f"Output: {output_dir}")
@@ -791,7 +791,7 @@ def _print_summary(output_dir: Path, manifest: dict):
     files = list(output_dir.glob('*.parquet'))
 
     print(f"\n{'='*60}")
-    print(f"  ENGINES Pipeline Complete")
+    print(f"  Pipeline Complete")
     print(f"{'='*60}")
     print(f"  Output: {output_dir}")
     print(f"  Files:  {len(files)} parquet files")
@@ -847,7 +847,7 @@ def main():
     """ENGINES CLI entry point."""
     parser = argparse.ArgumentParser(
         prog='engines',
-        description='ENGINES — Domain-agnostic dynamical systems analysis',
+        description='Engines — Dynamical systems computation engines',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Quick start:

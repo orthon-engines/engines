@@ -1,6 +1,6 @@
-# ENGINES
+# Engines
 
-**Domain-agnostic dynamical systems analysis.** Drop a CSV, get eigendecomposition, Lyapunov exponents, velocity fields, and urgency metrics.
+**Dynamical systems computation engines.** Part of the [Orthon Engines](https://github.com/orthon-engines) platform. Drop a CSV, get eigendecomposition, Lyapunov exponents, velocity fields, and urgency metrics.
 
 ```bash
 pip install orthon-engines
@@ -25,11 +25,11 @@ engines run data.csv --atlas
 engines explore output/
 ```
 
-ENGINES auto-detects your CSV format, generates a manifest, and runs the full pipeline. No configuration needed.
+Engines auto-detects your CSV format, generates a manifest, and runs the full pipeline. No configuration needed.
 
 ### Input Formats
 
-ENGINES accepts:
+Engines accepts:
 
 - **Wide CSV** — columns are signals, rows are timepoints (most common)
 - **Long CSV** — columns: `signal_id`, `value`, and optionally `time`/`index`
@@ -55,9 +55,9 @@ engines run sensors.csv
 
 ---
 
-## What ENGINES Computes
+## What Engines Computes
 
-ENGINES runs a 15-stage pipeline that transforms raw observations into a complete dynamical characterization:
+Engines runs a 15-stage pipeline that transforms raw observations into a complete dynamical characterization:
 
 ### Core Pipeline (stages 0-14)
 
@@ -303,8 +303,8 @@ pip install orthon-engines[all]     # everything
 ## Citation
 
 ```bibtex
-@software{engines2026,
-  title = {ENGINES: Domain-Agnostic Dynamical Systems Analysis},
+@software{orthon2026,
+  title = {Orthon Engines: Domain-Agnostic Dynamical Systems Analysis Platform},
   author = {Rudder, Jason},
   year = {2026},
   url = {https://github.com/orthon-engines/engines}
