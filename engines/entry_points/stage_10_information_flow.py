@@ -16,8 +16,10 @@ Only computes Granger causality for pairs where needs_granger=True
 """
 
 import argparse
+import os
 import polars as pl
 import numpy as np
+from multiprocessing import Pool
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 
@@ -26,6 +28,89 @@ from engines.primitives.pairwise.distance import dynamic_time_warping
 from engines.manifold.pairwise.correlation import compute_mutual_info
 from engines.primitives.information.divergence import kl_divergence, js_divergence
 from engines.manifold.pairwise import cointegration, copula
+
+
+def _compute_pair(args):
+    """Compute all information flow metrics for a single pair. Runs in worker process."""
+    signal_a, signal_b, x, y = args
+
+    row = {
+        'signal_a': signal_a,
+        'signal_b': signal_b,
+        'n_samples': len(x),
+    }
+
+    # Granger causality + transfer entropy
+    try:
+        causality_ab = compute_causality(x, y)
+        causality_ba = compute_causality(y, x)
+        row['granger_f_a_to_b'] = causality_ab.get('granger_f')
+        row['granger_p_a_to_b'] = causality_ab.get('granger_p')
+        row['granger_f_b_to_a'] = causality_ba.get('granger_f')
+        row['granger_p_b_to_a'] = causality_ba.get('granger_p')
+        row['transfer_entropy_a_to_b'] = causality_ab.get('transfer_entropy')
+        row['transfer_entropy_b_to_a'] = causality_ba.get('transfer_entropy')
+    except Exception:
+        pass
+
+    # DTW distance
+    try:
+        row['dtw_distance'] = dynamic_time_warping(x, y)
+    except Exception:
+        row['dtw_distance'] = np.nan
+
+    # Mutual information
+    try:
+        mi_result = compute_mutual_info(x, y)
+        row['mutual_info'] = mi_result.get('mutual_info', np.nan)
+        row['normalized_mi'] = mi_result.get('normalized_mi', np.nan)
+    except Exception:
+        row['mutual_info'] = np.nan
+        row['normalized_mi'] = np.nan
+
+    # KL + JS divergence
+    try:
+        row['kl_divergence_a_to_b'] = kl_divergence(x, y)
+        row['kl_divergence_b_to_a'] = kl_divergence(y, x)
+        row['js_divergence'] = js_divergence(x, y)
+    except Exception:
+        row['kl_divergence_a_to_b'] = np.nan
+        row['kl_divergence_b_to_a'] = np.nan
+        row['js_divergence'] = np.nan
+
+    # Cointegration
+    try:
+        coint = cointegration.compute(x, y)
+        row['is_cointegrated'] = coint.get('is_cointegrated', False)
+        row['hedge_ratio'] = coint.get('hedge_ratio', np.nan)
+        row['half_life'] = coint.get('half_life', np.nan)
+        row['spread_zscore'] = coint.get('spread_zscore', np.nan)
+    except Exception:
+        empty_coint = cointegration._empty_result(len(x))
+        row['is_cointegrated'] = empty_coint['is_cointegrated']
+        row['hedge_ratio'] = empty_coint['hedge_ratio']
+        row['half_life'] = empty_coint['half_life']
+        row['spread_zscore'] = empty_coint['spread_zscore']
+
+    # Copula
+    try:
+        cop = copula.compute(x, y)
+        row['copula_best_family'] = cop.get('best_family')
+        row['kendall_tau'] = cop.get('kendall_tau', np.nan)
+        row['spearman_rho'] = cop.get('spearman_rho', np.nan)
+        row['lower_tail_dependence'] = cop.get('lower_tail_dependence', np.nan)
+        row['upper_tail_dependence'] = cop.get('upper_tail_dependence', np.nan)
+        row['tail_asymmetry'] = cop.get('tail_asymmetry', np.nan)
+    except Exception:
+        empty_cop = copula._empty_result(len(x))
+        row['copula_best_family'] = empty_cop['best_family']
+        row['kendall_tau'] = empty_cop['kendall_tau']
+        row['spearman_rho'] = empty_cop['spearman_rho']
+        row['lower_tail_dependence'] = empty_cop['lower_tail_dependence']
+        row['upper_tail_dependence'] = empty_cop['upper_tail_dependence']
+        row['tail_asymmetry'] = empty_cop['tail_asymmetry']
+
+    return row
 
 
 def run(
@@ -41,27 +126,14 @@ def run(
     """
     Run information flow computation for Granger-flagged pairs only.
 
-    Uses eigenvector co-loading from signal_pairwise to gate expensive
-    Granger causality computation. Only pairs with needs_granger=True
-    are processed.
-
-    Args:
-        observations_path: Path to observations.parquet
-        signal_pairwise_path: Path to signal_pairwise.parquet (has needs_granger)
-        output_path: Output path for information_flow.parquet
-        signal_column: Column with signal IDs
-        value_column: Column with values
-        index_column: Column with time index
-        min_samples: Minimum samples required
-        verbose: Print progress
-
-    Returns:
-        Information flow DataFrame
+    Uses multiprocessing Pool to parallelize across all CPU cores.
     """
+    n_workers = min(os.cpu_count() or 4, 4)
+
     if verbose:
         print("=" * 70)
         print("STAGE 10: INFORMATION FLOW")
-        print("Causality for eigenvector-gated pairs")
+        print(f"Causality for eigenvector-gated pairs ({n_workers} workers)")
         print("=" * 70)
 
     # Load observations
@@ -110,11 +182,11 @@ def run(
     if verbose:
         print(f"Signals with sufficient data: {len(signal_data)}/{len(signals)}")
 
-    # Compute causality for flagged pairs
-    results = []
+    # Build work items — each is (signal_a, signal_b, x_array, y_array)
+    work_items = []
     pairs_list = granger_pairs.to_dicts()
 
-    for i, pair in enumerate(pairs_list):
+    for pair in pairs_list:
         signal_a = pair['signal_a']
         signal_b = pair['signal_b']
 
@@ -124,7 +196,6 @@ def run(
         x = signal_data[signal_a]
         y = signal_data[signal_b]
 
-        # Align lengths
         min_len = min(len(x), len(y))
         x = x[:min_len]
         y = y[:min_len]
@@ -132,87 +203,15 @@ def run(
         if len(x) < min_samples:
             continue
 
-        row = {
-            'signal_a': signal_a,
-            'signal_b': signal_b,
-            'n_samples': min_len,
-        }
+        work_items.append((signal_a, signal_b, x, y))
 
-        # Granger causality + transfer entropy
-        try:
-            causality_ab = compute_causality(x, y)
-            causality_ba = compute_causality(y, x)
-            row['granger_f_a_to_b'] = causality_ab.get('granger_f')
-            row['granger_p_a_to_b'] = causality_ab.get('granger_p')
-            row['granger_f_b_to_a'] = causality_ba.get('granger_f')
-            row['granger_p_b_to_a'] = causality_ba.get('granger_p')
-            row['transfer_entropy_a_to_b'] = causality_ab.get('transfer_entropy')
-            row['transfer_entropy_b_to_a'] = causality_ba.get('transfer_entropy')
-        except Exception as e:
-            if verbose:
-                print(f"  Warning: Granger {signal_a}->{signal_b}: {e}")
+    if verbose:
+        print(f"Work items: {len(work_items)} pairs to compute")
+        print(f"Launching {n_workers} workers...")
 
-        # DTW distance
-        try:
-            row['dtw_distance'] = dynamic_time_warping(x, y)
-        except Exception:
-            row['dtw_distance'] = np.nan
-
-        # Mutual information
-        try:
-            mi_result = compute_mutual_info(x, y)
-            row['mutual_info'] = mi_result.get('mutual_info', np.nan)
-            row['normalized_mi'] = mi_result.get('normalized_mi', np.nan)
-        except Exception:
-            row['mutual_info'] = np.nan
-            row['normalized_mi'] = np.nan
-
-        # KL + JS divergence
-        try:
-            row['kl_divergence_a_to_b'] = kl_divergence(x, y)
-            row['kl_divergence_b_to_a'] = kl_divergence(y, x)
-            row['js_divergence'] = js_divergence(x, y)
-        except Exception:
-            row['kl_divergence_a_to_b'] = np.nan
-            row['kl_divergence_b_to_a'] = np.nan
-            row['js_divergence'] = np.nan
-
-        # Cointegration
-        try:
-            coint = cointegration.compute(x, y)
-            row['is_cointegrated'] = coint.get('is_cointegrated', False)
-            row['hedge_ratio'] = coint.get('hedge_ratio', np.nan)
-            row['half_life'] = coint.get('half_life', np.nan)
-            row['spread_zscore'] = coint.get('spread_zscore', np.nan)
-        except Exception:
-            empty_coint = cointegration._empty_result(len(x))
-            row['is_cointegrated'] = empty_coint['is_cointegrated']
-            row['hedge_ratio'] = empty_coint['hedge_ratio']
-            row['half_life'] = empty_coint['half_life']
-            row['spread_zscore'] = empty_coint['spread_zscore']
-
-        # Copula
-        try:
-            cop = copula.compute(x, y)
-            row['copula_best_family'] = cop.get('best_family')
-            row['kendall_tau'] = cop.get('kendall_tau', np.nan)
-            row['spearman_rho'] = cop.get('spearman_rho', np.nan)
-            row['lower_tail_dependence'] = cop.get('lower_tail_dependence', np.nan)
-            row['upper_tail_dependence'] = cop.get('upper_tail_dependence', np.nan)
-            row['tail_asymmetry'] = cop.get('tail_asymmetry', np.nan)
-        except Exception:
-            empty_cop = copula._empty_result(len(x))
-            row['copula_best_family'] = empty_cop['best_family']
-            row['kendall_tau'] = empty_cop['kendall_tau']
-            row['spearman_rho'] = empty_cop['spearman_rho']
-            row['lower_tail_dependence'] = empty_cop['lower_tail_dependence']
-            row['upper_tail_dependence'] = empty_cop['upper_tail_dependence']
-            row['tail_asymmetry'] = empty_cop['tail_asymmetry']
-
-        results.append(row)
-
-        if verbose and (i + 1) % 100 == 0:
-            print(f"  Processed {i + 1}/{n_granger} pairs...")
+    # Parallel computation
+    with Pool(processes=n_workers) as pool:
+        results = pool.map(_compute_pair, work_items)
 
     # Build DataFrame
     result = pl.DataFrame(results) if results else pl.DataFrame()

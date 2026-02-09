@@ -29,12 +29,126 @@ Link status classification:
 """
 
 import argparse
+import os
 import numpy as np
 import polars as pl
+from multiprocessing import Pool
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple
 
 from engines.manifold.pairwise.causality import compute_granger
+
+
+def _compute_cohort(args):
+    """Compute per-segment Granger causality for a single cohort. Runs in worker process."""
+    cohort, cohort_data_bytes, segments, max_lag, min_samples, p_threshold = args
+
+    # Deserialize cohort data
+    cohort_data = pl.read_ipc(cohort_data_bytes)
+
+    i_max = cohort_data['I'].max()
+    signals = sorted(cohort_data['signal_id'].unique().to_list())
+
+    # Compute Granger for each segment
+    segment_granger = {}
+
+    for seg in segments:
+        seg_name = seg['name']
+        start_i = seg['range'][0]
+        end_i = seg['range'][1] if seg['range'][1] is not None else i_max
+
+        seg_data = cohort_data.filter(
+            (pl.col('I') >= start_i) & (pl.col('I') <= end_i)
+        )
+
+        # Pivot to wide format (rows = I values, columns = signals)
+        try:
+            wide = seg_data.pivot(
+                values='value',
+                index='I',
+                on='signal_id',
+            ).sort('I')
+        except Exception:
+            continue
+
+        if wide is None or len(wide) < min_samples:
+            continue
+
+        # Compute pairwise Granger
+        signal_cols = [c for c in wide.columns if c != 'I']
+        granger_results = {}
+
+        for source in signal_cols:
+            for target in signal_cols:
+                if source == target:
+                    continue
+
+                x = wide[source].to_numpy()
+                y = wide[target].to_numpy()
+
+                # Remove NaN
+                valid = ~(np.isnan(x) | np.isnan(y))
+                x = x[valid]
+                y = y[valid]
+
+                if len(x) < min_samples:
+                    continue
+
+                try:
+                    result = compute_granger(x, y, max_lag=max_lag)
+                    granger_results[(source, target)] = result
+                except Exception:
+                    continue
+
+        segment_granger[seg_name] = granger_results
+
+    # Compute deltas between consecutive segments
+    seg_names = [s['name'] for s in segments if s['name'] in segment_granger]
+    results = []
+
+    for i in range(len(seg_names) - 1):
+        seg_a = seg_names[i]
+        seg_b = seg_names[i + 1]
+
+        granger_a = segment_granger.get(seg_a, {})
+        granger_b = segment_granger.get(seg_b, {})
+
+        # Get all pairs from both segments
+        all_pairs = set(granger_a.keys()) | set(granger_b.keys())
+
+        for source, target in all_pairs:
+            result_a = granger_a.get((source, target), {})
+            result_b = granger_b.get((source, target), {})
+
+            # Use granger_f and granger_p (engine interface)
+            f_a = result_a.get('granger_f')
+            f_b = result_b.get('granger_f')
+            p_a = result_a.get('granger_p', 1.0)
+            p_b = result_b.get('granger_p', 1.0)
+
+            sig_a = p_a < p_threshold if p_a is not None else False
+            sig_b = p_b < p_threshold if p_b is not None else False
+
+            # Classify link change
+            link_status = classify_link_change(sig_a, sig_b, f_a, f_b)
+
+            results.append({
+                'cohort': cohort,
+                'segment_a': seg_a,
+                'segment_b': seg_b,
+                'source': source,
+                'target': target,
+                'f_stat_a': f_a,
+                'f_stat_b': f_b,
+                'f_stat_delta': (f_b - f_a) if f_a is not None and f_b is not None else None,
+                'p_value_a': p_a,
+                'p_value_b': p_b,
+                'significant_a': sig_a,
+                'significant_b': sig_b,
+                'link_status': link_status,
+            })
+
+    return results
 
 
 def run(
@@ -49,6 +163,8 @@ def run(
     """
     Compute per-segment Granger causality and deltas.
 
+    Uses multiprocessing Pool to parallelize across cohorts.
+
     Args:
         observations_path: Path to observations.parquet
         output_path: Output path for info_flow_delta.parquet
@@ -61,6 +177,8 @@ def run(
     Returns:
         info_flow_delta DataFrame
     """
+    n_workers = min(os.cpu_count() or 4, 4)
+
     # Adaptive min_samples: Granger at max_lag needs ~3*lag+5 observations minimum
     if min_samples is None:
         min_samples = max(3 * max_lag + 5, 15)
@@ -68,7 +186,7 @@ def run(
     if verbose:
         print("=" * 70)
         print("STAGE 19: INFORMATION FLOW DELTA")
-        print("Per-segment Granger causality with link change classification")
+        print(f"Per-segment Granger causality with link change classification ({n_workers} workers)")
         print("=" * 70)
         print(f"  min_samples={min_samples} (adaptive from max_lag={max_lag})")
 
@@ -101,123 +219,39 @@ def run(
         print(f"Signals: {len(signals)}")
         print(f"Signal pairs: {len(signals) * (len(signals) - 1)}")
 
-    results = []
-
-    for cohort_idx, cohort in enumerate(cohorts):
-        if verbose and cohort_idx % 10 == 0:
-            print(f"  Processing cohort {cohort_idx + 1}/{len(cohorts)}: {cohort}")
-
+    # Build work items — serialize each cohort's data as IPC bytes for worker processes
+    work_items = []
+    for cohort in cohorts:
         if has_cohort:
             cohort_data = obs.filter(pl.col('cohort') == cohort)
         else:
             cohort_data = obs
 
-        i_max = cohort_data['I'].max()
+        # Serialize to IPC bytes (zero-copy deserialization in worker)
+        cohort_bytes = cohort_data.write_ipc(None).getvalue()
+        work_items.append((cohort, cohort_bytes, segments, max_lag, min_samples, p_threshold))
 
-        # Compute Granger for each segment
-        segment_granger = {}
+    if verbose:
+        print(f"\nDispatching {len(work_items)} cohorts across {n_workers} workers...")
 
-        for seg in segments:
-            seg_name = seg['name']
-            start_i = seg['range'][0]
-            end_i = seg['range'][1] if seg['range'][1] is not None else i_max
+    # Parallel computation across cohorts
+    all_results = []
+    if len(work_items) == 1:
+        # Single cohort — no need for multiprocessing overhead
+        all_results = _compute_cohort(work_items[0])
+    else:
+        with Pool(processes=n_workers) as pool:
+            for i, cohort_results in enumerate(pool.imap_unordered(_compute_cohort, work_items)):
+                all_results.extend(cohort_results)
+                if verbose and (i + 1) % 10 == 0:
+                    print(f"  Completed {i + 1}/{len(work_items)} cohorts")
 
-            seg_data = cohort_data.filter(
-                (pl.col('I') >= start_i) & (pl.col('I') <= end_i)
-            )
-
-            # Pivot to wide format (rows = I values, columns = signals)
-            try:
-                wide = seg_data.pivot(
-                    values='value',
-                    index='I',
-                    on='signal_id',
-                ).sort('I')
-            except Exception:
-                continue
-
-            if wide is None or len(wide) < min_samples:
-                if verbose:
-                    n_wide = 0 if wide is None else len(wide)
-                    print(f"    Skipping segment '{seg_name}': {n_wide} I values < min_samples={min_samples}")
-                continue
-
-            # Compute pairwise Granger
-            signal_cols = [c for c in wide.columns if c != 'I']
-            granger_results = {}
-
-            for source in signal_cols:
-                for target in signal_cols:
-                    if source == target:
-                        continue
-
-                    x = wide[source].to_numpy()
-                    y = wide[target].to_numpy()
-
-                    # Remove NaN
-                    valid = ~(np.isnan(x) | np.isnan(y))
-                    x = x[valid]
-                    y = y[valid]
-
-                    if len(x) < min_samples:
-                        continue
-
-                    try:
-                        result = compute_granger(x, y, max_lag=max_lag)
-                        granger_results[(source, target)] = result
-                    except Exception:
-                        continue
-
-            segment_granger[seg_name] = granger_results
-
-        # Compute deltas between consecutive segments
-        seg_names = [s['name'] for s in segments if s['name'] in segment_granger]
-
-        for i in range(len(seg_names) - 1):
-            seg_a = seg_names[i]
-            seg_b = seg_names[i + 1]
-
-            granger_a = segment_granger.get(seg_a, {})
-            granger_b = segment_granger.get(seg_b, {})
-
-            # Get all pairs from both segments
-            all_pairs = set(granger_a.keys()) | set(granger_b.keys())
-
-            for source, target in all_pairs:
-                result_a = granger_a.get((source, target), {})
-                result_b = granger_b.get((source, target), {})
-
-                # Use granger_f and granger_p (engine interface)
-                f_a = result_a.get('granger_f')
-                f_b = result_b.get('granger_f')
-                p_a = result_a.get('granger_p', 1.0)
-                p_b = result_b.get('granger_p', 1.0)
-
-                sig_a = p_a < p_threshold if p_a is not None else False
-                sig_b = p_b < p_threshold if p_b is not None else False
-
-                # Classify link change
-                link_status = classify_link_change(sig_a, sig_b, f_a, f_b)
-
-                results.append({
-                    'cohort': cohort,
-                    'segment_a': seg_a,
-                    'segment_b': seg_b,
-                    'source': source,
-                    'target': target,
-                    'f_stat_a': f_a,
-                    'f_stat_b': f_b,
-                    'f_stat_delta': (f_b - f_a) if f_a is not None and f_b is not None else None,
-                    'p_value_a': p_a,
-                    'p_value_b': p_b,
-                    'significant_a': sig_a,
-                    'significant_b': sig_b,
-                    'link_status': link_status,
-                })
+    if verbose:
+        print(f"  Completed {len(work_items)}/{len(work_items)} cohorts")
 
     # Build output
-    if results:
-        result = pl.DataFrame(results)
+    if all_results:
+        result = pl.DataFrame(all_results)
     else:
         result = pl.DataFrame(schema={
             'cohort': pl.Utf8,
