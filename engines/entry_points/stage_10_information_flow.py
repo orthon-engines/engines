@@ -144,16 +144,27 @@ def run(
         print(f"Pairwise: {len(pairwise)} rows")
 
     # Check for needs_granger column
+    all_pairs = pairwise.select(['signal_a', 'signal_b']).unique()
+    n_total = all_pairs.height
+
     if 'needs_granger' not in pairwise.columns:
         if verbose:
             print("Warning: needs_granger column not found, computing all pairs")
-        granger_pairs = pairwise.select(['signal_a', 'signal_b']).unique()
+        granger_pairs = all_pairs
     else:
         # Filter to pairs needing Granger
         granger_pairs = pairwise.filter(pl.col('needs_granger') == True).select(['signal_a', 'signal_b']).unique()
 
+        # Fallback: if no pairs flagged AND pc1_coloading is all zero,
+        # eigenvector gating data was missing — compute all pairs
+        if len(granger_pairs) == 0 and 'pc1_coloading' in pairwise.columns:
+            all_zero = (pairwise['pc1_coloading'] == 0.0).all()
+            if all_zero:
+                if verbose:
+                    print("No eigenvector gating data available — computing all pairs")
+                granger_pairs = all_pairs
+
     n_granger = len(granger_pairs)
-    n_total = pairwise.select(['signal_a', 'signal_b']).unique().height
 
     if verbose:
         print(f"Pairs needing Granger: {n_granger}/{n_total} ({100*n_granger/max(n_total,1):.1f}%)")
