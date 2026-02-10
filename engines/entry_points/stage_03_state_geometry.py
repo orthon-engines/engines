@@ -223,13 +223,21 @@ def compute_state_geometry(
             if unit_id:
                 row['unit_id'] = unit_id
 
-            # Eigenvalues
-            for j in range(min(max_eigenvalues, len(eigen_result['eigenvalues']))):
-                row[f'eigenvalue_{j+1}'] = float(eigen_result['eigenvalues'][j])
+            # Eigenvalues (fill missing slots with 0.0 — no variance on that axis)
+            n_eigen = len(eigen_result['eigenvalues'])
+            for j in range(max_eigenvalues):
+                if j < n_eigen:
+                    row[f'eigenvalue_{j+1}'] = float(eigen_result['eigenvalues'][j])
+                else:
+                    row[f'eigenvalue_{j+1}'] = 0.0
 
-            # Explained ratios
-            for j in range(min(max_eigenvalues, len(eigen_result['explained_ratios']))):
-                row[f'explained_{j+1}'] = float(eigen_result['explained_ratios'][j])
+            # Explained ratios (fill missing slots with 0.0)
+            n_explained = len(eigen_result['explained_ratios'])
+            for j in range(max_eigenvalues):
+                if j < n_explained:
+                    row[f'explained_{j+1}'] = float(eigen_result['explained_ratios'][j])
+                else:
+                    row[f'explained_{j+1}'] = 0.0
 
             # Derived metrics
             row['effective_dim'] = eigen_result['effective_dim']
@@ -282,8 +290,8 @@ def compute_state_geometry(
                         'engine': engine_name,
                         'signal_id': sig_id,
                         'pc1_loading': float(signal_loadings[sig_idx, 0]),
-                        'pc2_loading': float(signal_loadings[sig_idx, 1]) if signal_loadings.shape[1] > 1 else None,
-                        'pc3_loading': float(signal_loadings[sig_idx, 2]) if signal_loadings.shape[1] > 2 else None,
+                        'pc2_loading': float(signal_loadings[sig_idx, 1]) if signal_loadings.shape[1] > 1 else 0.0,
+                        'pc3_loading': float(signal_loadings[sig_idx, 2]) if signal_loadings.shape[1] > 2 else 0.0,
                     }
                     if cohort:
                         loading_row['cohort'] = cohort

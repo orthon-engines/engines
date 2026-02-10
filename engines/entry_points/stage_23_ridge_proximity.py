@@ -170,7 +170,7 @@ def run(
                     'ftle_acceleration': float(ftle_accel),
                     'speed': float(speed),
                     'urgency': float(urgency),
-                    'time_to_ridge': float(time_to_ridge) if np.isfinite(time_to_ridge) else None,
+                    'time_to_ridge': float(time_to_ridge) if np.isfinite(time_to_ridge) else float('inf'),
                     'urgency_class': urgency_class,
                 })
 

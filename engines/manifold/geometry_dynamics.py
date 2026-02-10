@@ -229,11 +229,11 @@ def detect_collapse(
     n = len(effective_dim)
 
     # Return computed values only - no boolean classification
-    # collapse_onset_idx = None means no collapse detected
+    # collapse_onset_idx = -1 means no collapse detected (sentinel)
     if n < min_collapse_length:
         return {
-            'collapse_onset_idx': None,
-            'collapse_onset_fraction': None,
+            'collapse_onset_idx': -1,
+            'collapse_onset_fraction': -1.0,
         }
 
     # Compute derivatives
@@ -266,8 +266,8 @@ def detect_collapse(
 
     if not collapse_runs:
         return {
-            'collapse_onset_idx': None,
-            'collapse_onset_fraction': None,
+            'collapse_onset_idx': -1,
+            'collapse_onset_fraction': -1.0,
         }
 
     # Take the longest collapse run
@@ -378,7 +378,7 @@ def compute_geometry_dynamics(
         # Detect collapse (computed values only, no classification)
         collapse = detect_collapse(effective_dim)
 
-        if verbose and collapse['collapse_onset_idx'] is None:
+        if verbose and collapse['collapse_onset_idx'] == -1:
             vel = eff_dim_deriv['velocity']
             min_v = float(np.min(vel))
             cfg = _get_collapse_config()
@@ -435,7 +435,7 @@ def compute_geometry_dynamics(
 
         # Summary - computed values only
         if 'collapse_onset_idx' in result.columns:
-            n_collapse = result.filter(pl.col('collapse_onset_idx').is_not_null())['engine'].n_unique()
+            n_collapse = result.filter(pl.col('collapse_onset_idx') >= 0)['engine'].n_unique()
             n_total = result['engine'].n_unique()
             print(f"\nCollapse onset detected: {n_collapse} / {n_total} engines")
 
