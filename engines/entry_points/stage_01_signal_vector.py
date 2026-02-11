@@ -84,6 +84,17 @@ _LEGACY_ENGINE_REQUIREMENTS: Dict[str, int] = {
 # Default minimum for unlisted engines
 DEFAULT_MIN_SAMPLES = 4
 
+# Engines that gate on min_required (config.yaml min_window) instead of
+# window_size (alignment requirement). This lets engines compute with
+# whatever data is available above their hard math floor.
+# PR #12 migrates engines here one at a time for isolated testing.
+# Once all engines are migrated, this set and the window_size gate
+# can be removed entirely, making min_required the universal gate.
+_RELAXED_WINDOW_GATE = {
+    'hurst', 'recurrence_rate', 'determinism',
+    'correlation_dimension', 'embedding_dim', 'lyapunov',
+}
+
 
 def get_engine_min_samples(engine_name: str) -> int:
     """Get minimum samples required for an engine."""
@@ -498,25 +509,23 @@ def _compute_single_signal(
         # Run each engine group with appropriate window
         for window_size, engine_list in engine_groups.items():
             window_start = max(0, window_end - window_size + 1)
-
-            # Skip if not enough data for this window
-            if window_end - window_start + 1 < window_size:
-                # Fill with NaN for these engines
-                for engine in engine_list:
-                    row.update(null_output_for_engine(engine))
-                continue
-
             window_data = signal_data[window_start:window_end + 1]
+            actual_available = len(window_data)
 
             for engine in engine_list:
                 min_required = get_engine_min_samples(engine)
-                if len(window_data) < min_required:
+                # Relaxed engines gate on min_required (math floor).
+                # Others gate on window_size (alignment requirement).
+                gate = min_required if engine in _RELAXED_WINDOW_GATE else window_size
+                if actual_available < gate:
                     row.update(null_output_for_engine(engine))
                     continue
                 try:
                     engine_output = run_engine(engine, window_data)
                     row.update(engine_output)
-                except Exception:
+                except Exception as e:
+                    import sys
+                    print(f"WARNING: Engine '{engine}' failed on signal '{signal_id}' I={window_end}: {e}", file=sys.stderr)
                     row.update(null_output_for_engine(engine))
 
         rows.append(row)
@@ -545,6 +554,14 @@ def _prepare_signal_tasks(
 
     tasks = []
 
+    # Top-level engine_windows from manifest — these are fixed window sizes
+    # (e.g., spectral: 64) that override window_factor scaling for specific engines.
+    # Per-signal engine_window_overrides take precedence over these.
+    global_engine_windows = {
+        k: v for k, v in manifest.get('engine_windows', {}).items()
+        if isinstance(v, (int, float))  # Filter out 'note' and other non-numeric keys
+    }
+
     for cohort_name, cohort_config in manifest['cohorts'].items():
         for signal_id, signal_config in cohort_config.items():
             if not isinstance(signal_config, dict):
@@ -557,6 +574,14 @@ def _prepare_signal_tasks(
             signal_data = get_signal_data(observations, cohort_name, signal_id)
             if len(signal_data) == 0:
                 continue
+
+            # Merge global engine_windows with per-signal overrides.
+            # Per-signal overrides take precedence.
+            per_signal_overrides = signal_config.get('engine_window_overrides', {})
+            merged_overrides = {**global_engine_windows, **per_signal_overrides}
+            if merged_overrides != per_signal_overrides:
+                # Inject merged overrides into signal_config copy
+                signal_config = {**signal_config, 'engine_window_overrides': merged_overrides}
 
             # Get window factor for this signal (default 1.0)
             factor = window_factors.get(signal_id, 1.0)

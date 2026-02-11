@@ -41,7 +41,9 @@ def hurst_exponent(
     signal = signal[~np.isnan(signal)]
     n = len(signal)
 
-    if n < cfg.min_samples.hurst:
+    # Hard math floor: R/S method needs at least rs_min_k samples for any
+    # subseries. The internal len(k_values) < 3 check handles marginal cases.
+    if n < cfg.fractal.rs_min_k:
         return np.nan
 
     if method == 'dfa':
@@ -199,7 +201,8 @@ def hurst_r2(signal: np.ndarray) -> float:
     signal = signal[~np.isnan(signal)]
     n = len(signal)
 
-    if n < cfg.min_samples.hurst:
+    # Hard math floor: same as hurst_exponent
+    if n < cfg.fractal.rs_min_k:
         return np.nan
 
     max_k = min(int(n * cfg.fractal.rs_max_k_ratio), cfg.fractal.rs_max_k_cap)

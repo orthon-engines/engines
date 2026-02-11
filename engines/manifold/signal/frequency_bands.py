@@ -29,56 +29,53 @@ def compute(y: np.ndarray, sample_rate: float = 1.0, bands: dict = None) -> Dict
     y = y[~np.isnan(y)]
     n = len(y)
 
-    if n < 64:
-        if bands:
-            for name in bands:
-                result[f'band_{name}'] = np.nan
-                result[f'band_{name}_rel'] = np.nan
+    # Hard math floor: FFT requires at least 4 points
+    if n < 4:
+        # Always return full key set for consistent null template
+        if bands is None:
+            bands = {'low': [0, 0], 'mid': [0, 0], 'high': [0, 0]}
+        for name in bands:
+            result[f'band_{name}'] = np.nan
+            result[f'band_{name}_rel'] = np.nan
         result['total_power'] = np.nan
+        result['nyquist'] = np.nan
         return result
 
-    try:
-        nyquist = sample_rate / 2
+    # No broad try/except — let failures propagate to dispatch layer
+    nyquist = sample_rate / 2
 
-        # Use primitive for PSD
-        freqs, power = psd(y, fs=sample_rate, nperseg=min(256, n))
+    # Use primitive for PSD
+    freqs, power = psd(y, fs=sample_rate, nperseg=min(256, n))
 
-        # Default bands if not specified
-        if bands is None:
-            bands = {
-                'low': [0, nyquist * 0.1],
-                'mid': [nyquist * 0.1, nyquist * 0.5],
-                'high': [nyquist * 0.5, nyquist]
-            }
+    # Default bands if not specified
+    if bands is None:
+        bands = {
+            'low': [0, nyquist * 0.1],
+            'mid': [nyquist * 0.1, nyquist * 0.5],
+            'high': [nyquist * 0.5, nyquist]
+        }
 
-        total_power = np.sum(power)
+    total_power = np.sum(power)
 
-        for name, (low, high) in bands.items():
-            if low >= nyquist:
-                result[f'band_{name}'] = 0.0
-                result[f'band_{name}_rel'] = 0.0
-                continue
+    for name, (low, high) in bands.items():
+        if low >= nyquist:
+            result[f'band_{name}'] = 0.0
+            result[f'band_{name}_rel'] = 0.0
+            continue
 
-            high = min(high, nyquist)
+        high = min(high, nyquist)
 
-            if low >= high:
-                result[f'band_{name}'] = 0.0
-                result[f'band_{name}_rel'] = 0.0
-                continue
+        if low >= high:
+            result[f'band_{name}'] = 0.0
+            result[f'band_{name}_rel'] = 0.0
+            continue
 
-            mask = (freqs >= low) & (freqs <= high)
-            band_power = float(np.sum(power[mask]))
-            result[f'band_{name}'] = band_power
-            result[f'band_{name}_rel'] = float(band_power / (total_power + 1e-10))
+        mask = (freqs >= low) & (freqs <= high)
+        band_power = float(np.sum(power[mask]))
+        result[f'band_{name}'] = band_power
+        result[f'band_{name}_rel'] = float(band_power / (total_power + 1e-10))
 
-        result['total_power'] = float(total_power)
-        result['nyquist'] = float(nyquist)
-
-    except Exception:
-        if bands:
-            for name in bands:
-                result[f'band_{name}'] = np.nan
-                result[f'band_{name}_rel'] = np.nan
-        result['total_power'] = np.nan
+    result['total_power'] = float(total_power)
+    result['nyquist'] = float(nyquist)
 
     return result

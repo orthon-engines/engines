@@ -3,7 +3,7 @@ version: "1.0"
 
 requirements:
   base_window: 128
-  min_window: 64
+  min_window: 32
   max_window: 512
   scaling: linear
 

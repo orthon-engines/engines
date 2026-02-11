@@ -60,7 +60,8 @@ def compute_recurrence_rate(x: np.ndarray, threshold: float = None, embed_dim: i
     x = np.asarray(x).flatten()
     x = x[~np.isnan(x)]
 
-    if len(x) < 20:
+    # Hard math floor: need at least embed_dim * delay + 1 for embedding
+    if len(x) < embed_dim * delay + 1:
         return {'recurrence_rate': np.nan}
 
     R = compute_recurrence_matrix(x, threshold, embed_dim, delay)
@@ -88,7 +89,8 @@ def compute_determinism(x: np.ndarray, threshold: float = None, embed_dim: int =
     x = np.asarray(x).flatten()
     x = x[~np.isnan(x)]
 
-    if len(x) < 20:
+    # Hard math floor: need at least embed_dim * delay + 1 for embedding
+    if len(x) < embed_dim * delay + 1:
         return {'determinism': np.nan}
 
     R = compute_recurrence_matrix(x, threshold, embed_dim, delay)
@@ -140,7 +142,8 @@ def compute_correlation_dimension(x: np.ndarray, embed_dims: list = None, delay:
     x = np.asarray(x).flatten()
     x = x[~np.isnan(x)]
 
-    if len(x) < 50:
+    # Hard math floor: need enough points for embedding + distance computation
+    if len(x) < 10:
         return {'correlation_dimension': np.nan}
 
     if embed_dims is None:
@@ -151,7 +154,7 @@ def compute_correlation_dimension(x: np.ndarray, embed_dims: list = None, delay:
     n = len(x)
     m = n - (embed_dim - 1) * delay
 
-    if m < 20:
+    if m < 5:
         return {'correlation_dimension': np.nan}
 
     # Embed
@@ -197,14 +200,15 @@ def compute_embedding_dim(x: np.ndarray, max_dim: int = 10, delay: int = 1, thre
     x = np.asarray(x).flatten()
     x = x[~np.isnan(x)]
 
-    if len(x) < 50:
+    # Hard math floor: need enough points for embedding + KDTree
+    if len(x) < 10:
         return {'embedding_dim': np.nan}
 
     n = len(x)
 
     for dim in range(1, max_dim + 1):
         m = n - dim * delay
-        if m < 20:
+        if m < 5:
             return {'embedding_dim': float(dim - 1) if dim > 1 else np.nan}
 
         # Embed in dim and dim+1
