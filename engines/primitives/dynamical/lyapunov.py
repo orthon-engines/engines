@@ -56,22 +56,44 @@ def lyapunov_rosenstein(
     signal = np.asarray(signal).flatten()
     n = len(signal)
 
+    # Minimum viable signal length
+    if n < 50:
+        return np.nan, np.array([]), np.array([])
+
     # Auto-detect parameters
     if delay is None:
         delay = _auto_delay(signal)
     if dimension is None:
         dimension = _auto_dimension(signal, delay)
+
+    # Validate embedding parameters and adjust if needed
+    min_embed_points = max(50, n // 4)  # Need enough points for statistics
+    is_valid, dimension, delay, msg = _validate_embedding_params(
+        n, dimension, delay, min_embed_points
+    )
+
+    if not is_valid:
+        # Signal too short for Lyapunov analysis
+        return np.nan, np.array([]), np.array([])
+
     if min_tsep is None:
         min_tsep = delay * dimension
     if max_iter is None:
         max_iter = min(n // 10, 500)
 
-    # Embed
-    embedded = _embed(signal, dimension, delay)
+    # Embed (now safe after validation)
+    try:
+        embedded = _embed(signal, dimension, delay)
+    except ValueError:
+        return np.nan, np.array([]), np.array([])
+
     n_points = len(embedded)
 
     if n_points < min_tsep + max_iter + 10:
-        return np.nan, np.array([]), np.array([])
+        # Reduce max_iter to fit available points
+        max_iter = max(10, n_points - min_tsep - 10)
+        if max_iter < 10:
+            return np.nan, np.array([]), np.array([])
 
     # Find nearest neighbors using KDTree (O(n log n) instead of O(n²))
     # Query enough neighbors to find one outside temporal exclusion zone
@@ -173,22 +195,42 @@ def lyapunov_kantz(
     signal = np.asarray(signal).flatten()
     n = len(signal)
 
+    # Minimum viable signal length
+    if n < 50:
+        return np.nan, np.array([])
+
     # Auto-detect parameters
     if delay is None:
         delay = _auto_delay(signal)
     if dimension is None:
         dimension = _auto_dimension(signal, delay)
+
+    # Validate embedding parameters and adjust if needed
+    min_embed_points = max(50, n // 4)
+    is_valid, dimension, delay, msg = _validate_embedding_params(
+        n, dimension, delay, min_embed_points
+    )
+
+    if not is_valid:
+        return np.nan, np.array([])
+
     if min_tsep is None:
         min_tsep = delay * dimension
     if max_iter is None:
         max_iter = min(n // 10, 500)
 
-    # Embed
-    embedded = _embed(signal, dimension, delay)
+    # Embed (now safe after validation)
+    try:
+        embedded = _embed(signal, dimension, delay)
+    except ValueError:
+        return np.nan, np.array([])
+
     n_points = len(embedded)
 
     if n_points < min_tsep + max_iter + 10:
-        return np.nan, np.array([])
+        max_iter = max(10, n_points - min_tsep - 10)
+        if max_iter < 10:
+            return np.nan, np.array([])
 
     # Auto epsilon
     if epsilon is None:
@@ -289,12 +331,29 @@ def lyapunov_spectrum(
     and may not be reliable. Use with caution.
     """
     signal = np.asarray(signal).flatten()
+    n = len(signal)
 
     if n_exponents is None:
         n_exponents = dimension
 
-    # Embed
-    embedded = _embed(signal, dimension, delay)
+    # Validate embedding parameters
+    is_valid, adj_dim, adj_delay, msg = _validate_embedding_params(
+        n, dimension, delay, min_points=100
+    )
+
+    if not is_valid:
+        return np.full(n_exponents, np.nan)
+
+    # Use adjusted parameters if needed
+    dimension = adj_dim
+    delay = adj_delay
+
+    # Embed (now safe after validation)
+    try:
+        embedded = _embed(signal, dimension, delay)
+    except ValueError:
+        return np.full(n_exponents, np.nan)
+
     n_points = len(embedded)
 
     if n_points < 100:
@@ -405,8 +464,23 @@ def estimate_embedding_dim_cao(
     E2 = np.zeros(max_dim)
 
     for d in range(1, max_dim + 1):
-        embedded_d = _embed(signal, d, tau)
-        embedded_d1 = _embed(signal, d + 1, tau)
+        # Check if embedding is possible before trying
+        n_points_d = n - (d - 1) * tau
+        n_points_d1 = n - d * tau
+
+        if n_points_d < 10 or n_points_d1 < 10:
+            E1[d - 1] = np.nan
+            E2[d - 1] = np.nan
+            continue
+
+        try:
+            embedded_d = _embed(signal, d, tau)
+            embedded_d1 = _embed(signal, d + 1, tau)
+        except ValueError:
+            E1[d - 1] = np.nan
+            E2[d - 1] = np.nan
+            continue
+
         N = min(len(embedded_d), len(embedded_d1))
 
         if N < 10:
@@ -581,10 +655,77 @@ def estimate_tau_ami(
 # Helper functions
 # =============================================================================
 
+def _validate_embedding_params(
+    n: int,
+    dimension: int,
+    delay: int,
+    min_points: int = 10
+) -> Tuple[bool, int, int, str]:
+    """
+    Validate embedding parameters and suggest adjustments if invalid.
+
+    Parameters
+    ----------
+    n : int
+        Signal length
+    dimension : int
+        Proposed embedding dimension
+    delay : int
+        Proposed time delay
+    min_points : int
+        Minimum embedded points required
+
+    Returns
+    -------
+    tuple
+        (is_valid, adjusted_dimension, adjusted_delay, message)
+        If is_valid is False and adjustments can't help, dimension=0.
+    """
+    n_points = n - (dimension - 1) * delay
+
+    if n_points >= min_points:
+        return True, dimension, delay, "OK"
+
+    # Try reducing dimension first (preserves temporal structure)
+    for new_dim in range(dimension - 1, 1, -1):
+        new_n_points = n - (new_dim - 1) * delay
+        if new_n_points >= min_points:
+            return True, new_dim, delay, f"Reduced dimension {dimension}→{new_dim}"
+
+    # Try reducing delay
+    for new_delay in range(delay - 1, 0, -1):
+        new_n_points = n - (dimension - 1) * new_delay
+        if new_n_points >= min_points:
+            return True, dimension, new_delay, f"Reduced delay {delay}→{new_delay}"
+
+    # Try reducing both
+    for new_dim in range(dimension - 1, 1, -1):
+        for new_delay in range(delay - 1, 0, -1):
+            new_n_points = n - (new_dim - 1) * new_delay
+            if new_n_points >= min_points:
+                return True, new_dim, new_delay, f"Reduced dim {dimension}→{new_dim}, delay {delay}→{new_delay}"
+
+    # Signal too short for any valid embedding
+    return False, 0, 0, f"Signal too short ({n} samples) for Lyapunov analysis"
+
+
 def _embed(signal: np.ndarray, dimension: int, delay: int) -> np.ndarray:
-    """Time delay embedding."""
+    """
+    Time delay embedding.
+
+    Raises ValueError if parameters would result in negative embedding length.
+    This happens when (dimension - 1) * delay >= len(signal).
+    """
     n = len(signal)
     n_points = n - (dimension - 1) * delay
+
+    if n_points <= 0:
+        raise ValueError(
+            f"Cannot embed: signal length {n} is too short for "
+            f"dimension={dimension}, delay={delay}. "
+            f"Need at least {(dimension - 1) * delay + 1} samples."
+        )
+
     embedded = np.zeros((n_points, dimension))
     for d in range(dimension):
         embedded[:, d] = signal[d * delay : d * delay + n_points]
@@ -661,8 +802,16 @@ def _fnn_ratio(signal: np.ndarray, dimension: int, delay: int) -> float:
     """Compute false nearest neighbor ratio."""
     from scipy.spatial import KDTree
 
-    emb = _embed(signal, dimension, delay)
-    emb_next = _embed(signal, dimension + 1, delay)
+    # Check if embedding is possible
+    n = len(signal)
+    if n - dimension * delay < 10:
+        return 1.0
+
+    try:
+        emb = _embed(signal, dimension, delay)
+        emb_next = _embed(signal, dimension + 1, delay)
+    except ValueError:
+        return 1.0
 
     n_points = min(len(emb), len(emb_next))
     emb = emb[:n_points]

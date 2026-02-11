@@ -343,6 +343,7 @@ def generate_auto_manifest(
         'spectral',
         'sample_entropy', 'perm_entropy',
         'hurst', 'acf_decay',
+        'lyapunov',
     ]
 
     manifest = {
