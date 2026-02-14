@@ -29,11 +29,12 @@ from pathlib import Path
 from typing import Optional
 
 from manifold.core.dynamics.lyapunov import compute as compute_lyapunov
+from manifold.io.writer import write_output
 
 
 def run(
     observations_path: str,
-    output_path: str = "lyapunov.parquet",
+    data_path: str = ".",
     min_samples: int = 200,
     method: str = 'rosenstein',
     verbose: bool = True,
@@ -43,7 +44,7 @@ def run(
 
     Args:
         observations_path: Path to observations.parquet
-        output_path: Output path for lyapunov.parquet
+        data_path: Root data directory for output
         min_samples: Minimum samples required per signal
         method: 'rosenstein' or 'kantz'
         verbose: Print progress
@@ -119,10 +120,9 @@ def run(
     result = pl.DataFrame(results) if results else pl.DataFrame()
 
     if len(result) > 0:
-        result.write_parquet(output_path)
+        write_output(result, data_path, 'lyapunov', verbose=verbose)
 
     if verbose:
-        print(f"\nSaved: {output_path}")
         print(f"Shape: {result.shape}")
 
         if len(result) > 0 and 'lyapunov' in result.columns:
@@ -132,11 +132,6 @@ def run(
                 print(f"  Mean: {valid['lyapunov'].mean():.4f}")
                 print(f"  Std:  {valid['lyapunov'].std():.4f}")
                 print(f"  Range: [{valid['lyapunov'].min():.4f}, {valid['lyapunov'].max():.4f}]")
-
-        print()
-        print("─" * 50)
-        print(f"✓ {Path(output_path).absolute()}")
-        print("─" * 50)
 
     return result
 
@@ -163,15 +158,15 @@ Example:
                         help='Minimum samples per signal (default: 200)')
     parser.add_argument('--method', choices=['rosenstein', 'kantz'], default='rosenstein',
                         help='Algorithm (default: rosenstein)')
-    parser.add_argument('-o', '--output', default='lyapunov.parquet',
-                        help='Output path (default: lyapunov.parquet)')
+    parser.add_argument('-d', '--data-path', default='.',
+                        help='Root data directory (default: .)')
     parser.add_argument('-q', '--quiet', action='store_true', help='Suppress output')
 
     args = parser.parse_args()
 
     run(
         args.observations,
-        args.output,
+        args.data_path,
         min_samples=args.min_samples,
         method=args.method,
         verbose=not args.quiet,

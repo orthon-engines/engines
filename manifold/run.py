@@ -343,18 +343,18 @@ def _dispatch(
     elif stage_name == 'ftle':
         module.run(
             obs_path,
-            _out(output_dir, 'ftle.parquet'),
+            data_path=data_path_str,
             verbose=verbose,
             intervention=intervention,
         )
 
     elif stage_name == 'lyapunov':
-        module.run(obs_path, _out(output_dir, 'lyapunov.parquet'), verbose=verbose)
+        module.run(obs_path, data_path=data_path_str, verbose=verbose)
 
     elif stage_name == 'cohort_thermodynamics':
         sg_path = _out(output_dir, 'state_geometry.parquet')
         if Path(sg_path).exists():
-            module.run(sg_path, _out(output_dir, 'cohort_thermodynamics.parquet'), verbose=verbose)
+            module.run(sg_path, data_path=data_path_str, verbose=verbose)
         else:
             if verbose:
                 print("  Skipped (state_geometry.parquet not found)")
@@ -363,37 +363,37 @@ def _dispatch(
         module.run(
             _out(output_dir, 'state_vector.parquet'),
             _out(output_dir, 'state_geometry.parquet'),
-            _out(output_dir, 'ftle_field.parquet'),
+            data_path=data_path_str,
             verbose=verbose,
         )
 
     elif stage_name == 'ftle_backward':
         module.run(
             obs_path,
-            _out(output_dir, 'ftle_backward.parquet'),
+            data_path=data_path_str,
             verbose=verbose,
             intervention=intervention,
             direction='backward',
         )
 
     elif stage_name == 'velocity_field':
-        module.run(obs_path, _out(output_dir, 'velocity_field.parquet'), verbose=verbose)
+        module.run(obs_path, data_path=data_path_str, verbose=verbose)
 
     elif stage_name == 'ftle_rolling':
-        module.run(obs_path, _out(output_dir, 'ftle_rolling.parquet'), verbose=verbose)
+        module.run(obs_path, data_path=data_path_str, verbose=verbose)
 
     elif stage_name == 'ridge_proximity':
         module.run(
             _out(output_dir, 'ftle_rolling.parquet'),
             _out(output_dir, 'velocity_field.parquet'),
-            _out(output_dir, 'ridge_proximity.parquet'),
+            data_path=data_path_str,
             verbose=verbose,
         )
 
     elif stage_name == 'persistent_homology':
         sv_path = _out(output_dir, 'state_vector.parquet')
         if Path(sv_path).exists():
-            module.run(sv_path, _out(output_dir, 'persistent_homology.parquet'), verbose=verbose)
+            module.run(sv_path, data_path=data_path_str, verbose=verbose)
         else:
             if verbose:
                 print("  Skipped (state_vector.parquet not found)")
@@ -475,10 +475,10 @@ def _dispatch_fleet(
             _pl.DataFrame().write_parquet(_out(output_dir, 'cohort_information_flow.parquet'))
 
     elif stage_name == 'cohort_ftle':
-        module.run(str(cv_path), _out(output_dir, 'cohort_ftle.parquet'), verbose=verbose)
+        module.run(str(cv_path), data_path=data_path_str, verbose=verbose)
 
     elif stage_name == 'cohort_velocity_field':
-        module.run(str(cv_path), _out(output_dir, 'cohort_velocity_field.parquet'), verbose=verbose)
+        module.run(str(cv_path), data_path=data_path_str, verbose=verbose)
 
 
 def _find_typology(manifest: Dict[str, Any], output_dir: Path) -> Optional[str]:

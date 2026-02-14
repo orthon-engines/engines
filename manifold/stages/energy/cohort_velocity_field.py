@@ -17,10 +17,12 @@ import numpy as np
 import polars as pl
 from pathlib import Path
 
+from manifold.io.writer import write_output
+
 
 def run(
     cohort_vector_path: str,
-    output_path: str = "cohort_velocity_field.parquet",
+    data_path: str = ".",
     verbose: bool = True,
 ) -> pl.DataFrame:
     """
@@ -28,7 +30,7 @@ def run(
 
     Args:
         cohort_vector_path: Path to cohort_vector.parquet
-        output_path: Output path for cohort_velocity_field.parquet
+        data_path: Root data directory for output
         verbose: Print progress
 
     Returns:
@@ -48,7 +50,7 @@ def run(
     if len(cv) == 0:
         if verbose:
             print("  Empty cohort_vector — skipping")
-        pl.DataFrame().write_parquet(output_path)
+        write_output(pl.DataFrame(), data_path, 'cohort_velocity_field', verbose=verbose)
         return pl.DataFrame()
 
     feature_cols = [c for c in cv.columns if c not in ['cohort', 'I']]
@@ -125,18 +127,14 @@ def run(
 
     result = pl.DataFrame(results) if results else pl.DataFrame()
 
-    result.write_parquet(output_path)
+    write_output(result, data_path, 'cohort_velocity_field', verbose=verbose)
 
     if verbose:
-        print(f"\nShape: {result.shape}")
+        print(f"Shape: {result.shape}")
         if len(result) > 0:
             print(f"  Mean speed: {result['speed'].mean():.4f}")
             print(f"  Mean curvature: {result['curvature'].mean():.4f}")
             print(f"  Mean motion dimensionality: {result['motion_dimensionality'].mean():.2f}")
-        print()
-        print("-" * 50)
-        print(f"  {Path(output_path).absolute()}")
-        print("-" * 50)
 
     return result
 
@@ -157,15 +155,15 @@ Example:
 """
     )
     parser.add_argument('cohort_vector', help='Path to cohort_vector.parquet')
-    parser.add_argument('-o', '--output', default='cohort_velocity_field.parquet',
-                        help='Output path (default: cohort_velocity_field.parquet)')
+    parser.add_argument('-d', '--data-path', default='.',
+                        help='Root data directory (default: .)')
     parser.add_argument('-q', '--quiet', action='store_true', help='Suppress output')
 
     args = parser.parse_args()
 
     run(
         args.cohort_vector,
-        args.output,
+        args.data_path,
         verbose=not args.quiet,
     )
 

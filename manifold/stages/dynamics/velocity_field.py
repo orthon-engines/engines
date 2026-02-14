@@ -33,10 +33,12 @@ from pathlib import Path
 from typing import Optional
 from scipy.signal import savgol_filter
 
+from manifold.io.writer import write_output, write_sidecar
+
 
 def run(
     observations_path: str,
-    output_path: str = "velocity_field.parquet",
+    data_path: str = ".",
     smooth: str = 'savgol',
     smooth_window: int = 11,
     include_components: bool = True,
@@ -47,7 +49,7 @@ def run(
 
     Args:
         observations_path: Path to observations.parquet
-        output_path: Output path for velocity_field.parquet
+        data_path: Root data directory for output
         smooth: Smoothing method ('none', 'savgol', 'gaussian')
         smooth_window: Window size for smoothing
         include_components: Include per-signal velocity components (v_{signal} columns).
@@ -214,18 +216,14 @@ def run(
             'motion_dimensionality': pl.Float64,
         })
 
-    result.write_parquet(output_path)
+    write_output(result, data_path, 'velocity_field', verbose=verbose)
 
     # Write velocity components sidecar (narrow schema)
     if component_rows:
         components_df = pl.DataFrame(component_rows)
-        components_path = str(Path(output_path).parent / 'velocity_field_components.parquet')
-        components_df.write_parquet(components_path)
-        if verbose:
-            print(f"Components sidecar: {components_df.shape} → {components_path}")
+        write_sidecar(components_df, data_path, 'velocity_field', 'components', verbose=verbose)
 
     if verbose:
-        print(f"\nSaved: {output_path}")
         print(f"Shape: {result.shape}")
 
         if len(result) > 0:
@@ -246,11 +244,6 @@ def run(
             print("\nTop motion-driving signals:")
             for r in top_drivers.iter_rows(named=True):
                 print(f"  {r['dominant_motion_signal']}: {r['count']} timesteps")
-
-        print()
-        print("─" * 50)
-        print(f"✓ {Path(output_path).absolute()}")
-        print("─" * 50)
 
     return result
 
@@ -276,8 +269,8 @@ Example:
 """
     )
     parser.add_argument('observations', help='Path to observations.parquet')
-    parser.add_argument('-o', '--output', default='velocity_field.parquet',
-                        help='Output path (default: velocity_field.parquet)')
+    parser.add_argument('-d', '--data-path', default='.',
+                        help='Root data directory (default: .)')
     parser.add_argument('--smooth', choices=['none', 'savgol', 'gaussian'], default='savgol',
                         help='Smoothing method (default: savgol)')
     parser.add_argument('--smooth-window', type=int, default=11,
@@ -290,7 +283,7 @@ Example:
 
     run(
         args.observations,
-        args.output,
+        args.data_path,
         smooth=args.smooth,
         smooth_window=args.smooth_window,
         include_components=not args.no_components,

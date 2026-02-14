@@ -28,11 +28,12 @@ from pathlib import Path
 from typing import Optional
 
 from manifold.core.dynamics.ftle import compute as compute_ftle
+from manifold.io.writer import write_output
 
 
 def run(
     observations_path: str,
-    output_path: str = "ftle_rolling.parquet",
+    data_path: str = ".",
     window_size: int = 200,
     stride: int = 50,
     min_samples: int = 100,
@@ -44,7 +45,7 @@ def run(
 
     Args:
         observations_path: Path to observations.parquet
-        output_path: Output path for ftle_rolling.parquet
+        data_path: Root data directory for output
         window_size: Window size for FTLE computation
         stride: Step size between windows
         min_samples: Minimum samples for reliable FTLE
@@ -167,10 +168,9 @@ def run(
             'direction': pl.Utf8,
         })
 
-    result.write_parquet(output_path)
+    write_output(result, data_path, 'ftle_rolling', verbose=verbose)
 
     if verbose:
-        print(f"\nSaved: {output_path}")
         print(f"Shape: {result.shape}")
 
         if len(result) > 0:
@@ -191,11 +191,6 @@ def run(
                 for r in var_by_signal.iter_rows(named=True):
                     v = r['ftle_variability']
                     print(f"  {r['signal_id']}: std={v:.4f}" if v is not None else f"  {r['signal_id']}: std=N/A")
-
-        print()
-        print("─" * 50)
-        print(f"✓ {Path(output_path).absolute()}")
-        print("─" * 50)
 
     return result
 
@@ -221,8 +216,8 @@ Example:
 """
     )
     parser.add_argument('observations', help='Path to observations.parquet')
-    parser.add_argument('-o', '--output', default='ftle_rolling.parquet',
-                        help='Output path (default: ftle_rolling.parquet)')
+    parser.add_argument('-d', '--data-path', default='.',
+                        help='Root data directory (default: .)')
     parser.add_argument('--window', type=int, default=200,
                         help='Window size for FTLE (default: 200)')
     parser.add_argument('--stride', type=int, default=50,
@@ -235,7 +230,7 @@ Example:
 
     run(
         args.observations,
-        args.output,
+        args.data_path,
         window_size=args.window,
         stride=args.stride,
         direction='backward' if args.backward else 'forward',

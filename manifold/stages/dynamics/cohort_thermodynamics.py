@@ -24,6 +24,8 @@ import numpy as np
 from pathlib import Path
 from typing import Dict, Any, Optional
 
+from manifold.io.writer import write_output
+
 
 def compute_entropy(eigenvalues: np.ndarray) -> float:
     """Compute entropy from eigenvalue distribution."""
@@ -63,7 +65,7 @@ def compute_effective_temperature(velocities: np.ndarray) -> float:
 def run(
     state_geometry_path: str,
     cohort_evolution_path: Optional[str] = None,
-    output_path: str = "cohort_thermodynamics.parquet",
+    data_path: str = ".",
     verbose: bool = True,
 ) -> pl.DataFrame:
     """
@@ -72,7 +74,7 @@ def run(
     Args:
         state_geometry_path: Path to state_geometry.parquet
         cohort_evolution_path: Path to cohort_evolution.parquet (optional)
-        output_path: Output path for cohort_thermodynamics.parquet
+        data_path: Root data directory for output
         verbose: Print progress
 
     Returns:
@@ -193,10 +195,9 @@ def run(
 
     # Write output
     if len(df) > 0:
-        df.write_parquet(output_path)
+        write_output(df, data_path, 'cohort_thermodynamics', verbose=verbose)
 
     if verbose:
-        print(f"\nSaved: {output_path}")
         print(f"Shape: {df.shape}")
 
         if len(df) > 0 and 'entropy' in df.columns:
@@ -233,8 +234,8 @@ Example:
     )
     parser.add_argument('state_geometry', help='Path to state_geometry.parquet')
     parser.add_argument('--cohort-evolution', help='Path to cohort_evolution.parquet')
-    parser.add_argument('-o', '--output', default='cohort_thermodynamics.parquet',
-                        help='Output path (default: cohort_thermodynamics.parquet)')
+    parser.add_argument('-d', '--data-path', default='.',
+                        help='Root data directory (default: .)')
     parser.add_argument('-q', '--quiet', action='store_true', help='Suppress output')
 
     args = parser.parse_args()
@@ -242,7 +243,7 @@ Example:
     run(
         args.state_geometry,
         args.cohort_evolution,
-        args.output,
+        args.data_path,
         verbose=not args.quiet,
     )
 

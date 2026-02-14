@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Optional
 
 from manifold.core.dynamics.persistent_homology import compute
+from manifold.io.writer import write_output
 
 
 # Columns that are trajectory coordinates (feature dimensions)
@@ -34,7 +35,7 @@ _META_COLS = {'I', 'n_signals', 'cohort', 'mean_distance', 'max_distance', 'std_
 
 def run(
     state_vector_path: str,
-    output_path: str = "persistent_homology.parquet",
+    data_path: str = ".",
     window: int = 20,
     stride: int = 1,
     max_dim: int = 1,
@@ -51,7 +52,7 @@ def run(
 
     Args:
         state_vector_path: Path to state_vector.parquet
-        output_path: Output path for persistent_homology.parquet
+        data_path: Root data directory for output
         window: Number of consecutive I-steps per point cloud
         stride: Step between windows
         max_dim: Maximum homology dimension (1 = H0 + H1)
@@ -112,10 +113,9 @@ def run(
 
     # Write output
     if len(df) > 0:
-        df.write_parquet(output_path)
+        write_output(df, data_path, 'persistent_homology', verbose=verbose)
 
     if verbose:
-        print(f"\nSaved: {output_path}")
         print(f"Shape: {df.shape}")
 
         if len(df) > 0 and 'betti_0' in df.columns:
@@ -123,16 +123,11 @@ def run(
             b0_valid = df.filter(pl.col('betti_0').is_not_null())
             if len(b0_valid) > 0:
                 print(f"\nTopology summary:")
-                print(f"  β₀ range: [{b0_valid['betti_0'].min()}, {b0_valid['betti_0'].max()}]")
+                print(f"  b0 range: [{b0_valid['betti_0'].min()}, {b0_valid['betti_0'].max()}]")
                 if 'betti_1' in df.columns:
                     b1_valid = df.filter(pl.col('betti_1').is_not_null())
                     if len(b1_valid) > 0:
-                        print(f"  β₁ range: [{b1_valid['betti_1'].min()}, {b1_valid['betti_1'].max()}]")
-
-        print()
-        print("─" * 50)
-        print(f"✓ {Path(output_path).absolute()}")
-        print("─" * 50)
+                        print(f"  b1 range: [{b1_valid['betti_1'].min()}, {b1_valid['betti_1'].max()}]")
 
     return df
 
@@ -207,8 +202,8 @@ Example:
 """
     )
     parser.add_argument('state_vector', help='Path to state_vector.parquet')
-    parser.add_argument('-o', '--output', default='persistent_homology.parquet',
-                        help='Output path (default: persistent_homology.parquet)')
+    parser.add_argument('-d', '--data-path', default='.',
+                        help='Root data directory (default: .)')
     parser.add_argument('--window', type=int, default=20,
                         help='Window size in I-steps (default: 20)')
     parser.add_argument('--stride', type=int, default=1,
@@ -219,7 +214,7 @@ Example:
 
     run(
         args.state_vector,
-        args.output,
+        args.data_path,
         window=args.window,
         stride=args.stride,
         verbose=not args.quiet,

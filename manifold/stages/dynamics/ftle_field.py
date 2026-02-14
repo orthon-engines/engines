@@ -34,6 +34,8 @@ from pathlib import Path
 from typing import Dict, Any, List, Tuple, Optional
 from itertools import combinations
 
+from manifold.io.writer import write_output
+
 try:
     from scipy.spatial import Delaunay
     HAS_SCIPY = True
@@ -346,22 +348,22 @@ def compute_basin_depth(
 def run(
     state_vector_path: str,
     state_geometry_path: str,
-    output_path: str = "ftle_field.parquet",
+    data_path: str = ".",
     grid_resolution: int = 20,
     neighborhood: float = 2.0,
     verbose: bool = True,
 ) -> pl.DataFrame:
     """
     Compute local FTLE fields around centroids.
-    
+
     Args:
         state_vector_path: Path to state_vector.parquet
         state_geometry_path: Path to state_geometry.parquet
-        output_path: Output path for ftle_field.parquet
+        data_path: Root data directory for output
         grid_resolution: Grid points per axis
         neighborhood: Grid extent multiplier
         verbose: Print progress
-    
+
     Returns:
         FTLE field DataFrame
     """
@@ -565,25 +567,19 @@ def run(
     result = ridge_df if len(ridge_df) > 0 else basin_df
     
     if len(result) > 0:
-        result.write_parquet(output_path)
-    
+        write_output(result, data_path, 'ftle_field', verbose=verbose)
+
     if verbose:
-        print(f"\nSaved: {output_path}")
         print(f"Ridges: {len(ridge_df)}")
         print(f"Basins: {len(basin_df)}")
-        
+
         if len(ridge_df) > 0 and 'ridge_strength' in ridge_df.columns:
             valid = ridge_df.filter(pl.col('ridge_strength').is_not_null())
             if len(valid) > 0:
                 print(f"\nRidge strength stats:")
                 print(f"  Mean: {valid['ridge_strength'].mean():.4f}")
                 print(f"  Max:  {valid['ridge_strength'].max():.4f}")
-        
-        print()
-        print("─" * 50)
-        print(f"✓ {Path(output_path).absolute()}")
-        print("─" * 50)
-    
+
     return result
 
 
@@ -609,20 +605,20 @@ Example:
     )
     parser.add_argument('state_vector', help='Path to state_vector.parquet')
     parser.add_argument('state_geometry', help='Path to state_geometry.parquet')
-    parser.add_argument('-o', '--output', default='ftle_field.parquet',
-                        help='Output path (default: ftle_field.parquet)')
+    parser.add_argument('-d', '--data-path', default='.',
+                        help='Root data directory (default: .)')
     parser.add_argument('--grid-resolution', type=int, default=20,
                         help='Grid points per axis (default: 20)')
     parser.add_argument('--neighborhood', type=float, default=2.0,
                         help='Grid extent multiplier (default: 2.0)')
     parser.add_argument('-q', '--quiet', action='store_true', help='Suppress output')
-    
+
     args = parser.parse_args()
-    
+
     run(
         args.state_vector,
         args.state_geometry,
-        args.output,
+        args.data_path,
         grid_resolution=args.grid_resolution,
         neighborhood=args.neighborhood,
         verbose=not args.quiet,

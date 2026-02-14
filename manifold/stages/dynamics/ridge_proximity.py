@@ -36,11 +36,13 @@ import polars as pl
 from pathlib import Path
 from typing import Optional
 
+from manifold.io.writer import write_output
+
 
 def run(
     ftle_rolling_path: str,
     velocity_field_path: str,
-    output_path: str = "ridge_proximity.parquet",
+    data_path: str = ".",
     ridge_threshold: float = 0.05,
     urgency_threshold: float = 0.001,
     verbose: bool = True,
@@ -51,7 +53,7 @@ def run(
     Args:
         ftle_rolling_path: Path to ftle_rolling.parquet
         velocity_field_path: Path to velocity_field.parquet
-        output_path: Output path for ridge_proximity.parquet
+        data_path: Root data directory for output
         ridge_threshold: FTLE value considered "near ridge"
         urgency_threshold: Minimum urgency to be "approaching"
         verbose: Print progress
@@ -191,10 +193,9 @@ def run(
             'urgency_class': pl.Utf8,
         })
 
-    result.write_parquet(output_path)
+    write_output(result, data_path, 'ridge_proximity', verbose=verbose)
 
     if verbose:
-        print(f"\nSaved: {output_path}")
         print(f"Shape: {result.shape}")
 
         if len(result) > 0:
@@ -218,11 +219,6 @@ def run(
                 print("Top warning signals:")
                 for r in warning_signals.iter_rows(named=True):
                     print(f"  {r['signal_id']}: {r['count']} warnings")
-
-        print()
-        print("─" * 50)
-        print(f"✓ {Path(output_path).absolute()}")
-        print("─" * 50)
 
     return result
 
@@ -249,8 +245,8 @@ Example:
     )
     parser.add_argument('ftle_rolling', help='Path to ftle_rolling.parquet')
     parser.add_argument('velocity_field', help='Path to velocity_field.parquet')
-    parser.add_argument('-o', '--output', default='ridge_proximity.parquet',
-                        help='Output path (default: ridge_proximity.parquet)')
+    parser.add_argument('-d', '--data-path', default='.',
+                        help='Root data directory (default: .)')
     parser.add_argument('--ridge-threshold', type=float, default=0.05,
                         help='FTLE value considered "near ridge" (default: 0.05)')
     parser.add_argument('--urgency-threshold', type=float, default=0.001,
@@ -262,7 +258,7 @@ Example:
     run(
         args.ftle_rolling,
         args.velocity_field,
-        args.output,
+        args.data_path,
         ridge_threshold=args.ridge_threshold,
         urgency_threshold=args.urgency_threshold,
         verbose=not args.quiet,

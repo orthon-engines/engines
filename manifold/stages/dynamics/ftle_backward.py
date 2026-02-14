@@ -28,7 +28,7 @@ from manifold.stages.dynamics.ftle import run as _run
 
 def run(
     observations_path: str,
-    output_path: str = "ftle_backward.parquet",
+    data_path: str = ".",
     min_samples: int = 200,
     method: str = 'rosenstein',
     verbose: bool = True,
@@ -42,7 +42,7 @@ def run(
     """
     return _run(
         observations_path=observations_path,
-        output_path=output_path,
+        data_path=data_path,
         min_samples=min_samples,
         method=method,
         verbose=verbose,
@@ -69,8 +69,8 @@ Example:
 """
     )
     parser.add_argument('observations', help='Path to observations.parquet')
-    parser.add_argument('-o', '--output', default='ftle_backward.parquet',
-                        help='Output path (default: ftle_backward.parquet)')
+    parser.add_argument('-d', '--data-path', default='.',
+                        help='Root data directory (default: .)')
     parser.add_argument('--min-samples', type=int, default=200,
                         help='Minimum samples per signal (default: 200)')
     parser.add_argument('--method', choices=['rosenstein', 'kantz'], default='rosenstein',
@@ -81,7 +81,7 @@ Example:
 
     run(
         args.observations,
-        args.output,
+        args.data_path,
         min_samples=args.min_samples,
         method=args.method,
         verbose=not args.quiet,

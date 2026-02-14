@@ -40,11 +40,12 @@ from typing import Optional
 
 from manifold.core.dynamics.ftle import compute as compute_ftle
 from manifold.core.dynamics.formal_definitions import classify_stability
+from manifold.io.writer import write_output
 
 
 def run(
     observations_path: str,
-    output_path: str = "ftle.parquet",
+    data_path: str = ".",
     min_samples: int = 200,
     method: str = 'rosenstein',
     verbose: bool = True,
@@ -56,7 +57,7 @@ def run(
 
     Args:
         observations_path: Path to observations.parquet
-        output_path: Output path for ftle.parquet
+        data_path: Root data directory for output
         min_samples: Minimum samples required per signal
         method: 'rosenstein' or 'kantz'
         verbose: Print progress
@@ -234,11 +235,12 @@ def run(
     # Build DataFrame — infer schema from ALL rows to handle None → Float64
     result = pl.from_dicts(results, infer_schema_length=len(results)) if results else pl.DataFrame()
 
+    stage_name = 'ftle_backward' if backward else 'ftle'
+
     if len(result) > 0:
-        result.write_parquet(output_path)
+        write_output(result, data_path, stage_name, verbose=verbose)
 
     if verbose:
-        print(f"\nSaved: {output_path}")
         print(f"Shape: {result.shape}")
 
         if len(result) > 0 and 'ftle' in result.columns:
@@ -250,17 +252,12 @@ def run(
                 print(f"  Std:  {valid['ftle'].std():.4f}")
                 print(f"  Range: [{valid['ftle'].min():.4f}, {valid['ftle'].max():.4f}]")
 
-        print()
-        print("─" * 50)
-        print(f"✓ {Path(output_path).absolute()}")
-        print("─" * 50)
-
     return result
 
 
 def run_bidirectional(
     observations_path: str,
-    output_dir: str,
+    data_path: str,
     min_samples: int = 200,
     method: str = 'rosenstein',
     verbose: bool = True,
@@ -277,7 +274,7 @@ def run_bidirectional(
 
     Args:
         observations_path: Path to observations.parquet
-        output_dir: Directory for output files
+        data_path: Root data directory for output
         min_samples: Minimum samples required per signal
         method: 'rosenstein' or 'kantz'
         verbose: Print progress
@@ -286,10 +283,6 @@ def run_bidirectional(
     Returns:
         Merged bidirectional FTLE DataFrame
     """
-    from pathlib import Path
-    output_dir = Path(output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
-
     if verbose:
         print("=" * 70)
         print("BIDIRECTIONAL FTLE - Full LCS Analysis")
@@ -298,7 +291,7 @@ def run_bidirectional(
     # Run forward FTLE
     fwd = run(
         observations_path,
-        str(output_dir / 'ftle.parquet'),
+        data_path,
         min_samples=min_samples,
         method=method,
         verbose=verbose,
@@ -309,7 +302,7 @@ def run_bidirectional(
     # Run backward FTLE
     bwd = run(
         observations_path,
-        str(output_dir / 'ftle_backward.parquet'),
+        data_path,
         min_samples=min_samples,
         method=method,
         verbose=verbose,
@@ -323,15 +316,13 @@ def run_bidirectional(
     combined = pl.concat([fwd.select(common_cols), bwd.select(common_cols)], how='vertical')
 
     # Save merged result
-    output_path = output_dir / 'ftle.parquet'
-    combined.write_parquet(output_path)
+    write_output(combined, data_path, 'ftle', verbose=verbose)
 
     if verbose:
         print()
         print("=" * 70)
         print("BIDIRECTIONAL FTLE COMPLETE")
         print("=" * 70)
-        print(f"Saved: {output_path}")
         print(f"Shape: {combined.shape} (forward + backward)")
 
         for dir_name in ['forward', 'backward']:
@@ -373,8 +364,8 @@ Example:
                         help='Minimum samples per signal (default: 200)')
     parser.add_argument('--method', choices=['rosenstein', 'kantz'], default='rosenstein',
                         help='Algorithm (default: rosenstein)')
-    parser.add_argument('-o', '--output', default='ftle.parquet',
-                        help='Output path (default: ftle.parquet)')
+    parser.add_argument('-d', '--data-path', default='.',
+                        help='Root data directory (default: .)')
     parser.add_argument('--backward', action='store_true',
                         help='Compute backward FTLE (attracting structures)')
     parser.add_argument('--bidirectional', action='store_true',
@@ -384,12 +375,9 @@ Example:
     args = parser.parse_args()
 
     if args.bidirectional:
-        # Bidirectional mode: output to directory
-        from pathlib import Path
-        output_dir = Path(args.output).parent if args.output != 'ftle.parquet' else Path('.')
         run_bidirectional(
             args.observations,
-            str(output_dir),
+            args.data_path,
             min_samples=args.min_samples,
             method=args.method,
             verbose=not args.quiet,
@@ -400,7 +388,7 @@ Example:
 
     run(
         args.observations,
-        args.output,
+        args.data_path,
         min_samples=args.min_samples,
         method=args.method,
         verbose=not args.quiet,
