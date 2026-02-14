@@ -7,6 +7,14 @@ Time delay embedding and parameter estimation.
 import numpy as np
 from typing import Tuple, Optional
 
+try:
+    from rudder_primitives_rs.embedding import (
+        optimal_delay as _optimal_delay_rs,
+    )
+    _USE_RUST_EMBEDDING = True
+except ImportError:
+    _USE_RUST_EMBEDDING = False
+
 
 def time_delay_embedding(
     signal: np.ndarray,
@@ -101,6 +109,9 @@ def optimal_delay(
         max_lag = n // 4
 
     max_lag = min(max_lag, n // 2)
+
+    if _USE_RUST_EMBEDDING:
+        return _optimal_delay_rs(signal, max_lag, method)
 
     if method == 'autocorr':
         # Autocorrelation zero crossing
