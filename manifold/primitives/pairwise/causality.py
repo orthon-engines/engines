@@ -8,6 +8,14 @@ import numpy as np
 from scipy import stats
 from typing import Tuple, Optional
 
+try:
+    from rudder_primitives_rs.pairwise import (
+        granger_causality as _granger_rs,
+    )
+    _USE_RUST_CAUSALITY = True
+except ImportError:
+    _USE_RUST_CAUSALITY = False
+
 
 def granger_causality(
     source: np.ndarray,
@@ -45,6 +53,9 @@ def granger_causality(
 
     if n < max_lag + 10:
         return 0.0, 1.0, 1
+
+    if _USE_RUST_CAUSALITY:
+        return _granger_rs(source, target, max_lag)
 
     # Find optimal lag via AIC
     best_aic = np.inf

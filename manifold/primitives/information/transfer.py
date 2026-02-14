@@ -7,6 +7,14 @@ Transfer entropy for causal information flow.
 import numpy as np
 from typing import Optional
 
+try:
+    from rudder_primitives_rs.information import (
+        transfer_entropy as _transfer_entropy_rs,
+    )
+    _USE_RUST_TE = True
+except ImportError:
+    _USE_RUST_TE = False
+
 
 def transfer_entropy(
     source: np.ndarray,
@@ -75,6 +83,9 @@ def transfer_entropy(
     # Need enough samples for lagged values
     if len(source) < lag + history_length + 10:
         return 0.0
+
+    if _USE_RUST_TE and history_length == 1:
+        return _transfer_entropy_rs(source, target, lag, n_bins)
 
     n_samples = len(source) - lag - history_length
 

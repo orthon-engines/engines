@@ -7,6 +7,14 @@ Mutual information, conditional MI, multivariate MI.
 import numpy as np
 from typing import List, Optional, Tuple
 
+try:
+    from rudder_primitives_rs.information import (
+        mutual_information as _mutual_info_rs,
+    )
+    _USE_RUST_MI = True
+except ImportError:
+    _USE_RUST_MI = False
+
 
 def mutual_information(
     x: np.ndarray,
@@ -58,6 +66,9 @@ def mutual_information(
 
     if bins is None:
         bins = max(5, int(np.sqrt(len(x))))
+
+    if _USE_RUST_MI:
+        return _mutual_info_rs(x, y, bins, normalized, base)
 
     # Estimate marginal and joint entropies
     h_x = _entropy(x, bins, base)

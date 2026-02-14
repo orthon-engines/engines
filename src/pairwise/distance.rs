@@ -3,6 +3,9 @@ use pyo3::prelude::*;
 
 /// Dynamic time warping distance.
 /// Matches: manifold.primitives.pairwise.distance.dynamic_time_warping
+///
+/// Uses squared cost and returns sqrt of accumulated distance
+/// to match the Python implementation.
 #[pyfunction]
 #[pyo3(signature = (sig_a, sig_b, window=None, return_path=false))]
 pub fn dynamic_time_warping(
@@ -30,7 +33,7 @@ pub fn dynamic_time_warping(
         let j_start = if i > w { i - w } else { 1 };
         let j_end = (i + w).min(m);
         for j in j_start..=j_end {
-            let cost = (a[i - 1] - b[j - 1]).abs();
+            let cost = (a[i - 1] - b[j - 1]).powi(2);
             dtw[i][j] = cost
                 + dtw[i - 1][j]
                     .min(dtw[i][j - 1])
@@ -38,7 +41,7 @@ pub fn dynamic_time_warping(
         }
     }
 
-    Ok(dtw[n][m])
+    Ok(dtw[n][m].sqrt())
 }
 
 /// Euclidean distance between two signals.

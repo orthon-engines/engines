@@ -7,6 +7,14 @@ DTW, Euclidean, Cosine similarity.
 import numpy as np
 from typing import Optional
 
+try:
+    from rudder_primitives_rs.pairwise import (
+        dynamic_time_warping as _dtw_rs,
+    )
+    _USE_RUST_DISTANCE = True
+except ImportError:
+    _USE_RUST_DISTANCE = False
+
 
 def dynamic_time_warping(
     sig_a: np.ndarray,
@@ -40,6 +48,9 @@ def dynamic_time_warping(
     sig_b = np.asarray(sig_b).flatten()
 
     n, m = len(sig_a), len(sig_b)
+
+    if _USE_RUST_DISTANCE:
+        return _dtw_rs(sig_a, sig_b, window)
 
     if window is None:
         window = max(n, m)

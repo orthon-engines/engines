@@ -10,6 +10,8 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(correlation::covariance, m)?)?;
     m.add_function(wrap_pyfunction!(correlation::cross_correlation, m)?)?;
     m.add_function(wrap_pyfunction!(correlation::lag_at_max_xcorr, m)?)?;
+    m.add_function(wrap_pyfunction!(correlation::spearman_rho, m)?)?;
+    m.add_function(wrap_pyfunction!(correlation::kendall_tau, m)?)?;
     m.add_function(wrap_pyfunction!(correlation::partial_correlation, m)?)?;
 
     // causality

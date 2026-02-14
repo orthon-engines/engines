@@ -144,6 +144,94 @@ pub fn lag_at_max_xcorr(
     Ok(best_lag)
 }
 
+/// Spearman rank correlation.
+/// Matches: manifold.primitives.pairwise.correlation (spearman_rho)
+///
+/// Computes Pearson correlation of ranks.
+#[pyfunction]
+pub fn spearman_rho(sig_a: PyReadonlyArray1<f64>, sig_b: PyReadonlyArray1<f64>) -> PyResult<f64> {
+    let a = sig_a.as_slice()?;
+    let b = sig_b.as_slice()?;
+    let n = a.len().min(b.len());
+    if n < 3 {
+        return Ok(f64::NAN);
+    }
+
+    // Compute ranks via argsort(argsort(x))
+    fn ranks(data: &[f64], n: usize) -> Vec<f64> {
+        let mut indices: Vec<usize> = (0..n).collect();
+        indices.sort_by(|&i, &j| data[i].partial_cmp(&data[j]).unwrap_or(std::cmp::Ordering::Equal));
+        let mut r = vec![0.0f64; n];
+        for (rank, &idx) in indices.iter().enumerate() {
+            r[idx] = rank as f64;
+        }
+        r
+    }
+
+    let ra = ranks(a, n);
+    let rb = ranks(b, n);
+
+    // Pearson correlation of ranks
+    let mean_a: f64 = ra.iter().sum::<f64>() / n as f64;
+    let mean_b: f64 = rb.iter().sum::<f64>() / n as f64;
+
+    let mut cov = 0.0;
+    let mut var_a = 0.0;
+    let mut var_b = 0.0;
+    for i in 0..n {
+        let da = ra[i] - mean_a;
+        let db = rb[i] - mean_b;
+        cov += da * db;
+        var_a += da * da;
+        var_b += db * db;
+    }
+
+    let denom = (var_a * var_b).sqrt();
+    if denom < 1e-15 {
+        return Ok(0.0);
+    }
+
+    Ok(cov / denom)
+}
+
+/// Kendall's tau rank correlation.
+/// Matches: manifold.primitives.pairwise (kendall_tau)
+///
+/// O(n²) direct comparison of concordant/discordant pairs.
+#[pyfunction]
+pub fn kendall_tau(sig_a: PyReadonlyArray1<f64>, sig_b: PyReadonlyArray1<f64>) -> PyResult<f64> {
+    let a = sig_a.as_slice()?;
+    let b = sig_b.as_slice()?;
+    let n = a.len().min(b.len());
+    if n < 3 {
+        return Ok(0.0);
+    }
+
+    let mut concordant: i64 = 0;
+    let mut discordant: i64 = 0;
+
+    for i in 0..(n - 1) {
+        for j in (i + 1)..n {
+            let dx = a[j] - a[i];
+            let dy = b[j] - b[i];
+            let product = dx * dy;
+            if product > 0.0 {
+                concordant += 1;
+            } else if product < 0.0 {
+                discordant += 1;
+            }
+            // ties (product == 0) are ignored (tau-a)
+        }
+    }
+
+    let denom = concordant + discordant;
+    if denom == 0 {
+        return Ok(0.0);
+    }
+
+    Ok((concordant - discordant) as f64 / denom as f64)
+}
+
 /// Partial correlation (controlling for other variables).
 /// Matches: manifold.primitives.pairwise.correlation.partial_correlation
 #[pyfunction]

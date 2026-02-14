@@ -7,6 +7,15 @@ Mutual information and transfer entropy.
 import numpy as np
 from typing import Optional
 
+try:
+    from rudder_primitives_rs.information import (
+        mutual_information as _mutual_info_rs,
+        transfer_entropy as _transfer_entropy_rs,
+    )
+    _USE_RUST_INFO = True
+except ImportError:
+    _USE_RUST_INFO = False
+
 
 def mutual_information(
     sig_a: np.ndarray,
@@ -47,6 +56,9 @@ def mutual_information(
 
     if len(sig_a) < 10:
         return np.nan
+
+    if _USE_RUST_INFO:
+        return _mutual_info_rs(sig_a, sig_b, bins, normalized)
 
     # Joint histogram
     hist_ab, _, _ = np.histogram2d(sig_a, sig_b, bins=bins)
@@ -119,6 +131,9 @@ def transfer_entropy(
 
     if end <= start + 10:
         return np.nan
+
+    if _USE_RUST_INFO and history == 1:
+        return _transfer_entropy_rs(source, target, lag, bins)
 
     # Build lagged arrays
     y_future = target[start + lag : end + lag]
