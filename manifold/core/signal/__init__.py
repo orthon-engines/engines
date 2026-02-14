@@ -20,7 +20,6 @@ from . import lyapunov
 from . import garch
 from . import attractor
 from . import dmd
-from . import physics_stack
 from . import pulsation_index
 from . import rate_of_change
 from . import time_constant
@@ -53,7 +52,6 @@ __all__ = [
     'garch',
     'attractor',
     'dmd',
-    'physics_stack',
     'pulsation_index',
     'rate_of_change',
     'time_constant',
