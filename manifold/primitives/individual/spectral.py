@@ -8,6 +8,16 @@ import numpy as np
 from scipy import signal as scipy_signal
 from typing import Tuple, Optional
 
+try:
+    from rudder_primitives_rs.individual import (
+        psd as _psd_rs,
+        spectral_entropy as _spectral_entropy_rs,
+        spectral_centroid as _spectral_centroid_rs,
+    )
+    _USE_RUST_SPECTRAL = True
+except ImportError:
+    _USE_RUST_SPECTRAL = False
+
 
 def fft(signal: np.ndarray) -> np.ndarray:
     """
@@ -60,10 +70,14 @@ def psd(
     -----
     Welch method reduces variance by averaging.
     """
-    signal = np.asarray(signal)
+    signal = np.asarray(signal).flatten()
 
     if nperseg is None:
         nperseg = min(256, len(signal))
+
+    if _USE_RUST_SPECTRAL and method == 'welch':
+        f, p = _psd_rs(signal, fs, nperseg)
+        return np.asarray(f), np.asarray(p)
 
     if method == 'welch':
         freqs, Pxx = scipy_signal.welch(signal, fs=fs, nperseg=nperseg)
@@ -124,6 +138,9 @@ def spectral_centroid(
     f_c = sum(f * P(f)) / sum(P(f))
     "Brightness" of the signal.
     """
+    if _USE_RUST_SPECTRAL:
+        return _spectral_centroid_rs(np.asarray(signal).flatten(), fs)
+
     freqs, Pxx = psd(signal, fs)
     total_power = np.sum(Pxx)
     if total_power == 0:
@@ -195,6 +212,9 @@ def spectral_entropy(
     High: white noise (flat spectrum)
     Low: pure tone (peaked spectrum)
     """
+    if _USE_RUST_SPECTRAL:
+        return _spectral_entropy_rs(np.asarray(signal).flatten(), fs, normalize)
+
     freqs, Pxx = psd(signal, fs)
 
     # Normalize to probability distribution

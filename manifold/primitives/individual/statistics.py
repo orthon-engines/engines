@@ -8,6 +8,16 @@ import numpy as np
 from scipy import stats as scipy_stats
 from typing import Tuple, Union, List
 
+try:
+    from rudder_primitives_rs.individual import (
+        skewness as _skewness_rs,
+        kurtosis as _kurtosis_rs,
+        crest_factor as _crest_factor_rs,
+    )
+    _USE_RUST_STATS = True
+except ImportError:
+    _USE_RUST_STATS = False
+
 
 def mean(signal: np.ndarray) -> float:
     """
@@ -135,6 +145,13 @@ def skewness(signal: np.ndarray) -> float:
     skewness < 0: left tail longer
     skewness = 0: symmetric
     """
+    signal = np.asarray(signal).flatten()
+    if _USE_RUST_STATS:
+        clean = signal[~np.isnan(signal)]
+        if len(clean) < 3:
+            return np.nan
+        return _skewness_rs(clean)
+
     return float(scipy_stats.skew(signal, nan_policy='omit'))
 
 
@@ -161,6 +178,13 @@ def kurtosis(signal: np.ndarray, fisher: bool = True) -> float:
     excess kurtosis < 0: light tails (platykurtic)
     excess kurtosis = 0: normal-like tails (mesokurtic)
     """
+    signal = np.asarray(signal).flatten()
+    if _USE_RUST_STATS:
+        clean = signal[~np.isnan(signal)]
+        if len(clean) < 4:
+            return np.nan
+        return _kurtosis_rs(clean, fisher)
+
     return float(scipy_stats.kurtosis(signal, fisher=fisher, nan_policy='omit'))
 
 
@@ -226,7 +250,13 @@ def crest_factor(signal: np.ndarray) -> float:
     Square wave: 1.0
     Impulse: high value
     """
-    signal = np.asarray(signal)
+    signal = np.asarray(signal).flatten()
+    if _USE_RUST_STATS:
+        clean = signal[~np.isnan(signal)]
+        if len(clean) == 0:
+            return np.nan
+        return _crest_factor_rs(clean)
+
     rms_val = rms(signal)
     peak_val = np.nanmax(np.abs(signal))
     if rms_val == 0:

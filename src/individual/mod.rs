@@ -23,6 +23,9 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(spectral::spectral_centroid, m)?)?;
     m.add_function(wrap_pyfunction!(spectral::spectral_bandwidth, m)?)?;
     m.add_function(wrap_pyfunction!(spectral::spectral_entropy, m)?)?;
+    m.add_function(wrap_pyfunction!(spectral::band_power, m)?)?;
+    m.add_function(wrap_pyfunction!(spectral::acf_decay, m)?)?;
+    m.add_function(wrap_pyfunction!(spectral::snr, m)?)?;
 
     // statistics
     m.add_function(wrap_pyfunction!(statistics::mean, m)?)?;
