@@ -2,7 +2,7 @@
 Manifold Sequencer
 ==================
 
-Orchestrates all 27 pipeline stages in dependency order.
+Orchestrates all 28 pipeline stages in dependency order.
 Pure orchestration — no computation here.
 
 All stages always run. No opt-in. No tiers.
@@ -11,7 +11,7 @@ Architecture: Manifold computes, Prime interprets.
     If it's linear algebra → Manifold.
     If it's SQL → Prime.
 
-Output: 27 parquet files in 6 named directories.
+Output: 28 parquet files in 6 named directories.
 
 Usage:
     python -m manifold domains/rossler
@@ -28,7 +28,7 @@ from manifold.io.reader import STAGE_DIRS
 
 
 # ═══════════════════════════════════════════════════════════════
-# STAGE REGISTRY — 27 stages, all always-on
+# STAGE REGISTRY — 28 stages, all always-on
 # ═══════════════════════════════════════════════════════════════
 
 # (module_path, stage_id) — module_path relative to manifold.stages
@@ -65,6 +65,7 @@ ALL_STAGES = [
     ('dynamics.velocity_field',          '21'),
     ('dynamics.ftle_rolling',            '22'),
     ('dynamics.ridge_proximity',         '23'),
+    ('dynamics.persistent_homology',     '36'),
 
     # 6_fleet (requires n_cohorts >= 2 + cohort_vector from Prime SQL)
     ('energy.system_geometry',           '26'),
@@ -388,6 +389,14 @@ def _dispatch(
             verbose=verbose,
         )
 
+    elif stage_name == 'persistent_homology':
+        sv_path = _out(output_dir, 'state_vector.parquet')
+        if Path(sv_path).exists():
+            module.run(sv_path, _out(output_dir, 'persistent_homology.parquet'), verbose=verbose)
+        else:
+            if verbose:
+                print("  Skipped (state_vector.parquet not found)")
+
     # ── energy (fleet) ──
 
     elif stage_name in (
@@ -563,6 +572,7 @@ Cross-signal eigendecomposition: the core operation of Manifold.
 | velocity_field.parquet | (cohort, I) | Speed, direction in state space |
 | ftle_rolling.parquet | (cohort, I) | Time-varying FTLE windows |
 | ridge_proximity.parquet | (cohort, I) | Urgency = v . grad(FTLE) |
+| persistent_homology.parquet | (cohort, I) | Betti numbers, persistence entropy |
 """,
 
     '6_fleet': """\
@@ -596,7 +606,7 @@ def main():
         description="Manifold Pipeline",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-27 stages. All always-on.
+28 stages. All always-on.
 
 Usage:
   python -m manifold domains/rossler

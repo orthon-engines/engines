@@ -18,6 +18,7 @@ from . import formal_definitions
 from . import ftle
 from . import trajectory_sensitivity
 from . import saddle_detection
+from . import persistent_homology
 
 # Convenience imports
 from .lyapunov import compute as compute_lyapunov
@@ -25,6 +26,7 @@ from .critical_slowing_down import compute as compute_csd
 from .ftle import compute as compute_ftle
 from .trajectory_sensitivity import compute as compute_trajectory_sensitivity
 from .saddle_detection import compute as compute_saddle_detection
+from .persistent_homology import compute as compute_persistent_homology
 from .formal_definitions import (
     AttractorType,
     StabilityType,
@@ -49,12 +51,14 @@ __all__ = [
     'ftle',
     'trajectory_sensitivity',
     'saddle_detection',
+    'persistent_homology',
     # Functions
     'compute_lyapunov',
     'compute_csd',
     'compute_ftle',
     'compute_trajectory_sensitivity',
     'compute_saddle_detection',
+    'compute_persistent_homology',
     # Enums
     'AttractorType',
     'StabilityType',
