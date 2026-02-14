@@ -7,6 +7,15 @@ Distance matrix, adjacency matrix, Laplacian matrix.
 import numpy as np
 from typing import Callable, Optional, Literal
 
+try:
+    from rudder_primitives_rs.matrix import (
+        laplacian_matrix as _laplacian_matrix_rs,
+        laplacian_eigenvalues as _laplacian_eigenvalues_rs,
+    )
+    _USE_RUST_GRAPH = True
+except ImportError:
+    _USE_RUST_GRAPH = False
+
 
 def distance_matrix(
     signals: np.ndarray,
@@ -198,7 +207,11 @@ def laplacian_matrix(
     - Number of zero eigenvalues = number of connected components
     - Second smallest eigenvalue (Fiedler value) measures connectivity
     """
-    adjacency = np.asarray(adjacency)
+    adjacency = np.asarray(adjacency, dtype=np.float64)
+
+    if _USE_RUST_GRAPH and adjacency.ndim == 2:
+        return np.asarray(_laplacian_matrix_rs(adjacency, normalized))
+
     n = adjacency.shape[0]
 
     # Degree matrix
@@ -246,7 +259,10 @@ def laplacian_eigenvalues(
     - λ_2 (algebraic connectivity / Fiedler value): larger = more connected
     - Number of λ = 0: number of connected components
     """
-    laplacian = np.asarray(laplacian)
+    laplacian = np.asarray(laplacian, dtype=np.float64)
+
+    if _USE_RUST_GRAPH and laplacian.ndim == 2:
+        return np.asarray(_laplacian_eigenvalues_rs(laplacian, k))
 
     try:
         eigenvalues = np.linalg.eigvalsh(laplacian)

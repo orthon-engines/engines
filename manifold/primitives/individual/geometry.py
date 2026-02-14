@@ -9,6 +9,17 @@ import numpy as np
 from scipy.linalg import eigh, eigvals, svd
 from typing import Tuple, Optional
 
+try:
+    from rudder_primitives_rs.matrix import (
+        eigendecomposition as _eigendecomp_rs,
+        condition_number as _condition_number_rs,
+        effective_dimension as _effective_dimension_rs,
+        covariance_matrix as _covariance_matrix_rs,
+    )
+    _USE_RUST_MATRIX = True
+except ImportError:
+    _USE_RUST_MATRIX = False
+
 
 def covariance_matrix(
     data: np.ndarray,
@@ -29,6 +40,10 @@ def covariance_matrix(
 
     if data.ndim == 1:
         return np.array([[np.var(data, ddof=0 if bias else 1)]])
+
+    if _USE_RUST_MATRIX and not np.any(np.isnan(data)):
+        ddof = 0 if bias else 1
+        return np.asarray(_covariance_matrix_rs(data, ddof, False))
 
     return np.cov(data, rowvar=False, bias=bias)
 
@@ -73,6 +88,10 @@ def eigendecomposition(
     if matrix.shape[0] != matrix.shape[1]:
         raise ValueError("Matrix must be square")
 
+    if _USE_RUST_MATRIX and matrix.shape[0] <= 12 and not np.any(np.isnan(matrix)):
+        eigenvals, eigenvecs = _eigendecomp_rs(matrix, symmetric, sort_descending)
+        return np.asarray(eigenvals), np.asarray(eigenvecs)
+
     if symmetric:
         eigenvals, eigenvecs = eigh(matrix)
     else:
@@ -108,6 +127,11 @@ def effective_dimension(
     Returns:
         Effective dimension (1 to len(eigenvalues))
     """
+    if _USE_RUST_MATRIX:
+        return _effective_dimension_rs(
+            np.asarray(eigenvalues, dtype=np.float64).flatten(), method
+        )
+
     eigenvals = np.abs(np.asarray(eigenvalues, dtype=np.float64))
     eigenvals = eigenvals[eigenvals > 1e-12]
 
@@ -166,6 +190,10 @@ def condition_number(matrix: np.ndarray) -> float:
         Condition number (ratio of largest to smallest singular value)
     """
     matrix = np.asarray(matrix, dtype=np.float64)
+
+    if _USE_RUST_MATRIX and matrix.ndim == 2 and min(matrix.shape) <= 12 and not np.any(np.isnan(matrix)):
+        return _condition_number_rs(matrix)
+
     singular_vals = svd(matrix, compute_uv=False)
     nonzero_sv = singular_vals[singular_vals > 1e-12]
 
