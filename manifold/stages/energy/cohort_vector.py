@@ -76,6 +76,10 @@ def run(
         write_output(pl.DataFrame(), data_path, 'cohort_vector', verbose=verbose)
         return pl.DataFrame()
 
+    # Ensure cohort column exists (single-cohort domains may omit it)
+    if 'cohort' not in sg.columns:
+        sg = sg.with_columns(pl.lit('').alias('cohort'))
+
     engines = sorted(sg['engine'].unique().to_list())
     if verbose:
         print(f"  Engines: {engines}")

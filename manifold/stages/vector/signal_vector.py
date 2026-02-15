@@ -503,9 +503,8 @@ def _compute_single_signal(
             'signal_id': signal_id,
             'I': window_end,
         }
-        # Include cohort if provided (for per-unit grouping in downstream stages)
-        if cohort:
-            row['cohort'] = cohort
+        # Always include cohort (downstream stages group by it)
+        row['cohort'] = cohort if cohort is not None else ''
 
         # Run each engine group with appropriate window
         for window_size, engine_list in engine_groups.items():
