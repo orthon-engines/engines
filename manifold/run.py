@@ -31,7 +31,7 @@ from manifold.io.reader import STAGE_DIRS
 
 
 # ═══════════════════════════════════════════════════════════════
-# STAGE REGISTRY — 28 stages, all always-on
+# STAGE REGISTRY — 29 stages, all always-on
 # ═══════════════════════════════════════════════════════════════
 
 # (module_path, stage_id) — module_path relative to manifold.stages
@@ -92,7 +92,7 @@ GLOBAL_FIRST_IDS = {'00', '01'}
 # Stage IDs that can run independently per cohort (after global stages)
 COHORT_PARALLEL_IDS = {
     '02', '03', '05', '06', '07', '08', '08_lyapunov',
-    '09a', '10', '15', '17', '18', '19', '20', '21', '22', '23', '36', '33',
+    '09a', '10', '17', '18', '19', '20', '21', '22', '23', '36', '33',
 }
 
 
