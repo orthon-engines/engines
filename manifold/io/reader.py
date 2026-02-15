@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Optional
 
 
-# Output directory mapping (28 files -> 6 directories)
+# Output directory mapping (29 files -> 6 directories)
 STAGE_DIRS = {
     'signal_vector':        '1_signal_features',
     'signal_geometry':      '1_signal_features',
@@ -39,6 +39,7 @@ STAGE_DIRS = {
     'ridge_proximity':          '5_evolution',
     'persistent_homology':      '5_evolution',
 
+    'cohort_vector':                 '6_fleet',
     'system_geometry':           '6_fleet',
     'cohort_pairwise':           '6_fleet',
     'cohort_information_flow':   '6_fleet',

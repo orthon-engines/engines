@@ -2,7 +2,7 @@
 Manifold Sequencer
 ==================
 
-Orchestrates all 28 pipeline stages in dependency order.
+Orchestrates all 29 pipeline stages in dependency order.
 Pure orchestration — no computation here.
 
 All stages always run. No opt-in. No tiers.
@@ -11,7 +11,7 @@ Architecture: Manifold computes, Prime interprets.
     If it's linear algebra → Manifold.
     If it's SQL → Prime.
 
-Output: 28 parquet files in 6 named directories.
+Output: 29 parquet files in 6 named directories.
 
 Usage:
     python -m manifold domains/rossler
@@ -67,7 +67,8 @@ ALL_STAGES = [
     ('dynamics.ridge_proximity',         '23'),
     ('dynamics.persistent_homology',     '36'),
 
-    # 6_fleet (requires n_cohorts >= 2 + cohort_vector from Prime SQL)
+    # 6_fleet (cohort_vector built from state_geometry, then fleet stages)
+    ('energy.cohort_vector',             '25'),
     ('energy.system_geometry',           '26'),
     ('energy.cohort_pairwise',           '27'),
     ('energy.cohort_information_flow',   '28'),
@@ -401,6 +402,14 @@ def _dispatch(
 
     # ── energy (fleet) ──
 
+    elif stage_name == 'cohort_vector':
+        sg_path = _out(output_dir, 'state_geometry.parquet')
+        if Path(sg_path).exists():
+            module.run(sg_path, data_path=data_path_str, verbose=verbose)
+        else:
+            if verbose:
+                print("  Skipped (state_geometry.parquet not found)")
+
     elif stage_name in (
         'system_geometry', 'cohort_pairwise', 'cohort_information_flow',
         'cohort_ftle', 'cohort_velocity_field',
@@ -422,7 +431,7 @@ def _dispatch_fleet(
     """
     Dispatch fleet-scale stages (26-31).
 
-    These require cohort_vector.parquet (produced by Prime SQL stage 25).
+    These require cohort_vector.parquet (produced by stage 25).
     Guard: skip if cohort_vector missing or n_cohorts < 2.
     """
     import polars as _pl
@@ -433,7 +442,7 @@ def _dispatch_fleet(
         cv_path = output_dir / '6_fleet' / 'cohort_vector.parquet'
     if not cv_path.exists():
         if verbose:
-            print("  Skipped (cohort_vector.parquet not found -- produced by Prime SQL)")
+            print("  Skipped (cohort_vector.parquet not found -- run stage 25 first)")
         return
 
     cv = _pl.read_parquet(str(cv_path))
@@ -584,10 +593,11 @@ Cross-signal eigendecomposition: the core operation of Manifold.
 
 **How does this compare across the fleet?**
 
-Requires `cohort_vector.parquet` (from Prime SQL) and n_cohorts >= 2.
+Requires `cohort_vector.parquet` (from stage 25) and n_cohorts >= 2.
 
 | File | Grain | Description |
 |------|-------|-------------|
+| cohort_vector.parquet | (cohort, I) | Wide-format cohort features pivoted from state_geometry |
 | system_geometry.parquet | (cohort) | Fleet-level eigendecomposition |
 | cohort_pairwise.parquet | (cohort_a, cohort_b) | Distance between cohort vectors |
 | cohort_information_flow.parquet | (source, target) | Transfer entropy at fleet scale |
