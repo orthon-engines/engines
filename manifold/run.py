@@ -86,9 +86,12 @@ ALL_STAGES = [
     ('geometry.observation_geometry',    '35'),
 ]
 
-# Stage IDs that can run independently per cohort
+# Stages that must run globally before parallel split (column pruning is cross-cohort)
+GLOBAL_FIRST_IDS = {'00', '01'}
+
+# Stage IDs that can run independently per cohort (after global stages)
 COHORT_PARALLEL_IDS = {
-    '00', '01', '02', '03', '05', '06', '07', '08', '08_lyapunov',
+    '02', '03', '05', '06', '07', '08', '08_lyapunov',
     '09a', '10', '15', '17', '18', '19', '20', '21', '22', '23', '36', '33',
 }
 
@@ -349,12 +352,69 @@ def run(
 
     if cohort_map is not None:
         # ═══ PARALLEL PATH ═══
+        import polars as pl
         from concurrent.futures import ProcessPoolExecutor, as_completed
 
         n_cohorts = len(cohort_map)
         effective_workers = min(n_workers, n_cohorts)
+        global_stages = [(m, s) for m, s in run_stages if s in GLOBAL_FIRST_IDS]
         parallel_stages = [(m, s) for m, s in run_stages if s in COHORT_PARALLEL_IDS]
-        fleet_stages_list = [(m, s) for m, s in run_stages if s not in COHORT_PARALLEL_IDS]
+        fleet_stages_list = [(m, s) for m, s in run_stages
+                             if s not in COHORT_PARALLEL_IDS and s not in GLOBAL_FIRST_IDS]
+
+        # Phase 0.5: Run global stages (00 breaks, 01 signal_vector) on full data
+        if global_stages:
+            if verbose:
+                print(f"Phase 0: {len(global_stages)} global stages (sequential)")
+                print()
+
+            for module_path, stage_id in global_stages:
+                stage_label = f"{stage_id} ({module_path.split('.')[-1]})"
+                if verbose:
+                    print(f"--- {stage_label} ---")
+                try:
+                    module = importlib.import_module(f'manifold.stages.{module_path}')
+                    if not hasattr(module, 'run'):
+                        if verbose:
+                            print(f"  Warning: {module_path} has no run() function, skipping")
+                        continue
+                    _dispatch(module, module_path, stage_id, obs_path, output_dir, manifest, verbose, str(data_path))
+                except Exception as e:
+                    if verbose:
+                        print(f"  Error in {stage_label}: {e}")
+                    raise
+                if verbose:
+                    print()
+
+        # Phase 0.75: Seed per-cohort temp dirs with signal_vector slices
+        # (so stages 02+ read the global column schema per-cohort)
+        sv_path = _out(output_dir, 'signal_vector.parquet')
+        if Path(sv_path).exists():
+            sv_all = pl.read_parquet(sv_path)
+            has_sv_cohort = 'cohort' in sv_all.columns
+            for cohort, info in cohort_map.items():
+                cohort_output = Path(info['output_dir'])
+                if has_sv_cohort:
+                    sv_cohort = sv_all.filter(pl.col('cohort') == cohort)
+                else:
+                    sv_cohort = sv_all
+                sv_dest = cohort_output / STAGE_DIRS.get('signal_vector', '') / 'signal_vector.parquet'
+                sv_dest.parent.mkdir(parents=True, exist_ok=True)
+                sv_cohort.write_parquet(str(sv_dest))
+
+        breaks_path = _out(output_dir, 'breaks.parquet')
+        if Path(breaks_path).exists():
+            br_all = pl.read_parquet(breaks_path)
+            has_br_cohort = 'cohort' in br_all.columns
+            for cohort, info in cohort_map.items():
+                cohort_output = Path(info['output_dir'])
+                if has_br_cohort:
+                    br_cohort = br_all.filter(pl.col('cohort') == cohort)
+                else:
+                    br_cohort = br_all
+                br_dest = cohort_output / STAGE_DIRS.get('breaks', '') / 'breaks.parquet'
+                br_dest.parent.mkdir(parents=True, exist_ok=True)
+                br_cohort.write_parquet(str(br_dest))
 
         if verbose:
             print(f"Phase 1: {n_cohorts} cohorts x {len(parallel_stages)} stages on {effective_workers} workers")
