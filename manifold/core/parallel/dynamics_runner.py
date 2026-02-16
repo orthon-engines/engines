@@ -127,9 +127,7 @@ def run_dynamics_parallel(obs: pl.DataFrame, output_dir: Path, params: Dict[str,
     from joblib import Parallel, delayed
 
     params = params or {}
-    n_jobs = params.get('n_jobs', -1)  # -1 = all cores
-    if n_jobs == -1:
-        n_jobs = os.cpu_count() or 4
+    n_jobs = 2  # Hardcoded to prevent resource exhaustion
 
     entities = obs.select('entity_id').unique().to_series().to_list()
 

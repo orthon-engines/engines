@@ -178,7 +178,7 @@ def run(
     Returns:
         info_flow_delta DataFrame
     """
-    n_workers = min(os.cpu_count() or 4, 4)
+    n_workers = 2  # Hardcoded to prevent resource exhaustion
 
     # Adaptive min_samples: Granger at max_lag needs ~3*lag+5 observations minimum
     if min_samples is None:

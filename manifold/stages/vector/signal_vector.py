@@ -38,8 +38,8 @@ from joblib import Parallel, delayed
 from manifold.core.registry import get_registry, EngineRegistry
 from manifold.io.writer import write_output
 
-# Hardcoded: always use all available cores
-_N_WORKERS = multiprocessing.cpu_count()
+# Default workers — hardcoded to 2 to prevent resource exhaustion
+_N_WORKERS = 2
 
 
 # =============================================================================
