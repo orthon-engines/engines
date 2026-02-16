@@ -116,8 +116,8 @@ def get_constant_signals(typology_df: pl.DataFrame) -> Set[str]:
     """
     Get set of CONSTANT signal IDs from typology.
 
-    CONSTANT signals are identified by temporal_pattern='CONSTANT' or
-    continuity='CONSTANT' in the typology.
+    CONSTANT signals are identified by temporal_primary='CONSTANT' (new dual-classification
+    schema) or temporal_pattern='CONSTANT' (legacy) or continuity='CONSTANT' in the typology.
 
     Args:
         typology_df: Typology DataFrame with signal_id and classification columns
@@ -127,8 +127,18 @@ def get_constant_signals(typology_df: pl.DataFrame) -> Set[str]:
     """
     constant_ids: Set[str] = set()
 
-    # Check temporal_pattern column
-    if 'temporal_pattern' in typology_df.columns:
+    # Check temporal_primary (new dual-classification schema)
+    if 'temporal_primary' in typology_df.columns:
+        constant_temporal = (
+            typology_df
+            .filter(pl.col('temporal_primary') == 'CONSTANT')
+            .select('signal_id')
+            .to_series()
+            .to_list()
+        )
+        constant_ids.update(constant_temporal)
+    # Fallback: old schema where temporal_pattern is a plain string
+    elif 'temporal_pattern' in typology_df.columns:
         constant_temporal = (
             typology_df
             .filter(pl.col('temporal_pattern') == 'CONSTANT')
