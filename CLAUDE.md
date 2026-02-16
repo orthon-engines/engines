@@ -19,14 +19,14 @@ GitHub org: `rudder-framework`
 ```
 rudder-framework/prime       → interpreter, classification, SQL analysis
 rudder-framework/manifold    → THIS REPO — blind compute engine
-rudder-framework/primitives  → Rust+Python math functions (shared dependency)
+rudder-framework/primitives  → Rust+Python math functions (shared dependency, PyPI: pmtvs)
 ```
 
 Prime depends on Manifold's output. Manifold never depends on Prime.
-Both depend on primitives. Primitives depends on nothing.
+Both depend on primitives (`pmtvs` on PyPI). Primitives depends on nothing.
 
 ```
-primitives   (leaf — no dependencies)
+primitives/pmtvs   (leaf — no dependencies)
    ↑    ↑
    |    |
 Prime  Manifold
@@ -35,7 +35,7 @@ Prime  Manifold
 ```
 
 **Note:** `manifold/primitives/` contains thin re-exports that delegate to the
-standalone `primitives` package. All math lives in `~/primitives/`.
+standalone `pmtvs` package (`pip install pmtvs`). All math lives in `~/primitives/`.
 
 ---
 
@@ -70,7 +70,7 @@ All 29 stages run. No flags needed.
 **Virtual environment:** `./venv/` — always use it. Never create a new one.
 
 **Rust backend:** Controlled by `PRIMITIVES_USE_RUST` env var in the standalone
-primitives package (default: on). Manifold itself has no Rust code or toggle.
+`pmtvs` package (default: on). Manifold itself has no Rust code or toggle.
 
 **Parallel workers:** `MANIFOLD_WORKERS` env var (default: `0` = auto-detect).
 FD004 with 249 cohorts across 18 stages: ~3 minutes with Rust + 9 workers.
@@ -82,7 +82,7 @@ FD004 with 249 cohorts across 18 stages: ~3 minutes with Rust + 9 workers.
 ```
 manifold/stages/       RUNNERS — orchestrate I/O. Read parquet, call engines, write parquet.
 manifold/core/         ENGINES — compute. DataFrames in, DataFrames out. No file I/O.
-manifold/primitives/   RE-EXPORTS — thin wrappers delegating to standalone primitives package.
+manifold/primitives/   RE-EXPORTS — thin wrappers delegating to standalone pmtvs package.
 ```
 
 Each layer ONLY calls the layer below it.
@@ -91,7 +91,7 @@ Each layer ONLY calls the layer below it.
 |-------|-------|---------|----------|
 | `stages/group/run.py` (runner) | manifest, file paths | writes parquet files | YES |
 | `core/*.py` (engine) | config dict, DataFrames | DataFrames | NO |
-| `primitives/*.py` | re-exports from `primitives` package | numpy arrays | NO |
+| `primitives/*.py` | re-exports from `pmtvs` package | numpy arrays | NO |
 
 Also:
 - `manifold/io/` — reader.py, writer.py, manifest.py (all parquet I/O)
@@ -127,9 +127,9 @@ from manifold.core.geometry_dynamics import compute_geometry_dynamics
 **Re-export pattern:** Each file in `manifold/primitives/` contains only:
 ```python
 """Re-export from standalone primitives package."""
-from primitives.<category>.<module> import *  # noqa: F401,F403
+from pmtvs.<category>.<module> import *  # noqa: F401,F403
 ```
-All math implementation lives in the standalone `primitives` package.
+All math implementation lives in the standalone `pmtvs` package.
 
 ---
 
@@ -305,7 +305,7 @@ Before modifying any file:
 
 | Type of Code | Location | Pattern |
 |--------------|----------|---------|
-| New primitive | `~/primitives/` (standalone repo) | Pure function, numpy in/out. Add re-export in `manifold/primitives/`. |
+| New primitive | `~/primitives/` (standalone repo, PyPI: `pmtvs`) | Pure function, numpy in/out. Add re-export in `manifold/primitives/`. |
 | New engine | `manifold/core/` | DataFrame in, DataFrame out, no I/O |
 | New stage runner | `manifold/stages/<group>/` | Follow existing runner pattern |
 | New I/O helper | `manifold/io/` | Reader or writer only |
@@ -315,7 +315,7 @@ Before modifying any file:
 ## Sibling Repos
 
 - **Prime** (`~/prime/`) — The interpreter. Reads Manifold's 29 parquet files via DuckDB SQL. Handles typology, classification, analysis, canary detection, brittleness scoring, ML features. Static HTML + DuckDB-WASM explorer for browser-based analysis.
-- **Primitives** (`~/primitives/`) — Rust+Python math functions. Hurst, Lyapunov, FTLE, perm_entropy, ADF, spectral analysis. Shared by both Prime and Manifold.
+- **Primitives** (`~/primitives/`, PyPI: `pmtvs`) — Rust+Python math functions. Hurst, Lyapunov, FTLE, perm_entropy, ADF, spectral analysis. Shared by both Prime and Manifold.
 - **Manifold** (this repo) — The compute engine. `observations.parquet` in, 29 parquet files out.
 
 ---

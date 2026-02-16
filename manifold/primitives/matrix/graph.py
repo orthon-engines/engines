@@ -1,2 +1,2 @@
 """Re-export from standalone primitives package."""
-from primitives.matrix.graph import *  # noqa: F401,F403
+from pmtvs.matrix.graph import *  # noqa: F401,F403

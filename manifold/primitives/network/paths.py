@@ -1,2 +1,2 @@
 """Re-export from standalone primitives package."""
-from primitives.network.paths import *  # noqa: F401,F403
+from pmtvs.network.paths import *  # noqa: F401,F403

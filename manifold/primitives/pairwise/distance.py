@@ -1,2 +1,2 @@
 """Re-export from standalone primitives package."""
-from primitives.pairwise.distance import *  # noqa: F401,F403
+from pmtvs.pairwise.distance import *  # noqa: F401,F403
