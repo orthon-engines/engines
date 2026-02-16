@@ -346,7 +346,7 @@ def run(
         ]
 
     # Determine parallelism
-    n_workers = int(os.environ.get('MANIFOLD_WORKERS', '0'))
+    n_workers = int(os.environ.get('MANIFOLD_WORKERS', '4'))
     if n_workers == 0:
         n_workers = max(1, (os.cpu_count() or 2) - 1)
 
