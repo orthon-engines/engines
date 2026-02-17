@@ -5,6 +5,8 @@ Rainflow cycle counting and range accumulation.
 Counts signal cycles and their ranges.
 """
 
+import warnings
+
 import numpy as np
 from typing import Dict, List, Tuple
 
@@ -108,8 +110,10 @@ def compute(y: np.ndarray) -> Dict[str, float]:
             'cycle_accumulation': accumulation
         }
 
-    except Exception:
+    except (ValueError, IndexError):
         pass
+    except Exception as e:
+        warnings.warn(f"cycle_counting.compute: {type(e).__name__}: {e}", RuntimeWarning, stacklevel=2)
 
     return result
 

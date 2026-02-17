@@ -4,6 +4,8 @@ LOF Engine.
 Local Outlier Factor for departure detection in phase space.
 """
 
+import warnings
+
 import numpy as np
 from typing import Dict
 
@@ -110,10 +112,14 @@ def compute(y: np.ndarray, n_neighbors: int = 20, embedding_dim: int = 3, delay:
                 'n_outliers': n_outliers
             }
 
-        except Exception:
+        except ValueError:
             pass
+        except Exception as e:
+            warnings.warn(f"lof.compute (fallback): {type(e).__name__}: {e}", RuntimeWarning, stacklevel=2)
 
-    except Exception:
+    except ValueError:
         pass
+    except Exception as e:
+        warnings.warn(f"lof.compute: {type(e).__name__}: {e}", RuntimeWarning, stacklevel=2)
 
     return result

@@ -5,6 +5,8 @@ Tests whether variance scales linearly with time (random walk)
 or sub/super-linearly (mean-reverting/trending).
 """
 
+import warnings
+
 import numpy as np
 from typing import Dict
 
@@ -96,7 +98,9 @@ def compute(y: np.ndarray, periods: list = None) -> Dict[str, float]:
         if 8 in ratios:
             result['variance_ratio_8'] = float(ratios[8])
 
-    except Exception:
+    except ValueError:
         pass
+    except Exception as e:
+        warnings.warn(f"variance_ratio.compute: {type(e).__name__}: {e}", RuntimeWarning, stacklevel=2)
 
     return result

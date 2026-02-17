@@ -9,6 +9,8 @@ DMD extracts spatiotemporal coherent structures from time series:
 - Eigenvalue phase = oscillation frequency
 """
 
+import warnings
+
 import numpy as np
 from typing import Dict
 
@@ -123,9 +125,9 @@ def compute(y: np.ndarray, rank: int = None, dt: float = 1.0) -> Dict[str, float
             'dmd_eigenvalues': [float(m) for m in sorted(eigenvalue_mags, reverse=True)[:5]]
         }
 
-    except np.linalg.LinAlgError:
+    except (np.linalg.LinAlgError, ValueError):
         pass
-    except Exception:
-        pass
+    except Exception as e:
+        warnings.warn(f"dmd.compute: {type(e).__name__}: {e}", RuntimeWarning, stacklevel=2)
 
     return result

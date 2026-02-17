@@ -9,6 +9,8 @@ Computes trend analysis measures:
 Thin wrapper over primitives/individual/stationarity.py.
 """
 
+import warnings
+
 import numpy as np
 from typing import Dict
 
@@ -98,7 +100,14 @@ def compute_mann_kendall(y: np.ndarray) -> Dict[str, float]:
             'mk_pvalue': float(pvalue),
             'mk_slope': float(slope),
         }
-    except Exception:
+    except ValueError:
+        return {
+            'mk_stat': np.nan,
+            'mk_pvalue': np.nan,
+            'mk_slope': np.nan,
+        }
+    except Exception as e:
+        warnings.warn(f"trend.compute_mann_kendall: {type(e).__name__}: {e}", RuntimeWarning, stacklevel=2)
         return {
             'mk_stat': np.nan,
             'mk_pvalue': np.nan,

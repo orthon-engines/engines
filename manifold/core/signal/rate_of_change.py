@@ -5,6 +5,8 @@ Computes mean and max rate of change.
 Used for temperature ramp detection, pressure transients.
 """
 
+import warnings
+
 import numpy as np
 from typing import Dict
 
@@ -75,7 +77,9 @@ def compute(y: np.ndarray, I: np.ndarray = None) -> Dict[str, float]:
             'abs_max_rate': float(np.max(np.abs(dy)))
         }
 
-    except Exception:
+    except ValueError:
         pass
+    except Exception as e:
+        warnings.warn(f"rate_of_change.compute: {type(e).__name__}: {e}", RuntimeWarning, stacklevel=2)
 
     return result

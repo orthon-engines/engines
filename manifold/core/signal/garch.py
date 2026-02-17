@@ -10,6 +10,8 @@ GARCH(1,1): σ²_t = ω + α*ε²_{t-1} + β*σ²_{t-1}
 - α + β: Total persistence (should be < 1 for stationarity)
 """
 
+import warnings
+
 import numpy as np
 from typing import Dict
 
@@ -68,8 +70,11 @@ def compute(y: np.ndarray) -> Dict[str, float]:
     except ImportError:
         # Fallback: moment-based estimation
         result = _estimate_garch_fallback(returns)
-    except Exception:
-        # Fallback on any arch error
+    except (ValueError, RuntimeError):
+        # Convergence failure — fallback
+        result = _estimate_garch_fallback(returns)
+    except Exception as e:
+        warnings.warn(f"garch.compute: {type(e).__name__}: {e}", RuntimeWarning, stacklevel=2)
         result = _estimate_garch_fallback(returns)
 
     return result

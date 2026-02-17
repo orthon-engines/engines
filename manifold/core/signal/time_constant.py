@@ -5,6 +5,8 @@ Fits exponential decay/rise to estimate thermal time constant.
 y(t) = y_final + (y_initial - y_final) * exp(-t/tau)
 """
 
+import warnings
+
 import numpy as np
 from typing import Dict
 
@@ -130,10 +132,14 @@ def compute(y: np.ndarray, I: np.ndarray = None) -> Dict[str, float]:
             result['time_constant'] = tau if tau > 0 else np.nan
             result['equilibrium_value'] = float(y_end)
             result['is_decay'] = y_start > y_end
-        except Exception:
+        except (ValueError, IndexError):
             pass
+        except Exception as e:
+            warnings.warn(f"time_constant.compute (fallback): {type(e).__name__}: {e}", RuntimeWarning, stacklevel=2)
 
-    except Exception:
+    except (ValueError, RuntimeError):
         pass
+    except Exception as e:
+        warnings.warn(f"time_constant.compute: {type(e).__name__}: {e}", RuntimeWarning, stacklevel=2)
 
     return result

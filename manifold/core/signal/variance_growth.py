@@ -5,6 +5,8 @@ Measures how variance grows with time scale.
 Used for detecting non-stationarity and regime changes.
 """
 
+import warnings
+
 import numpy as np
 from typing import Dict
 
@@ -75,7 +77,13 @@ def compute(y: np.ndarray) -> Dict[str, float]:
             'variance_ratio': float(variance_ratio),
         }
 
-    except Exception:
+    except ValueError:
+        return {
+            'variance_growth_rate': np.nan,
+            'variance_ratio': np.nan,
+        }
+    except Exception as e:
+        warnings.warn(f"variance_growth.compute: {type(e).__name__}: {e}", RuntimeWarning, stacklevel=2)
         return {
             'variance_growth_rate': np.nan,
             'variance_ratio': np.nan,

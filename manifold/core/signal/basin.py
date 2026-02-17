@@ -4,6 +4,8 @@ Basin Engine.
 Estimates basin stability and transition probability.
 """
 
+import warnings
+
 import numpy as np
 
 
@@ -51,7 +53,9 @@ def compute(y: np.ndarray, n_bins: int = 20) -> dict:
             'n_attractors': int(n_attractors)
         }
 
-    except Exception:
+    except ValueError:
         pass
+    except Exception as e:
+        warnings.warn(f"basin.compute: {type(e).__name__}: {e}", RuntimeWarning, stacklevel=2)
 
     return result

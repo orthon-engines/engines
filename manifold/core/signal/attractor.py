@@ -5,6 +5,8 @@ Imports from primitives/embedding/ and primitives/dynamical/ (canonical).
 Returns numbers only - Prime classifies attractor types.
 """
 
+import warnings
+
 import numpy as np
 from typing import Dict, Union
 
@@ -67,8 +69,10 @@ def compute(y: np.ndarray, embedding_dim: int = None, delay: int = None) -> Dict
     except ImportError:
         # Fallback if primitives not available
         result = _compute_fallback(y, embedding_dim, delay)
-    except Exception:
+    except (ValueError, np.linalg.LinAlgError):
         pass
+    except Exception as e:
+        warnings.warn(f"attractor.compute: {type(e).__name__}: {e}", RuntimeWarning, stacklevel=2)
 
     return result
 

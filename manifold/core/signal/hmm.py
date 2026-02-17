@@ -23,6 +23,8 @@ Requires: hmmlearn (optional dependency)
     pip install hmmlearn>=0.3.0
 """
 
+import warnings
+
 import numpy as np
 from typing import Dict
 
@@ -85,7 +87,10 @@ def compute(y: np.ndarray, max_states: int = 5) -> Dict[str, float]:
                 best_bic = bic
                 best_model = model
                 best_n = k
-        except Exception:
+        except (ValueError, np.linalg.LinAlgError):
+            continue
+        except Exception as e:
+            warnings.warn(f"hmm.compute: model fit k={k}: {type(e).__name__}: {e}", RuntimeWarning, stacklevel=2)
             continue
 
     if best_model is None:
@@ -95,7 +100,10 @@ def compute(y: np.ndarray, max_states: int = 5) -> Dict[str, float]:
     try:
         states = best_model.predict(X)
         state_probs = best_model.predict_proba(X)
-    except Exception:
+    except ValueError:
+        return _empty_result()
+    except Exception as e:
+        warnings.warn(f"hmm.compute: predict: {type(e).__name__}: {e}", RuntimeWarning, stacklevel=2)
         return _empty_result()
 
     # Current state (last observation)
@@ -113,7 +121,10 @@ def compute(y: np.ndarray, max_states: int = 5) -> Dict[str, float]:
         # Entropy of stationary distribution
         stationary_safe = stationary[stationary > 1e-10]
         state_entropy = float(-np.sum(stationary_safe * np.log(stationary_safe)))
-    except Exception:
+    except np.linalg.LinAlgError:
+        state_entropy = np.nan
+    except Exception as e:
+        warnings.warn(f"hmm.compute: stationary dist: {type(e).__name__}: {e}", RuntimeWarning, stacklevel=2)
         state_entropy = np.nan
 
     # Transition rate: fraction of time steps with state change

@@ -5,6 +5,8 @@ Augmented Dickey-Fuller test for stationarity.
 Uses config for min_samples threshold.
 """
 
+import warnings
+
 import numpy as np
 from typing import Dict
 from manifold.primitives.config import PRIMITIVES_CONFIG as cfg
@@ -59,7 +61,9 @@ def compute(y: np.ndarray) -> Dict[str, float]:
         result['adf_pvalue'] = float(adf_result[1])
         result['adf_lags'] = float(adf_result[2])
         result['adf_nobs'] = float(adf_result[3])
-    except Exception:
+    except (ValueError, ImportError):
         pass
+    except Exception as e:
+        warnings.warn(f"adf_stat.compute: {type(e).__name__}: {e}", RuntimeWarning, stacklevel=2)
 
     return result
