@@ -26,6 +26,8 @@ References:
     Embrechts, McNeil & Straumann (2002) "Correlation and Dependence in Risk Management"
 """
 
+import warnings
+
 import numpy as np
 from typing import Optional
 
@@ -115,8 +117,10 @@ def compute(
                 results["gumbel"] = _fit_gumbel(u1, u2, kendall_tau)
             elif family == "frank":
                 results["frank"] = _fit_frank(u1, u2, kendall_tau)
-        except Exception:
+        except (ValueError, np.linalg.LinAlgError):
             pass
+        except Exception as e:
+            warnings.warn(f"copula.compute: fitting {family}: {type(e).__name__}: {e}", RuntimeWarning, stacklevel=2)
 
     # Step 3: Select best by AIC
     if not results:

@@ -8,6 +8,8 @@ Computes directional causal measures (asymmetric):
 Thin wrapper over primitives/pairwise/causality.py.
 """
 
+import warnings
+
 import numpy as np
 from typing import Dict, Any, Optional, Tuple
 
@@ -111,7 +113,13 @@ def compute_transfer_entropy(
             'transfer_entropy': float(te),
             'normalized_te': float(normalized),
         }
-    except Exception:
+    except ValueError:
+        return {
+            'transfer_entropy': np.nan,
+            'normalized_te': np.nan,
+        }
+    except Exception as e:
+        warnings.warn(f"causality.compute_transfer_entropy: {type(e).__name__}: {e}", RuntimeWarning, stacklevel=2)
         return {
             'transfer_entropy': np.nan,
             'normalized_te': np.nan,

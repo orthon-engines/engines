@@ -11,6 +11,8 @@ Key insight: effective_dim captures the system's intrinsic dimensionality.
 Dimensional collapse precedes regime transitions.
 """
 
+import warnings
+
 import numpy as np
 import polars as pl
 from typing import Dict, Any, Optional, List, Literal
@@ -328,7 +330,10 @@ def bootstrap_effective_dim(
             if cov.ndim == 0:
                 cov = np.array([[cov]])
             eigenvalues = np.linalg.eigvalsh(cov)[::-1]
-        except Exception:
+        except (np.linalg.LinAlgError, ValueError):
+            continue
+        except Exception as e:
+            warnings.warn(f"eigendecomp.bootstrap_effective_dim: {type(e).__name__}: {e}", RuntimeWarning, stacklevel=2)
             continue
 
         # Compute effective dimension

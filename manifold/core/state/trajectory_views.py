@@ -9,6 +9,8 @@ Computes per-window views of feature trajectories:
 Pure computation — numpy/dict in, dict out. No file I/O.
 """
 
+import warnings
+
 import numpy as np
 from typing import List, Dict
 
@@ -159,7 +161,9 @@ def compute_laplacian_view(
                 result['laplacian_spectral_gap'] = float(eigs[1] / eigs[-1])
             result['laplacian_n_components'] = float(np.sum(eigs < 1e-10))
             result['laplacian_max_eigenvalue'] = float(eigs[-1])
-    except Exception:
+    except (ValueError, np.linalg.LinAlgError):
         pass
+    except Exception as e:
+        warnings.warn(f"trajectory_views.compute_laplacian_view: {type(e).__name__}: {e}", RuntimeWarning, stacklevel=2)
 
     return result
