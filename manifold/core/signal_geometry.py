@@ -21,8 +21,6 @@ Pipeline:
 
 import numpy as np
 import polars as pl
-import duckdb
-from pathlib import Path
 from typing import List, Dict, Optional, Any, Set
 
 # Import primitives for all mathematical computation
@@ -217,9 +215,8 @@ def compute_signal_geometry_at_index(
 
 
 def compute_signal_geometry(
-    signal_vector_path: str,
-    state_vector_path: str,
-    output_path: str = "signal_geometry.parquet",
+    signal_vector: pl.DataFrame,
+    state_vector: pl.DataFrame,
     state_geometry_path: Optional[str] = None,
     feature_groups: Optional[Dict[str, List[str]]] = None,
     verbose: bool = True
@@ -228,9 +225,8 @@ def compute_signal_geometry(
     Compute signal geometry (per signal relationships to each state).
 
     Args:
-        signal_vector_path: Path to signal_vector.parquet
-        state_vector_path: Path to state_vector.parquet
-        output_path: Output path
+        signal_vector: Signal vector DataFrame
+        state_vector: State vector DataFrame
         state_geometry_path: Optional path to state_geometry.parquet for PCs
         feature_groups: Dict mapping engine names to feature lists
         verbose: Print progress
@@ -243,10 +239,6 @@ def compute_signal_geometry(
         print("SIGNAL GEOMETRY ENGINE")
         print("Per-signal relationships to each state")
         print("=" * 70)
-
-    # Load data
-    signal_vector = pl.read_parquet(signal_vector_path)
-    state_vector = pl.read_parquet(state_vector_path)
 
     # Optionally load state geometry for principal components
     # (For now, we'll compute PC1 on the fly or use centroid)
@@ -387,230 +379,5 @@ def compute_signal_geometry(
     # Build DataFrame (already one row per signal per engine per I — no pivot needed)
     result = pl.DataFrame(results)
 
-    result.write_parquet(output_path)
-
-    if verbose:
-        print(f"\nSaved: {output_path}")
-        print(f"Shape: {result.shape}")
-        print(f"Columns: {result.columns}")
-
     return result
 
-
-# ============================================================
-# SQL VERSION (simpler, for basic geometry without PCs)
-# ============================================================
-
-SIGNAL_GEOMETRY_SQL = """
--- Signal geometry: per-signal relationships to each state
--- Simpler version that doesn't need principal components
-
--- Build geometry for shape engine
-CREATE OR REPLACE VIEW v_signal_geometry_shape AS
-SELECT
-    sv.unit_id,
-    sv.I,
-    sv.signal_id,
-    'shape' AS engine,
-
-    -- Distance to centroid
-    SQRT(
-        POWER(sv.kurtosis - st.state_shape_kurtosis, 2) +
-        POWER(sv.skewness - st.state_shape_skewness, 2) +
-        POWER(sv.crest_factor - st.state_shape_crest_factor, 2)
-    ) AS distance,
-
-    -- Coherence (cosine similarity of centered signal to centroid direction)
-    -- Simplified: use dot product normalized
-    (
-        (sv.kurtosis - st.state_shape_kurtosis) * st.state_shape_kurtosis +
-        (sv.skewness - st.state_shape_skewness) * st.state_shape_skewness +
-        (sv.crest_factor - st.state_shape_crest_factor) * st.state_shape_crest_factor
-    ) / NULLIF(
-        SQRT(
-            POWER(sv.kurtosis - st.state_shape_kurtosis, 2) +
-            POWER(sv.skewness - st.state_shape_skewness, 2) +
-            POWER(sv.crest_factor - st.state_shape_crest_factor, 2)
-        ) *
-        SQRT(
-            POWER(st.state_shape_kurtosis, 2) +
-            POWER(st.state_shape_skewness, 2) +
-            POWER(st.state_shape_crest_factor, 2)
-        ),
-        0
-    ) AS coherence,
-
-    -- Contribution (projection onto centroid)
-    (
-        sv.kurtosis * st.state_shape_kurtosis +
-        sv.skewness * st.state_shape_skewness +
-        sv.crest_factor * st.state_shape_crest_factor
-    ) / NULLIF(
-        SQRT(
-            POWER(st.state_shape_kurtosis, 2) +
-            POWER(st.state_shape_skewness, 2) +
-            POWER(st.state_shape_crest_factor, 2)
-        ),
-        0
-    ) AS contribution,
-
-    -- Signal magnitude
-    SQRT(
-        POWER(sv.kurtosis, 2) +
-        POWER(sv.skewness, 2) +
-        POWER(sv.crest_factor, 2)
-    ) AS signal_magnitude
-
-FROM signal_vector sv
-JOIN state_vector st ON sv.unit_id = st.unit_id AND sv.I = st.I
-WHERE sv.kurtosis IS NOT NULL;
-"""
-
-
-def compute_signal_geometry_sql(
-    signal_vector_path: str,
-    state_vector_path: str,
-    output_path: str = "signal_geometry.parquet",
-    verbose: bool = True
-) -> pl.DataFrame:
-    """
-    Compute signal geometry using SQL (simpler, faster for basic metrics).
-
-    Args:
-        signal_vector_path: Path to signal_vector.parquet
-        state_vector_path: Path to state_vector.parquet
-        output_path: Output path
-        verbose: Print progress
-
-    Returns:
-        Signal geometry DataFrame
-    """
-    if verbose:
-        print("=" * 70)
-        print("SIGNAL GEOMETRY (SQL)")
-        print("=" * 70)
-
-    con = duckdb.connect()
-
-    # Load data
-    con.execute(f"CREATE TABLE signal_vector AS SELECT * FROM read_parquet('{signal_vector_path}')")
-    con.execute(f"CREATE TABLE state_vector AS SELECT * FROM read_parquet('{state_vector_path}')")
-
-    if verbose:
-        n_signals = con.execute("SELECT COUNT(DISTINCT signal_id) FROM signal_vector").fetchone()[0]
-        n_indices = con.execute("SELECT COUNT(DISTINCT I) FROM signal_vector").fetchone()[0]
-        print(f"Signals: {n_signals}, Indices: {n_indices}")
-
-    # Run geometry SQL
-    for statement in SIGNAL_GEOMETRY_SQL.split(';'):
-        statement = statement.strip()
-        if statement and not statement.startswith('--'):
-            try:
-                con.execute(statement)
-            except Exception as e:
-                if verbose:
-                    print(f"  Warning: {e}")
-
-    # Export
-    try:
-        result = con.execute("SELECT * FROM v_signal_geometry_shape ORDER BY unit_id, I, signal_id").pl()
-        result.write_parquet(output_path)
-
-        if verbose:
-            print(f"\nSaved: {output_path}")
-            print(f"Shape: {result.shape}")
-    except Exception as e:
-        if verbose:
-            print(f"Error: {e}")
-        result = pl.DataFrame()
-
-    con.close()
-
-    return result
-
-
-# ============================================================
-# COMBINED: Python first, then SQL aggregations
-# ============================================================
-
-def compute_full_signal_geometry(
-    signal_vector_path: str,
-    state_vector_path: str,
-    output_dir: str = ".",
-    state_geometry_path: Optional[str] = None,
-    feature_groups: Optional[Dict[str, List[str]]] = None,
-    verbose: bool = True
-) -> Dict[str, pl.DataFrame]:
-    """
-    Compute full signal geometry (Python + SQL).
-
-    Args:
-        signal_vector_path: Path to signal_vector.parquet
-        state_vector_path: Path to state_vector.parquet
-        output_dir: Output directory
-        state_geometry_path: Optional path to state_geometry.parquet
-        feature_groups: Dict mapping engine names to feature lists
-        verbose: Print progress
-
-    Returns:
-        Dict of DataFrames
-    """
-    output_dir = Path(output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    # Python computation (with PC projections)
-    signal_geom = compute_signal_geometry(
-        signal_vector_path,
-        state_vector_path,
-        str(output_dir / "signal_geometry.parquet"),
-        state_geometry_path,
-        feature_groups,
-        verbose
-    )
-
-    return {
-        'signal_geometry': signal_geom,
-    }
-
-
-# ============================================================
-# CLI
-# ============================================================
-
-def main():
-    import sys
-
-    usage = """
-Signal Geometry Engine - Per-signal relationships to states
-
-Usage:
-    python signal_geometry.py <signal_vector.parquet> <state_vector.parquet> [output.parquet]
-    python signal_geometry.py --sql <signal_vector.parquet> <state_vector.parquet> [output.parquet]
-
-Computes per signal, per engine, per index:
-- Distance to state centroid
-- Coherence to principal component
-- Contribution (projection magnitude)
-- Residual (orthogonal component)
-
-This is the SCAFFOLDING between signals and system states.
-"""
-
-    if len(sys.argv) < 3:
-        print(usage)
-        sys.exit(1)
-
-    if sys.argv[1] == '--sql':
-        signal_path = sys.argv[2]
-        state_path = sys.argv[3]
-        output_path = sys.argv[4] if len(sys.argv) > 4 else "signal_geometry.parquet"
-        compute_signal_geometry_sql(signal_path, state_path, output_path)
-    else:
-        signal_path = sys.argv[1]
-        state_path = sys.argv[2]
-        output_path = sys.argv[3] if len(sys.argv) > 3 else "signal_geometry.parquet"
-        compute_signal_geometry(signal_path, state_path, output_path)
-
-
-if __name__ == "__main__":
-    main()

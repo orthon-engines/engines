@@ -2,7 +2,7 @@
 Stage 05: Signal Geometry Entry Point
 =====================================
 
-Pure orchestration - calls engines/signal_geometry.py for computation.
+Orchestration - reads parquets, calls core engine, writes output.
 
 Inputs:
     - signal_vector.parquet
@@ -19,13 +19,11 @@ Computes per-signal relationships to system state:
     - Residual (orthogonal component)
 """
 
-import argparse
 import polars as pl
-from pathlib import Path
 from typing import Optional
 
 from manifold.core.signal_geometry import compute_signal_geometry
-from manifold.io.reader import output_path as resolve_output_path
+from manifold.io.writer import write_output
 
 
 def run(
@@ -54,52 +52,16 @@ def run(
         print("Per-signal relationships to system state")
         print("=" * 70)
 
-    out = str(resolve_output_path(data_path, 'signal_geometry'))
+    signal_vector = pl.read_parquet(signal_vector_path)
+    state_vector = pl.read_parquet(state_vector_path)
+
     result = compute_signal_geometry(
-        signal_vector_path,
-        state_vector_path,
-        out,
+        signal_vector,
+        state_vector,
         state_geometry_path=state_geometry_path,
         verbose=verbose,
     )
 
+    write_output(result, data_path, 'signal_geometry', verbose=verbose)
+
     return result
-
-
-def main():
-    parser = argparse.ArgumentParser(
-        description="Stage 05: Signal Geometry",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Computes per-signal relationships to system state:
-  - Distance to state centroid
-  - Coherence to principal components
-  - Contribution and residual
-
-Example:
-  python -m engines.entry_points.stage_05_signal_geometry \\
-      signal_vector.parquet state_vector.parquet \\
-      --state-geometry state_geometry.parquet \\
-      -o signal_geometry.parquet
-"""
-    )
-    parser.add_argument('signal_vector', help='Path to signal_vector.parquet')
-    parser.add_argument('state_vector', help='Path to state_vector.parquet')
-    parser.add_argument('--state-geometry', help='Path to state_geometry.parquet')
-    parser.add_argument('-o', '--output', default='signal_geometry.parquet',
-                        help='Output path (default: signal_geometry.parquet)')
-    parser.add_argument('-q', '--quiet', action='store_true', help='Suppress output')
-
-    args = parser.parse_args()
-
-    run(
-        args.signal_vector,
-        args.state_vector,
-        args.output,
-        state_geometry_path=args.state_geometry,
-        verbose=not args.quiet,
-    )
-
-
-if __name__ == "__main__":
-    main()
