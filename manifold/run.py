@@ -31,6 +31,35 @@ from manifold.io.manifest import load_manifest
 from manifold.io.reader import STAGE_DIRS, STAGE_FILENAMES
 
 
+def validate_manifest_paths(manifest: dict) -> list[str]:
+    """Validate all input paths in the manifest exist before running any stages.
+
+    Called once at Manifold startup, before any computation.
+    Returns list of errors. Empty list = all paths valid.
+    """
+    errors = []
+    paths = manifest.get('paths', {})
+
+    # Input files that must exist
+    obs = paths.get('observations')
+    if obs and not Path(obs).exists():
+        errors.append(f"observations file not found: {obs}")
+
+    # Output directory must be creatable
+    out = paths.get('output_dir')
+    if out:
+        out_path = Path(out)
+        if not out_path.parent.exists():
+            errors.append(f"output_dir parent does not exist: {out_path.parent}")
+
+    # Warn on relative paths
+    for key, val in paths.items():
+        if val and isinstance(val, str) and not Path(val).is_absolute():
+            errors.append(f"paths.{key} is relative (should be absolute): {val}")
+
+    return errors
+
+
 # ═══════════════════════════════════════════════════════════════
 # STAGE REGISTRY — 25 stages, all always-on
 # ═══════════════════════════════════════════════════════════════
@@ -153,7 +182,7 @@ def _presplit_observations(
         cohort_manifest = _filter_manifest_for_cohort(manifest, cohort_str)
 
         cohort_map[cohort_str] = {
-            'data_path': str(cohort_dir),
+            'data_path': str(cohort_output),
             'obs_path': cohort_obs_path,
             'output_dir': str(cohort_output),
             'manifest': cohort_manifest,
@@ -348,8 +377,14 @@ def run(
 
     manifest = load_manifest(str(manifest_path))
 
-    # data_path = parent of output_dir (writer resolves data_path / 'output')
-    data_path = output_dir.parent
+    # Validate manifest paths before any computation
+    path_errors = validate_manifest_paths(manifest)
+    if path_errors:
+        msg = "MANIFEST PATH ERRORS:\n" + "\n".join(f"  - {e}" for e in path_errors)
+        raise FileNotFoundError(msg)
+
+    # data_path = output_dir itself (writer writes directly into subdirs)
+    data_path = output_dir
     manifest['_data_dir'] = str(data_path)
 
     # Safety: refuse to wipe if this looks like a domain root

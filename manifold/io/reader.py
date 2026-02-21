@@ -113,10 +113,13 @@ def output_path(data_path: str, name: str) -> Path:
 
 
 def _get_output_dir(data_path: str) -> Path:
-    """Resolve the output directory from a data path."""
+    """Resolve the output directory from a data path.
+
+    data_path IS the output directory (e.g. output_time/).
+    Stages write directly into subdirectories of data_path.
+    """
     p = Path(data_path)
     if p.is_file():
         p = p.parent
-    output_dir = p / 'output'
-    output_dir.mkdir(parents=True, exist_ok=True)
-    return output_dir
+    p.mkdir(parents=True, exist_ok=True)
+    return p
