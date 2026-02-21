@@ -122,6 +122,12 @@ def compute_signal_geometry_at_index(
     Returns:
         List of dicts, one per signal
     """
+    # Rust-backed pmtvs functions require float64
+    signal_matrix = np.asarray(signal_matrix, dtype=np.float64)
+    centroid = np.asarray(centroid, dtype=np.float64)
+    if principal_components is not None:
+        principal_components = np.real(principal_components).astype(np.float64)
+
     # Get config values
     alignment_config = _get_alignment_config()
     min_norm = alignment_config['min_norm']
