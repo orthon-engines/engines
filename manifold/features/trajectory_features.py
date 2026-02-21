@@ -93,6 +93,110 @@ def _linear_slope(values: np.ndarray) -> float:
     return slope
 
 
+def _extract_subwindow_features(
+    geometry: pl.DataFrame,
+    axis_name: str,
+) -> pl.DataFrame:
+    """
+    Extract sub-window dispersion features from cohort_geometry.
+
+    Cohort geometry has 2-3 sub-windows per (cohort, signal_0_end).
+    Trajectory signatures pick only the first, masking collapse in
+    other sub-windows. This computes per-window min/max/spread across
+    sub-windows, then summarizes across the engine's life.
+
+    Returns one row per engine with ~20 features prefixed {axis_name}_sw_.
+    """
+    p = f"{axis_name}_sw_"
+    engines = sorted(geometry['cohort'].unique().to_list())
+    rows = []
+
+    for eng in engines:
+        eng_geo = geometry.filter(pl.col('cohort') == eng).sort('signal_0_end')
+        row = {'cohort': eng}
+
+        if len(eng_geo) == 0:
+            rows.append(row)
+            continue
+
+        # Per signal_0_end: compute sub-window stats
+        windows = sorted(eng_geo['signal_0_end'].unique().to_list())
+        n_win = len(windows)
+
+        sw_eff_dim_min = []
+        sw_eff_dim_max = []
+        sw_eff_dim_spread = []
+        sw_cond_max = []
+        sw_cond_spread = []
+        sw_n_degen = []  # sub-windows with condition > 100
+
+        for w in windows:
+            wdata = eng_geo.filter(pl.col('signal_0_end') == w)
+            eds = wdata['effective_dim'].to_numpy()
+            cns = wdata['condition_number'].to_numpy()
+
+            sw_eff_dim_min.append(np.nanmin(eds))
+            sw_eff_dim_max.append(np.nanmax(eds))
+            sw_eff_dim_spread.append(np.nanmax(eds) - np.nanmin(eds))
+            sw_cond_max.append(np.nanmax(cns))
+            sw_cond_spread.append(np.nanmax(cns) - np.nanmin(cns))
+            sw_n_degen.append(int(np.nansum(cns > 100)))
+
+        sw_eff_dim_min = np.array(sw_eff_dim_min)
+        sw_eff_dim_spread = np.array(sw_eff_dim_spread)
+        sw_cond_max = np.array(sw_cond_max)
+
+        # ── Summary: worst-case sub-window track ──
+        row[f'{p}eff_dim_min_mean'] = float(np.nanmean(sw_eff_dim_min))
+        row[f'{p}eff_dim_min_min'] = float(np.nanmin(sw_eff_dim_min))
+        row[f'{p}cond_max_mean'] = float(np.nanmean(sw_cond_max))
+        row[f'{p}cond_max_max'] = float(np.nanmax(sw_cond_max))
+
+        # ── Sub-window disagreement ──
+        row[f'{p}eff_dim_spread_mean'] = float(np.nanmean(sw_eff_dim_spread))
+        row[f'{p}eff_dim_spread_max'] = float(np.nanmax(sw_eff_dim_spread))
+        row[f'{p}cond_spread_mean'] = float(np.nanmean(sw_cond_spread))
+        row[f'{p}cond_spread_max'] = float(np.nanmax(sw_cond_spread))
+
+        # ── Degenerate sub-windows ──
+        total_sub = len(eng_geo)
+        n_degen_total = sum(sw_n_degen)
+        row[f'{p}n_degenerate'] = n_degen_total
+        row[f'{p}frac_degenerate'] = n_degen_total / total_sub if total_sub > 0 else 0.0
+
+        # ── Shape: early vs late worst-case ──
+        if n_win >= 4:
+            third = n_win // 3
+            early_min = sw_eff_dim_min[:third]
+            late_min = sw_eff_dim_min[-third:]
+            early_cond = sw_cond_max[:third]
+            late_cond = sw_cond_max[-third:]
+
+            if len(early_min) > 0 and len(late_min) > 0:
+                row[f'{p}eff_dim_min_early'] = float(np.nanmean(early_min))
+                row[f'{p}eff_dim_min_late'] = float(np.nanmean(late_min))
+                row[f'{p}eff_dim_min_delta'] = float(np.nanmean(late_min) - np.nanmean(early_min))
+                row[f'{p}cond_max_early'] = float(np.nanmean(early_cond))
+                row[f'{p}cond_max_late'] = float(np.nanmean(late_cond))
+                row[f'{p}cond_max_delta'] = float(np.nanmean(late_cond) - np.nanmean(early_cond))
+            else:
+                for sfx in ['eff_dim_min_early', 'eff_dim_min_late', 'eff_dim_min_delta',
+                            'cond_max_early', 'cond_max_late', 'cond_max_delta']:
+                    row[f'{p}{sfx}'] = np.nan
+
+            row[f'{p}eff_dim_min_slope'] = _linear_slope(sw_eff_dim_min)
+            row[f'{p}eff_dim_spread_slope'] = _linear_slope(sw_eff_dim_spread)
+        else:
+            for sfx in ['eff_dim_min_early', 'eff_dim_min_late', 'eff_dim_min_delta',
+                        'cond_max_early', 'cond_max_late', 'cond_max_delta',
+                        'eff_dim_min_slope', 'eff_dim_spread_slope']:
+                row[f'{p}{sfx}'] = np.nan
+
+        rows.append(row)
+
+    return pl.DataFrame(rows)
+
+
 # ─────────────────────────────────────────────────────────────────────
 # Per-axis feature extraction
 # ─────────────────────────────────────────────────────────────────────
@@ -101,6 +205,7 @@ def extract_single_axis_features(
     sigs: pl.DataFrame,
     match: pl.DataFrame,
     axis_name: str,
+    geometry: Optional[pl.DataFrame] = None,
 ) -> pl.DataFrame:
     """
     Extract features for one ordering axis.
@@ -109,6 +214,9 @@ def extract_single_axis_features(
         sigs: trajectory_signatures.parquet (multiple rows per engine)
         match: trajectory_match.parquet (one row per matched engine)
         axis_name: prefix for feature columns ('time', 'htBleed', 'BPR')
+        geometry: optional cohort_geometry.parquet for sub-window dispersion
+                  features. When provided, adds ~20 {axis}_sw_* features
+                  capturing collapse hidden by multi-scale window averaging.
 
     Returns:
         DataFrame with one row per engine, columns prefixed with axis_name.
@@ -232,6 +340,12 @@ def extract_single_axis_features(
     ])
 
     features = features.join(match_cols, on='cohort', how='left')
+
+    # ── Sub-window dispersion features (optional) ──
+    if geometry is not None:
+        sw_feats = _extract_subwindow_features(geometry, axis_name)
+        features = features.join(sw_feats, on='cohort', how='left')
+
     return features
 
 
@@ -359,6 +473,7 @@ def build_feature_matrix(
         axis_configs: dict of axis_name -> {
             'sigs': path to trajectory_signatures.parquet,
             'match': path to trajectory_match.parquet,
+            'geometry': (optional) path to cohort_geometry.parquet,
         }
         collapse_threshold: effective_dim delta for collapse detection
         drop_zero_variance: remove features with zero variance
@@ -374,7 +489,12 @@ def build_feature_matrix(
             print(f"Extracting {axis_name} features...")
         sigs = pl.read_parquet(paths['sigs'])
         match = pl.read_parquet(paths['match'])
-        axis_features[axis_name] = extract_single_axis_features(sigs, match, axis_name)
+        geometry = None
+        if 'geometry' in paths:
+            geometry = pl.read_parquet(paths['geometry'])
+            if verbose:
+                print(f"  + sub-window dispersion from cohort_geometry")
+        axis_features[axis_name] = extract_single_axis_features(sigs, match, axis_name, geometry)
         if verbose:
             n_feats = len(axis_features[axis_name].columns) - 1
             print(f"  {n_feats} features for {len(axis_features[axis_name])} engines")
@@ -425,10 +545,13 @@ if __name__ == '__main__':
     )
     parser.add_argument('--time-sigs', required=True, help='time trajectory_signatures.parquet')
     parser.add_argument('--time-match', required=True, help='time trajectory_match.parquet')
+    parser.add_argument('--time-geometry', help='time cohort_geometry.parquet (sub-window features)')
     parser.add_argument('--htbleed-sigs', help='htBleed trajectory_signatures.parquet')
     parser.add_argument('--htbleed-match', help='htBleed trajectory_match.parquet')
+    parser.add_argument('--htbleed-geometry', help='htBleed cohort_geometry.parquet')
     parser.add_argument('--bpr-sigs', help='BPR trajectory_signatures.parquet')
     parser.add_argument('--bpr-match', help='BPR trajectory_match.parquet')
+    parser.add_argument('--bpr-geometry', help='BPR cohort_geometry.parquet')
     parser.add_argument('-o', '--output', default='trajectory_features.parquet')
     parser.add_argument('--collapse-threshold', type=float, default=-0.15)
     parser.add_argument('-q', '--quiet', action='store_true')
@@ -436,10 +559,16 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     configs = {'time': {'sigs': args.time_sigs, 'match': args.time_match}}
+    if args.time_geometry:
+        configs['time']['geometry'] = args.time_geometry
     if args.htbleed_sigs and args.htbleed_match:
         configs['htBleed'] = {'sigs': args.htbleed_sigs, 'match': args.htbleed_match}
+        if args.htbleed_geometry:
+            configs['htBleed']['geometry'] = args.htbleed_geometry
     if args.bpr_sigs and args.bpr_match:
         configs['BPR'] = {'sigs': args.bpr_sigs, 'match': args.bpr_match}
+        if args.bpr_geometry:
+            configs['BPR']['geometry'] = args.bpr_geometry
 
     features = build_feature_matrix(
         configs,

@@ -18,6 +18,7 @@ from manifold.features.trajectory_features import (
     extract_single_axis_features,
     extract_cross_axis_features,
     build_feature_matrix,
+    _extract_subwindow_features,
     TRAJECTORY_METRICS,
 )
 
@@ -232,3 +233,149 @@ class TestBuildFeatureMatrix:
 
         # trajectory_position should be dropped (always 1.0)
         assert 'test_trajectory_position' not in features.columns
+
+    def test_with_geometry(self, tmp_path):
+        collapse = ['engine_1']
+        sigs = _make_synthetic_sigs(collapse_engines=collapse)
+        match = _make_synthetic_match(collapse_engines=collapse)
+        geometry = _make_synthetic_geometry(
+            n_engines=10, n_windows=8, n_subwindows=3, collapse_engines=collapse
+        )
+
+        sigs_path = tmp_path / 'sigs.parquet'
+        match_path = tmp_path / 'match.parquet'
+        geo_path = tmp_path / 'geometry.parquet'
+        sigs.write_parquet(str(sigs_path))
+        match.write_parquet(str(match_path))
+        geometry.write_parquet(str(geo_path))
+
+        features = build_feature_matrix(
+            {'ax': {
+                'sigs': str(sigs_path),
+                'match': str(match_path),
+                'geometry': str(geo_path),
+            }},
+            verbose=False,
+        )
+
+        assert len(features) == 10
+        assert 'ax_sw_eff_dim_min_mean' in features.columns
+        assert 'ax_sw_cond_max_max' in features.columns
+        assert 'ax_sw_n_degenerate' in features.columns
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Sub-window dispersion tests
+# ─────────────────────────────────────────────────────────────────────
+
+def _make_synthetic_geometry(n_engines=10, n_windows=8, n_subwindows=3,
+                              collapse_engines=None):
+    """Create synthetic cohort_geometry with multiple sub-windows per signal_0_end.
+
+    For collapse engines, sub-window 0 stays healthy while sub-windows 1-2
+    collapse — mimicking the engine_100 pattern where averaging masks failure.
+    """
+    collapse_engines = collapse_engines or []
+    rows = []
+    for i in range(n_engines):
+        eng = f'engine_{i+1}'
+        collapsing = eng in collapse_engines
+        for w in range(n_windows):
+            t = w / (n_windows - 1)
+            s0_end = float(w * 24 + 55)
+            for sw in range(n_subwindows):
+                if collapsing:
+                    if sw == 0:
+                        # Primary sub-window stays healthy (what sigs picks)
+                        eff_dim = 2.7 + 0.1 * np.sin(t * 2)
+                        cond = 2.0 + 0.5 * t
+                    else:
+                        # Other sub-windows collapse
+                        eff_dim = 2.7 - 0.8 * t
+                        cond = 2.0 + 5000.0 * t**2
+                else:
+                    eff_dim = 2.6 + 0.05 * np.sin(t * 3) - 0.1 * sw * 0.1
+                    cond = 2.5 + 0.3 * np.sin(t * 2)
+
+                rows.append({
+                    'cohort': eng,
+                    'signal_0_end': s0_end,
+                    'signal_0_start': float(max(0, w * 24 - 24 * sw)),
+                    'signal_0_center': s0_end - 12.0,
+                    'engine': eng,
+                    'n_signals': 16,
+                    'n_features': 80,
+                    'effective_dim': eff_dim,
+                    'condition_number': cond,
+                    'eigenvalue_1': 1.5,
+                    'eigenvalue_2': 1.0,
+                    'eigenvalue_3': max(0.01, 0.5 - 0.3 * t) if (collapsing and sw > 0) else 0.5,
+                    'total_variance': 3.0,
+                })
+    return pl.DataFrame(rows)
+
+
+class TestSubwindowFeatures:
+
+    def test_subwindow_features_present(self):
+        geometry = _make_synthetic_geometry(n_engines=5, collapse_engines=['engine_1'])
+        feats = _extract_subwindow_features(geometry, 'ax')
+        assert len(feats) == 5
+        assert 'ax_sw_eff_dim_min_mean' in feats.columns
+        assert 'ax_sw_cond_max_max' in feats.columns
+        assert 'ax_sw_n_degenerate' in feats.columns
+        assert 'ax_sw_eff_dim_min_delta' in feats.columns
+
+    def test_hidden_collapse_detected(self):
+        """Collapser's sub-windows diverge: min eff_dim drops, spread grows."""
+        geometry = _make_synthetic_geometry(
+            n_engines=5, collapse_engines=['engine_1']
+        )
+        feats = _extract_subwindow_features(geometry, 'ax')
+
+        col_row = feats.filter(pl.col('cohort') == 'engine_1')
+        stable_row = feats.filter(pl.col('cohort') == 'engine_2')
+
+        # Collapser: min eff_dim should be much lower (sub-windows collapse)
+        col_min = col_row['ax_sw_eff_dim_min_mean'][0]
+        stable_min = stable_row['ax_sw_eff_dim_min_mean'][0]
+        assert col_min < stable_min, \
+            f"Collapser min_mean={col_min} should be < stable={stable_min}"
+
+        # Collapser: spread should be larger (primary stays, others collapse)
+        col_spread = col_row['ax_sw_eff_dim_spread_mean'][0]
+        stable_spread = stable_row['ax_sw_eff_dim_spread_mean'][0]
+        assert col_spread > stable_spread * 2, \
+            f"Collapser spread={col_spread} should be >> stable={stable_spread}"
+
+        # Collapser: cond_max should be huge (degenerate sub-windows)
+        col_cond = col_row['ax_sw_cond_max_max'][0]
+        assert col_cond > 100, f"Collapser max cond={col_cond} should spike"
+
+    def test_degenerate_count(self):
+        geometry = _make_synthetic_geometry(
+            n_engines=3, collapse_engines=['engine_1']
+        )
+        feats = _extract_subwindow_features(geometry, 'ax')
+
+        col_row = feats.filter(pl.col('cohort') == 'engine_1')
+        stable_row = feats.filter(pl.col('cohort') == 'engine_2')
+
+        assert col_row['ax_sw_n_degenerate'][0] > 0
+        assert stable_row['ax_sw_n_degenerate'][0] == 0
+
+    def test_integrated_with_single_axis(self):
+        """Sub-window features are joined when geometry is passed."""
+        collapse = ['engine_1']
+        sigs = _make_synthetic_sigs(n_engines=5, collapse_engines=collapse)
+        match = _make_synthetic_match(n_engines=5, collapse_engines=collapse)
+        geometry = _make_synthetic_geometry(
+            n_engines=5, collapse_engines=collapse
+        )
+
+        feats = extract_single_axis_features(sigs, match, 'ax', geometry=geometry)
+
+        # Should have both regular and sub-window features
+        assert 'ax_effective_dim_mean' in feats.columns
+        assert 'ax_sw_eff_dim_min_mean' in feats.columns
+        assert len(feats) == 5
